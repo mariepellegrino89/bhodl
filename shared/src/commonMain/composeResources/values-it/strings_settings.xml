@@ -1,0 +1,178 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Italian twin of values/strings_settings.xml — same keys, same format args. -->
+<resources>
+    <!-- Comuni -->
+    <string name="set_toggle_on">Attivo</string>
+    <string name="set_toggle_off">Disattivato</string>
+    <string name="set_wallet_not_unlocked">Wallet non sbloccato.</string>
+
+    <!-- Aspetto › Convenzione colori -->
+    <string name="set_color_convention_title">Convenzione colori</string>
+    <string name="set_color_convention_hint">Mercati occidentali: verde = positivo, rosso = negativo. Mercati asiatici: invertiti.</string>
+    <string name="set_color_western">Occidentale</string>
+    <string name="set_color_eastern">Orientale</string>
+
+    <!-- Aspetto › Overlay fiat -->
+    <string name="set_fiat_title">Valuta fiat (overlay)</string>
+    <string name="set_fiat_hint">Mostra il controvalore stimato accanto a ogni importo in sat/BTC. Prezzo da CoinGecko / mempool.space, aggiornato ogni 5 min.</string>
+    <string name="set_fiat_off">Nessuna</string>
+    <string name="set_fiat_fetching">Recupero…</string>
+    <string name="set_fiat_no_price">Nessun prezzo ancora.</string>
+    <string name="set_fiat_last">ultimo: %1$s</string>
+    <string name="set_fiat_error">Errore: %1$s</string>
+    <string name="set_fiat_no_provider">Nessun fornitore ha restituito un prezzo.</string>
+
+    <!-- Aspetto › Privacy -->
+
+    <!-- Aspetto › Bitcoin Lens -->
+    <string name="set_lens_title">Bitcoin Lens (avanzate)</string>
+    <string name="set_lens_surfaces">Superfici operative con fiat visibile</string>
+    <string name="set_lens_bank_csv">Righe importate da CSV bancario</string>
+    <string name="set_lens_current_month">Transazioni del mese corrente con controparte fiat</string>
+    <string name="set_lens_tax">Esportazioni fiscali</string>
+    <string name="set_lens_invoices">Allegati di fatture / ricevute</string>
+    <string name="set_lens_nw_chart">Mostra l’overlay fiat sul grafico del patrimonio netto</string>
+    <string name="set_lens_footer">Fuori da queste superfici, tutti gli importi sono mostrati in BTC/sat.</string>
+
+    <!-- Sistema › Prezzi investimenti -->
+    <string name="set_invfetch_title">Auto-fetch prezzi investimenti</string>
+    <string name="set_invfetch_hint">Yahoo Finance (nessuna API key). Tutti i ticker degli investimenti vengono aggiornati ogni 5 min. Routing via Tor quando attivo nella sezione dedicata.</string>
+    <string name="set_recompute_hint">Ricalcola il cost basis in BTC di tutti i lotti dalla data d’acquisto (tasso storico). Usa la rete.</string>
+    <string name="set_recompute_button">Ricalcola cost basis BTC</string>
+    <string name="set_recompute_running">Ricalcolo…</string>
+    <string name="set_recompute_registry_locked">Registro bloccato — sblocca il dispositivo.</string>
+    <string name="set_recompute_done">Aggiornati %1$s/%2$s lotti</string>
+    <string name="set_recompute_done_failed">Aggiornati %1$s/%2$s lotti · %3$s senza tasso</string>
+    <string name="set_recompute_failed">Ricalcolo non riuscito.</string>
+
+    <!-- Sistema › Esplora / Tor -->
+    <string name="set_esplora_invalid_url">URL Esplora non valido — atteso http(s)://host[:porta][/percorso].</string>
+    <string name="set_esplora_plaintext_tor">⚠ Endpoint HTTP in chiaro — Tor non cifra l’ultimo tratto: il relay di uscita Tor può leggere il traffico di sincronizzazione.</string>
+    <string name="set_esplora_plaintext_no_tor">⚠ Endpoint HTTP in chiaro senza Tor — il traffico di sincronizzazione non è cifrato.</string>
+    <string name="set_tor_route">Instrada Esplora via Tor (SOCKS5)</string>
+    <string name="set_tor_route_hint">Richiede un demone Tor in esecuzione. Il traffico di sincronizzazione, broadcast e stima delle fee passerà per la rete onion.</string>
+    <string name="set_tor_proxy_label">URL del proxy SOCKS5</string>
+    <string name="set_tor_proxy_hint">socks5:// viene salvato come socks5h:// così i nomi host sono risolti tramite Tor (nessun leak DNS).</string>
+    <string name="set_tor_proxy_invalid">URL proxy non valido — atteso socks5://host:porta o socks5h://host:porta.</string>
+
+    <!-- Sistema › Rete / Debug / Moduli -->
+    <string name="set_network_title">Rete attuale</string>
+    <string name="set_network_hint">Fissata alla creazione. Per cambiarla, cancella questo wallet (sotto) e poi crealo o ripristinalo sulla nuova rete.</string>
+    <string name="set_debug_hint">Strumenti per provare funzioni in anteprima. Non per l’uso in produzione.</string>
+    <string name="set_debug_watch">Debug: wallet watch-only</string>
+    <string name="set_modules_title">Moduli</string>
+    <string name="set_modules_hint">Scegli cosa vuoi tracciare oltre ai tuoi bitcoin.</string>
+    <string name="set_module_investments">Investimenti</string>
+    <string name="set_module_budget_bills">Budget e bollette</string>
+    <string name="set_module_savings_goals">Obiettivi di risparmio</string>
+    <string name="set_module_manual_assets">Asset manuali e passività</string>
+    <string name="set_module_analytics_labs">Analytics Labs</string>
+
+    <!-- Wallet › Cambia / rinomina -->
+    <string name="set_switch_title">Cambia wallet</string>
+    <string name="set_switch_hint">Scegli un altro wallet di firma. Ti verrà chiesto il PIN di quel wallet; il wallet attuale viene disconnesso automaticamente.</string>
+    <string name="set_switch_to">Passa a “%1$s”</string>
+    <string name="set_rename_title">Nome del wallet</string>
+    <string name="set_rename_hint">Mostrato nel selettore wallet della schermata iniziale e nelle schermate del tracker. Rinominare non tocca i file del wallet su disco — aggiorna solo l’etichetta nel registro.</string>
+    <string name="set_rename_field">Nome</string>
+    <string name="set_rename_read_failed">Impossibile leggere l’etichetta attuale.</string>
+    <string name="set_rename_empty">Il nome non può essere vuoto.</string>
+    <string name="set_rename_duplicate">Un altro wallet usa già questo nome.</string>
+    <string name="set_rename_saved">Salvato.</string>
+    <string name="set_rename_not_found">Wallet non trovato nel registro.</string>
+    <string name="set_rename_save_failed">Salvataggio non riuscito.</string>
+    <string name="set_rename_saving">Salvataggio…</string>
+    <string name="set_rename_save">Salva nome</string>
+
+    <!-- Wallet › Aggiungi al tracker -->
+    <string name="set_tracker_title">Traccia nel tracker</string>
+    <string name="set_tracker_hint">Aggiungi questo wallet al tracker come copia watch-only, così saldo e storico compaiono lì senza dover sbloccare il PIN di firma.</string>
+    <string name="set_tracker_checking">Verifica dell’abbinamento…</string>
+    <string name="set_tracker_already">✓ Questo wallet è già tracciato.</string>
+    <string name="set_tracker_adding">Aggiunta…</string>
+    <string name="set_tracker_add">Aggiungi al tracker</string>
+    <string name="set_tracker_added">Aggiunto al tracker.</string>
+    <string name="set_tracker_add_failed">Aggiunta al tracker non riuscita.</string>
+    <string name="set_tracker_read_failed">Impossibile leggere le informazioni del wallet.</string>
+    <string name="set_tracker_notor_title">Sincronizzazione mainnet senza Tor</string>
+    <string name="set_tracker_notor_body">Aggiungere la copia watch-only avvia una scansione completa Esplora su un server pubblico SENZA Tor. Il server vedrà ogni indirizzo di ricezione e di resto derivato dall’xpub di questo wallet.\n\nConsigliato: attiva prima Tor in Impostazioni → Tor.</string>
+    <string name="set_tracker_notor_continue">Continua senza Tor</string>
+
+    <!-- Wallet › Backup cifrato -->
+    <string name="set_backup_title">Backup cifrato</string>
+    <string name="set_backup_hint">Esporta il seed (mnemonica + passphrase BIP-39) in un blob ASCII cifrato con age. Usa una password diversa — non il PIN di sblocco. Conservalo su carta o in un password manager.</string>
+    <string name="set_backup_password">Password del backup</string>
+    <string name="set_backup_password_hint">Serve una password di almeno %1$d caratteri — l’esportazione resta disattivata finché non la imposti.</string>
+    <string name="set_backup_password_confirm">Conferma la password del backup</string>
+    <string name="set_backup_password_mismatch">Le password non coincidono.</string>
+    <string name="set_backup_exporting">Esportazione…</string>
+    <string name="set_backup_export">Esporta backup</string>
+    <string name="set_backup_export_failed">esportazione non riuscita</string>
+    <string name="set_backup_save_prompt">Salvalo su file o copialo e conservalo in un posto sicuro:</string>
+    <string name="set_backup_save_file">Salva su file…</string>
+    <string name="set_backup_save_dialog_title">Salva backup cifrato</string>
+    <string name="set_backup_file_filter">File di testo (*.txt)</string>
+    <string name="set_backup_saved_to">Salvato in %1$s</string>
+    <string name="set_backup_save_failed">Salvataggio non riuscito: %1$s</string>
+
+    <!-- Wallet › Frase di recupero / descriptor -->
+    <string name="set_recovery_title">Mostra la frase di recupero</string>
+    <string name="set_recovery_hint">Mostra di nuovo la mnemonica BIP-39 per un backup su carta. Chiunque la legga può spendere i tuoi fondi — rivelala solo su uno schermo che nessun altro sta guardando. Conferma con due tocchi.</string>
+    <string name="set_recovery_tap_again">Tocca di nuovo per rivelare la frase di recupero.</string>
+    <string name="set_recovery_confirm">Conferma: rivela la frase</string>
+    <string name="set_recovery_word_count">Frase di recupero di %1$d parole</string>
+    <string name="set_recovery_passphrase">Passphrase BIP-39</string>
+    <string name="set_recovery_hide">Nascondi la frase di recupero</string>
+    <string name="set_recovery_reveal_failed">rivelazione non riuscita</string>
+    <string name="set_watchdesc_title">Descriptor watch-only</string>
+    <string name="set_watchdesc_hint">Esporta l’xpub pubblico e il descriptor del wallet da importare in Sparrow, Liana, Specter — oppure incolla l’xpub nella schermata di debug. Non contiene segreti: chi lo possiede vede il tuo saldo ma non può spendere.</string>
+    <string name="set_watchdesc_show">Mostra il descriptor watch-only</string>
+    <string name="set_watchdesc_xpub_label">Xpub dell’account (da incollare nella schermata di debug)</string>
+    <string name="set_watchdesc_copy_xpub">Copia xpub</string>
+    <string name="set_watchdesc_external_label">Descriptor esterno (da incollare in Sparrow/Liana)</string>
+    <string name="set_watchdesc_copy_external">Copia descriptor esterno</string>
+    <string name="set_watchdesc_hide">Nascondi il descriptor watch-only</string>
+
+    <!-- Scopi della nuova richiesta PIN (completano “Reinserisci il PIN … per …”) -->
+    <string name="set_reauth_purpose_backup">esportare un backup cifrato del seed</string>
+    <string name="set_reauth_purpose_reveal">rivelare la frase di recupero</string>
+    <string name="set_reauth_purpose_descriptor">mostrare il descriptor watch-only</string>
+    <string name="set_reauth_purpose_delete">eliminare questo wallet</string>
+
+    <!-- Wallet › Elimina / ripristino di fabbrica -->
+    <string name="set_delete_title">Elimina questo wallet</string>
+    <string name="set_delete_hint">Rimuove dal registro solo il wallet attivo e cancella dal disco il suo database cifrato. Gli altri wallet registrati (di firma e watch-only) non vengono toccati. Il recupero è possibile solo dalla seed phrase BIP-39 di questo wallet. Conferma con due tocchi, poi il PIN del wallet.</string>
+    <string name="set_delete_backup_first">Usa la sezione Backup qui sopra (Esporta backup cifrato) prima di continuare.</string>
+    <string name="set_delete_tip">↑ Consiglio: esporta prima un backup cifrato</string>
+    <string name="set_delete_no_active">Nessun wallet attivo da eliminare.</string>
+    <string name="set_delete_tap_again">Tocca di nuovo per eliminare definitivamente questo wallet.</string>
+    <string name="set_delete_working">Eliminazione…</string>
+    <string name="set_delete_confirm">Conferma: elimina questo wallet</string>
+    <string name="set_delete_failed">Eliminazione non riuscita.</string>
+    <string name="set_wipe_title">Ripristino di fabbrica</string>
+    <string name="set_wipe_hint">Elimina OGNI wallet (di firma e watch-only), il registro, i descrittori KDF e tutti i database cifrati su questo dispositivo. Il recupero è possibile solo dalla seed phrase BIP-39 di ciascun wallet o dal suo backup cifrato. Per eliminare un solo wallet senza toccare gli altri, usa “Elimina questo wallet” qui sopra. Richiede di digitare %1$s.</string>
+    <string name="set_wipe_button">Ripristino di fabbrica (tutti i wallet)…</string>
+
+    <!-- Etichette (BIP-329) -->
+    <string name="set_labels_title">Etichette BIP-329</string>
+    <string name="set_labels_hint">Esporta tutte le etichette di transazioni e indirizzi di questo wallet in un file JSONL portabile, oppure importa etichette prodotte da un altro wallet BIP-329 (Sparrow, Liana, …). Reimportare lo stesso file è idempotente — i duplicati vengono aggiornati, non aggiunti.</string>
+    <string name="set_labels_working">In corso…</string>
+    <string name="set_labels_export">Esporta etichette…</string>
+    <string name="set_labels_import">Importa etichette…</string>
+    <string name="set_labels_exported">Esportate %1$d etichette in %2$s</string>
+    <string name="set_labels_imported">Importate %1$s etichette.</string>
+    <string name="set_labels_export_failed">Esportazione non riuscita.</string>
+    <string name="set_labels_import_failed">Importazione non riuscita.</string>
+    <string name="set_labels_import_failed_note">%1$s Nessuna etichetta è stata modificata.</string>
+    <string name="set_labels_export_dialog">Esporta etichette BIP-329</string>
+    <string name="set_labels_import_dialog">Importa etichette BIP-329</string>
+    <string name="set_labels_filter_jsonl">File JSONL (*.jsonl)</string>
+    <string name="set_labels_filter_jsonl_txt">File JSONL (*.jsonl, *.txt)</string>
+    <string name="set_labels_load_failed">Lettura non riuscita: %1$s</string>
+
+    <!-- Banner all’avvio: file delle impostazioni illeggibile -->
+    <string name="set_persist_corrupt_backup">Impossibile leggere il file delle impostazioni: sono in uso quelle predefinite. L’originale è stato salvato come %1$s.</string>
+    <string name="set_persist_corrupt_backup_tor">Impossibile leggere il file delle impostazioni: sono in uso quelle predefinite (Tor resta ATTIVO). L’originale è stato salvato come %1$s.</string>
+    <string name="set_persist_corrupt_nobackup">Impossibile leggere il file delle impostazioni: sono in uso quelle predefinite. Non è stato possibile fare una copia del file originale.</string>
+    <string name="set_persist_corrupt_nobackup_tor">Impossibile leggere il file delle impostazioni: sono in uso quelle predefinite (Tor resta ATTIVO). Non è stato possibile fare una copia del file originale.</string>
+</resources>

@@ -1,0 +1,42 @@
+name: Feature request
+description: Suggest an idea or improvement.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        BHODL is bitcoin-first: bitcoin is the unit of account and fiat appears only on
+        operational surfaces. Check [PLAN.md](https://github.com/mariepellegrino89/bhodl/blob/main/PLAN.md)
+        and existing issues before opening a new one.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do, and what gets in the way today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: How you imagine it working. Sketches welcome.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives and prior art
+      description: Other wallets or trackers that do this well (Sparrow, Kubera, ...).
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Wallet
+        - Tracker
+        - Privacy / security
+        - Lightning or other layers
+        - Mobile
+        - Other
+    validations:
+      required: true

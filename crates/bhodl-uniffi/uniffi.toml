@@ -1,0 +1,4 @@
+# UniFFI bindings configuration consumed by ch.ubique.uniffi.plugin.
+# `package_name` controls the Kotlin package the generated bindings land in.
+# Keep aligned with the JVM/Android namespace used by the `shared` KMP module.
+package_name = "io.bhodl.ffi"

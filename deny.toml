@@ -1,0 +1,80 @@
+[graph]
+all-features = true
+
+[licenses]
+allow = [
+    "MIT",
+    # MITNFA = "MIT +no-false-attribs". A permissive MIT variant used by
+    # `hex_lit` (transitive dep of rust-bitcoin). SPDX-listed, commercial-
+    # friendly, no copyleft.
+    "MITNFA",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "CC0-1.0",
+    "Unlicense",
+    "MPL-2.0",
+    "Zlib",
+    # CDLA-Permissive-2.0: pulled transitively by webpki-roots (via ureq's
+    # rustls-native-certs → rustls-native-certs → webpki-roots). Permissive,
+    # no copyleft, no attribution requirement for binaries.
+    "CDLA-Permissive-2.0",
+]
+confidence-threshold = 0.92
+
+[bans]
+# Duplicate versions are unavoidable in any non-trivial Rust workspace.
+# Changed from "allow" to "warn" so new duplicates are visible in CI
+# output without blocking the build. The known duplicate below is
+# skipped explicitly.
+multiple-versions = "warn"
+wildcards = "deny"
+# Workspace-internal `path = "..."` dependencies have no version field and
+# are reported as wildcards by cargo-deny. Whitelisting them keeps the real
+# wildcard ban active for external crates.
+allow-wildcard-paths = true
+# Known duplicate: thiserror v1 is pulled by uniffi (and its transitive
+# deps) while the workspace itself uses thiserror v2 directly.
+# Skipped so the warn-on-duplicate policy does not fire for this known case.
+skip = [
+    { name = "thiserror", version = "=1" },
+    { name = "thiserror-impl", version = "=1" },
+]
+
+[advisories]
+yanked = "deny"
+# Every entry below is an EXPLICIT, reviewed exception — never add one
+# without a reason, the blocking upstream, and a review date. CI runs
+# `cargo deny check` (advisories included) and `cargo audit`; when an
+# ignore becomes fixable, remove it here AND from .cargo/audit.toml.
+ignore = [
+    # --- rustls-webpki 0.101.7 / rustls 0.21.12 / webpki-roots 0.25.4 ---
+    # Pulled ONLY by minreq 2.14.1 <- esplora-client 0.12.3 <- bdk_esplora
+    # 0.22.2 (latest bdk_esplora as of 2026-10-09). minreq 2.x is pinned to
+    # rustls 0.21; the fix (esplora-client 0.13 -> bitreq / modern rustls)
+    # needs a bdk_esplora release that does not exist yet, so a semver-
+    # compatible `cargo update` cannot remove it. Exposure: TLS to the
+    # user-configured Esplora endpoint only. No CRLs are processed by
+    # minreq (0104 unreachable); 0098/0099 need a name-constrained
+    # intermediate CA mis-issuing for the Esplora host. The app's own
+    # rustls 0.23 stack (ureq, price/rate fetchers) is patched.
+    # REVIEW BY 2026-12-31 or on the next bdk_esplora release.
+    { id = "RUSTSEC-2026-0098", reason = "rustls-webpki 0.101 via minreq<-esplora-client 0.12<-bdk_esplora 0.22.2; no fixed bdk_esplora yet. Review by 2026-12-31." },
+    { id = "RUSTSEC-2026-0099", reason = "rustls-webpki 0.101 via minreq<-esplora-client 0.12<-bdk_esplora 0.22.2; no fixed bdk_esplora yet. Review by 2026-12-31." },
+    { id = "RUSTSEC-2026-0104", reason = "rustls-webpki 0.101 CRL parsing panic; minreq never parses CRLs. Via bdk_esplora 0.22.2. Review by 2026-12-31." },
+    # --- unmaintained, compile-time only (proc-macros / bindgen) ---
+    # Not linked into the shipped binary's runtime paths; removal depends
+    # on upstream (uniffi 0.28 -> newer uniffi; age -> newer i18n-embed-fl).
+    # REVIEW BY 2026-12-31 (uniffi upgrade is tracked separately).
+    { id = "RUSTSEC-2025-0141", reason = "bincode 1.3 unmaintained; only via uniffi_macros 0.28 (proc-macro). Review by 2026-12-31." },
+    { id = "RUSTSEC-2024-0436", reason = "paste unmaintained; only via uniffi_bindgen 0.28 (proc-macro/build). Review by 2026-12-31." },
+    { id = "RUSTSEC-2026-0173", reason = "proc-macro-error2 unmaintained; only via age -> i18n-embed-fl (proc-macro). Review by 2026-12-31." },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

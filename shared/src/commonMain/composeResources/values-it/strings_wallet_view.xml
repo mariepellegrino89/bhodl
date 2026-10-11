@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Italian twin of values/strings_wallet_view.xml — same keys, same format args. -->
+<resources>
+    <!-- Schermate -->
+    <string name="wview_history_title">Cronologia</string>
+    <string name="wview_wallet_not_unlocked">Wallet non sbloccato</string>
+    <string name="wview_wallet_not_unlocked_period">Wallet non sbloccato.</string>
+    <string name="wview_unknown_error">errore sconosciuto</string>
+
+    <!-- Messaggi di riserva (quando l’errore non ha un messaggio) -->
+    <string name="wview_err_load_failed">caricamento non riuscito</string>
+    <string name="wview_err_update_failed">aggiornamento non riuscito</string>
+    <string name="wview_err_save_failed">salvataggio non riuscito</string>
+    <string name="wview_err_clear_failed">rimozione non riuscita</string>
+    <string name="wview_err_build_failed">costruzione non riuscita</string>
+    <string name="wview_err_load_tx">Impossibile caricare la transazione.</string>
+    <string name="wview_err_pairing">Abbinamento non riuscito.</string>
+    <string name="wview_err_open_watch">Impossibile aprire il wallet in sola lettura.</string>
+    <string name="wview_err_sync">Sincronizzazione non riuscita.</string>
+
+    <!-- Tabella wallet -->
+    <string name="wview_wallets_empty">Nessun wallet ancora nel registro.</string>
+    <string name="wview_wallets_col_wallet">WALLET</string>
+    <string name="wview_wallets_col_type">TIPO</string>
+    <string name="wview_wallets_col_network">RETE</string>
+    <string name="wview_wallets_col_balance">SALDO</string>
+
+    <!-- Link all’explorer -->
+    <string name="wview_explorer_open">Apri su mempool.space</string>
+    <string name="wview_explorer_tor_title">Aprire fuori da Tor?</string>
+    <string name="wview_explorer_tor_body">Questo apre mempool.space nel browser di sistema, che NON passa dalla connessione Tor di BHODL. L’explorer vedrebbe il tuo indirizzo IP insieme a questa transazione.\n\nPiù sicuro: copia il txid e cercalo con Tor Browser.</string>
+    <string name="wview_explorer_copy_txid">Copia txid</string>
+    <string name="wview_explorer_open_anyway">Apri comunque</string>
+
+    <!-- Scheda indirizzo di ricezione -->
+    <string name="wview_receive_address">Indirizzo di ricezione</string>
+    <string name="wview_qr_for_address">Codice QR per %1$s</string>
+    <string name="wview_copy_address">Copia indirizzo</string>
+
+    <!-- Scheda errore -->
+    <string name="wview_show_details">Mostra dettagli</string>
+    <string name="wview_hide_details">Nascondi dettagli</string>
+    <string name="wview_err_unknown">Errore sconosciuto.</string>
+    <string name="wview_err_net_unreachable">Impossibile raggiungere l’endpoint Esplora. Controlla la connessione di rete o l’URL configurato nelle Impostazioni.</string>
+    <string name="wview_err_net_refused">L’endpoint Esplora ha rifiutato la connessione. Verifica che il tuo nodo locale / electrs sia attivo, oppure scegli un altro URL nelle Impostazioni.</string>
+    <string name="wview_err_net_timeout">Tempo scaduto nel contattare l’endpoint Esplora. La causa può essere la congestione della rete o un circuito Tor lento; riprova o usa un altro URL.</string>
+    <string name="wview_err_net_tls">Handshake TLS non riuscito con l’endpoint Esplora. Il certificato potrebbe essere non valido o autofirmato.</string>
+    <string name="wview_err_bc_spent_rbf">La transazione originale è già confermata. Non è più possibile aumentare la commissione: il wallet si allineerà alla prossima sincronizzazione.</string>
+    <string name="wview_err_bc_spent_cpfp">L’accelerazione non serve più: la transazione originale è già confermata. Il wallet si allineerà alla prossima sincronizzazione.</string>
+    <string name="wview_err_bc_spent_send">Una delle monete selezionate è già stata spesa. Premi Sincronizza e riprova: il wallet sceglierà un nuovo input.</string>
+    <string name="wview_err_bc_conflict">Questa transazione andrebbe in conflitto con una in attesa che spende le stesse monete. Prova una fascia di commissione più alta (Priorità) per sostituirla, oppure attendi che quella in attesa venga confermata.</string>
+    <string name="wview_err_bc_in_chain">Questa transazione è già nella blockchain. Non serve fare nulla.</string>
+    <string name="wview_err_bc_rejected">La rete ha rifiutato la transazione. Sincronizza prima e poi riprova, oppure controlla il txid su mempool.space per i dettagli.</string>
+    <string name="wview_err_payjoin_transport">Impossibile raggiungere l’endpoint PayJoin. Controlla l’URL (schema, host, porta) o la connessione di rete, poi riprova.</string>
+    <string name="wview_err_payjoin_rejected">Il ricevente PayJoin ha rifiutato la richiesta. L’endpoint potrebbe essere dismesso o la tua transazione non rispettarne le regole: come alternativa prova un invio normale (senza `pj=` nell’URI).</string>
+
+    <!-- Barra di navigazione -->
+    <string name="wview_nav_home">Home</string>
+    <string name="wview_nav_activity">Attività</string>
+    <string name="wview_nav_budget">Budget</string>
+    <string name="wview_nav_goals">Obiettivi</string>
+    <string name="wview_nav_portfolio">Portafoglio</string>
+    <string name="wview_nav_reports">Report</string>
+    <string name="wview_nav_wallet">Wallet</string>
+
+    <!-- Piccoli componenti -->
+    <string name="wview_select_date">Seleziona data…</string>
+    <string name="wview_network_label">Rete</string>
+    <string name="wview_network_locked_hint">La rete resta legata al wallet dalla creazione.</string>
+    <string name="wview_dismiss">Chiudi</string>
+    <string name="wview_footer_wallet_one">%1$d wallet</string>
+    <string name="wview_footer_wallets">%1$d wallet</string>
+    <string name="wview_footer_sync">sync %1$s</string>
+
+    <!-- Tempo relativo -->
+    <string name="wview_time_just_now">adesso</string>
+    <string name="wview_time_seconds_ago">%1$ds fa</string>
+    <string name="wview_time_minutes_ago">%1$d min fa</string>
+    <string name="wview_time_hours_ago">%1$d h fa</string>
+    <string name="wview_time_days_ago">%1$d g fa</string>
+</resources>

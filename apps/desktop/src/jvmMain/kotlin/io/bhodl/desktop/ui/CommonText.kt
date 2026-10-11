@@ -1,0 +1,28 @@
+package io.bhodl.desktop.ui
+
+import androidx.compose.runtime.Composable
+import io.bhodl.shared.resources.Res
+import io.bhodl.shared.resources.common_uncategorised
+import org.jetbrains.compose.resources.stringResource
+
+/**
+ * UX review 2026-10 (rec 3) — the internal bucket key for events with
+ * no category. Aggregations group by this key; the UI never shows it
+ * verbatim, it goes through [categoryDisplayName].
+ */
+internal const val UNCATEGORISED_KEY: String = "Uncategorised"
+
+/**
+ * Display name of a tracker category: the user's own category text as
+ * typed, or the localized "Uncategorised" for a missing / blank one (and
+ * for the internal [UNCATEGORISED_KEY] bucket).
+ */
+@Composable
+internal fun categoryDisplayName(raw: String?): String {
+    val trimmed = raw?.trim().orEmpty()
+    return if (trimmed.isEmpty() || trimmed == UNCATEGORISED_KEY || trimmed == "Uncategorized") {
+        stringResource(Res.string.common_uncategorised)
+    } else {
+        raw!!
+    }
+}

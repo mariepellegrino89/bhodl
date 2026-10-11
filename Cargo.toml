@@ -1,0 +1,109 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/bhodl-core",
+    "crates/bhodl-uniffi",
+    "crates/bhodl-wallet-onchain",
+]
+
+[workspace.package]
+version = "0.1.0-alpha.0"
+edition = "2024"
+rust-version = "1.88"
+license = "MIT OR Apache-2.0"
+authors = ["BHODL Wallet contributors"]
+repository = "https://github.com/mariepellegrino89/bhodl"
+homepage = "https://github.com/mariepellegrino89/bhodl"
+readme = "README.md"
+
+[workspace.dependencies]
+thiserror = "2"
+# Pinned to 0.28.3 because that is the only version supported by
+# ch.ubique.uniffi.plugin 1.0.x (KMP fork, see docs/spike-uniffi.md).
+uniffi = { version = "0.28.3", default-features = false }
+# rust-bitcoin: primitives for descriptors, addresses, BIP32, taproot.
+# Use only the std + rand-std features we actually need; no `serde` here
+# (serialisation lives in the per-crate boundary if/when needed).
+bitcoin = { version = "0.32", default-features = false, features = ["std", "rand-std"] }
+# BIP39 mnemonic <-> seed. v2 has a stable API and no JSON dependencies.
+# `zeroize` makes `Mnemonic` ZeroizeOnDrop so parsed word indices are
+# wiped when the value drops.
+bip39 = { version = "2", default-features = false, features = ["std", "zeroize"] }
+# BDK 3.x: descriptor-driven wallet engine (MIT OR Apache-2.0).
+# `rusqlite` feature enables the BDK PersistedWallet pattern via the
+# integrated rusqlite ChangeSet store (still no SQLCipher in this commit —
+# encrypted-at-rest backend lands in a follow-up).
+bdk_wallet = { version = "3.0.0", default-features = false, features = ["std", "rusqlite"] }
+# BDK Esplora client: blocking-https-rustls avoids OpenSSL (MIT OR Apache-2.0).
+bdk_esplora = { version = "0.22.2", default-features = false, features = ["blocking-https-rustls"] }
+# BDK chain primitives + rusqlite store integration (MIT OR Apache-2.0).
+bdk_chain = { version = "0.23", default-features = false, features = ["std", "rusqlite"] }
+# Pinned to the version BDK 3.0 / bdk_chain 0.23 transitively pulls so the
+# Connection type is the same one BDK expects. `bundled-sqlcipher-vendored-openssl`
+# ships SQLCipher (BSD-3-Clause) + OpenSSL (Apache-2.0) statically — no
+# system libsqlite3, no system OpenSSL required. AES-256 encryption is
+# applied via PRAGMA key after Connection::open. The runtime SQLite engine
+# is SQLCipher itself; behaviour is otherwise identical to upstream SQLite.
+rusqlite = { version = "0.31", features = ["bundled-sqlcipher-vendored-openssl"] }
+# Serde derive + JSON for BIP329 labels export/import (JSONL format).
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Argon2id KDF for PIN -> SQLCipher encryption-key derivation.
+# RustCrypto pure-Rust implementation, MIT OR Apache-2.0, audited.
+argon2 = { version = "0.5", default-features = false, features = ["alloc", "password-hash"] }
+# OS-grade RNG for salt generation. Pure Rust, MIT OR Apache-2.0.
+rand = "0.9"
+# Used in #[cfg(test)] only; kept here as a dev-shared workspace pin.
+tempfile = "3"
+# Property-based testing — used for PayJoin URI parser fuzzing and
+# any future generative test. Heavyweight, but dev-dep only so it
+# does not affect runtime artefacts.
+proptest = { version = "1", default-features = false, features = ["std"] }
+# Blocking HTTP client for PayJoin (BIP-78) sender. Same family BDK
+# Esplora pulls in transitively, so the rustls TLS stack stays
+# unified.  rustls + native-certs feature so we don't hard-link
+# OpenSSL.
+# Feature "tls" in ureq 2.x uses rustls (NOT native-tls/OpenSSL) — see Cargo.lock.
+# This aligns the TLS stack with bdk_esplora which also uses rustls.
+# `socks-proxy` lets the PayJoin sender reach the receiver through the
+# user's Tor SOCKS port. ureq's `socks5://` sends hostnames to the
+# proxy unresolved (ATYP=DOMAINNAME), i.e. socks5h semantics — see
+# ureq-2.x src/stream.rs `connect_socks`.
+ureq = { version = "2", default-features = false, features = ["tls", "json", "socks-proxy"] }
+# WHATWG URL parser — the same crate ureq uses internally, so the host
+# the PayJoin SSRF guard vets is byte-for-byte the host ureq connects to.
+url = "2"
+# UUIDv4 for multi-wallet identity (Phase 3). v4 RFC 4122 from CSPRNG,
+# serde for JSON wire format. Pinned to a recent stable.
+uuid = { version = "1", default-features = false, features = ["v4", "std", "serde"] }
+# Best-effort memory wipe for secret material that crosses the
+# heap-allocated String / Vec<u8> boundary (xpriv format strings,
+# serde_json intermediate buffers, device_key copies on the FFI
+# RegistryHandle). v1.x is the pure-Rust audited implementation
+# used transitively by `secrecy` and `age`.
+zeroize = { version = "1.8", features = ["derive"] }
+# bdk_testenv is declared per-crate behind `[target.'cfg(unix)'.dev-dependencies]`
+# rather than as a workspace dep: its electrsd build script is Unix-only
+# (uses `std::os::unix::fs::PermissionsExt::from_mode`) and would fail
+# the workspace-wide `cargo check --tests` on Windows hosts.
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"
+unreachable_pub = "warn"
+
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+missing_errors_doc = "allow"
+must_use_candidate = "allow"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
+panic = "abort"
+
+[profile.dev]
+opt-level = 0
+debug = true

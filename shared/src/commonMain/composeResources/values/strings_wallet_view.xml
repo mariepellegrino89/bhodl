@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  UX review 2026-10 (rec 3) — wallet views (history, transaction
+  details, dashboards, receive, explorer link) and shared UI widgets
+  (navigation rail, footer, error card, date picker, relative times).
+  Every key here has its Italian twin in values-it/strings_wallet_view.xml
+  (enforced by StringsParityTest). Use the typographic apostrophe (’).
+-->
+<resources>
+    <!-- Screens -->
+    <string name="wview_history_title">History</string>
+    <string name="wview_wallet_not_unlocked">Wallet not unlocked</string>
+    <string name="wview_wallet_not_unlocked_period">Wallet not unlocked.</string>
+    <string name="wview_unknown_error">unknown error</string>
+
+    <!-- Error fallbacks (shown when the error carries no message) -->
+    <string name="wview_err_load_failed">load failed</string>
+    <string name="wview_err_update_failed">update failed</string>
+    <string name="wview_err_save_failed">save failed</string>
+    <string name="wview_err_clear_failed">clear failed</string>
+    <string name="wview_err_build_failed">build failed</string>
+    <string name="wview_err_load_tx">Failed to load transaction.</string>
+    <string name="wview_err_pairing">Pairing failed.</string>
+    <string name="wview_err_open_watch">Failed to open watch wallet.</string>
+    <string name="wview_err_sync">Sync failed.</string>
+
+    <!-- Wallet list table -->
+    <string name="wview_wallets_empty">No wallets in the registry yet.</string>
+    <string name="wview_wallets_col_wallet">WALLET</string>
+    <string name="wview_wallets_col_type">TYPE</string>
+    <string name="wview_wallets_col_network">NETWORK</string>
+    <string name="wview_wallets_col_balance">BALANCE</string>
+
+    <!-- Explorer link -->
+    <string name="wview_explorer_open">Open in mempool.space</string>
+    <string name="wview_explorer_tor_title">Open outside Tor?</string>
+    <string name="wview_explorer_tor_body">This opens mempool.space in your system browser, which does NOT go through BHODL’s Tor connection. The explorer would see your IP address together with this transaction.\n\nSafer: copy the txid and look it up in Tor Browser.</string>
+    <string name="wview_explorer_copy_txid">Copy txid</string>
+    <string name="wview_explorer_open_anyway">Open anyway</string>
+
+    <!-- Receive address card -->
+    <string name="wview_receive_address">Receive address</string>
+    <string name="wview_qr_for_address">QR code for %1$s</string>
+    <string name="wview_copy_address">Copy address</string>
+
+    <!-- Error card -->
+    <string name="wview_show_details">Show details</string>
+    <string name="wview_hide_details">Hide details</string>
+    <string name="wview_err_unknown">Unknown error.</string>
+    <string name="wview_err_net_unreachable">Cannot reach the Esplora endpoint. Check your network connection or the URL configured in Settings.</string>
+    <string name="wview_err_net_refused">The Esplora endpoint refused the connection. Make sure your local node / electrs is running, or pick a different URL in Settings.</string>
+    <string name="wview_err_net_timeout">Timed out reaching the Esplora endpoint. Network congestion or a slow Tor circuit may be the cause; retry or try a different URL.</string>
+    <string name="wview_err_net_tls">TLS handshake failed against the Esplora endpoint. The certificate may be invalid or self-signed.</string>
+    <string name="wview_err_bc_spent_rbf">The original transaction has already confirmed. Fee bump is no longer possible — the wallet will catch up after the next sync.</string>
+    <string name="wview_err_bc_spent_cpfp">Speed up is no longer needed — the original transaction has already confirmed. The wallet will catch up after the next sync.</string>
+    <string name="wview_err_bc_spent_send">One of the selected coins was already spent. Tap Sync and retry; the wallet will pick a fresh input.</string>
+    <string name="wview_err_bc_conflict">This transaction would conflict with a pending one that spends the same coins. Try a higher fee tier (Priority) to replace it, or wait until the pending one confirms.</string>
+    <string name="wview_err_bc_in_chain">This transaction is already on the chain. Nothing to do.</string>
+    <string name="wview_err_bc_rejected">The network rejected the transaction. Try Sync first, then retry, or check mempool.space with the txid for details.</string>
+    <string name="wview_err_payjoin_transport">Could not reach the PayJoin endpoint. Check the URL (scheme, host, port) or your network connection, then retry.</string>
+    <string name="wview_err_payjoin_rejected">The PayJoin receiver rejected the request. The endpoint may be retired or your tx may not meet its policy — try a regular Send (without `pj=` in the URI) as a fallback.</string>
+
+    <!-- Navigation rail -->
+    <string name="wview_nav_home">Home</string>
+    <string name="wview_nav_activity">Activity</string>
+    <string name="wview_nav_budget">Budget</string>
+    <string name="wview_nav_goals">Goals</string>
+    <string name="wview_nav_portfolio">Portfolio</string>
+    <string name="wview_nav_reports">Reports</string>
+    <string name="wview_nav_wallet">Wallet</string>
+
+    <!-- Small widgets -->
+    <string name="wview_select_date">Select date…</string>
+    <string name="wview_network_label">Network</string>
+    <string name="wview_network_locked_hint">The network is locked to the wallet on creation.</string>
+    <string name="wview_dismiss">Dismiss</string>
+    <string name="wview_footer_wallet_one">%1$d wallet</string>
+    <string name="wview_footer_wallets">%1$d wallets</string>
+    <string name="wview_footer_sync">sync %1$s</string>
+
+    <!-- Relative time (trust signals) -->
+    <string name="wview_time_just_now">just now</string>
+    <string name="wview_time_seconds_ago">%1$ds ago</string>
+    <string name="wview_time_minutes_ago">%1$dm ago</string>
+    <string name="wview_time_hours_ago">%1$dh ago</string>
+    <string name="wview_time_days_ago">%1$dd ago</string>
+</resources>

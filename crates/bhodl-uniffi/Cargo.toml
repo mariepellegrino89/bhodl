@@ -1,0 +1,55 @@
+[package]
+name = "bhodl-uniffi"
+description = "UniFFI bindings for BHODL: exposes bhodl-core to Kotlin/Swift/Native via uniffi-rs."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish = false
+
+# Spike note: we keep this crate's source layout aligned with the Ubique
+# uniffi-kotlin-multiplatform-bindings quickstart so the Gradle plugin can
+# pick up the cdylib directly. The Rust source therefore lives under
+# `src/commonMain/rust/lib.rs` instead of the conventional `src/lib.rs`.
+# The cdylib + staticlib crate-types are required for KMP/JNI consumption.
+[lib]
+name = "bhodl_uniffi"
+crate-type = ["lib", "cdylib", "staticlib"]
+path = "src/commonMain/rust/lib.rs"
+
+[dependencies]
+bhodl-core = { path = "../bhodl-core" }
+bhodl-wallet-onchain = { path = "../bhodl-wallet-onchain" }
+uniffi = { workspace = true, features = ["cli"] }
+thiserror = { workspace = true }
+# wallet.kdf.json — versioned salt + Argon2id params on disk so a future
+# parameter bump does not lock existing wallets out (see KdfFile in lib.rs).
+serde = { workspace = true }
+serde_json = { workspace = true }
+hex = "0.4"
+# Phase 3 multi-wallet identity (UUIDv4 per registry entry).
+uuid = { workspace = true }
+# Best-effort scrub of the device_key on RegistryHandle::drop.
+zeroize = { workspace = true }
+# T2-12 — HMAC-SHA256 over wallet.kdf.json content to detect tampering
+# (downgrade attack: attacker swaps salt + params to force a weaker KDF).
+# RustCrypto pure-Rust audited; both already transitive via age/rusqlite.
+hmac = "0.12"
+sha2 = "0.10"
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[build-dependencies]
+uniffi = { workspace = true, features = ["build"] }
+
+# Spike-only: the workspace lints (clippy::pedantic) flag generated UniFFI
+# scaffolding. We relax them here so `cargo clippy --all-targets` stays green
+# without polluting bhodl-core. Tighten once the API stabilises.
+[lints.rust]
+unsafe_code = "allow"
+
+[lints.clippy]
+pedantic = "allow"

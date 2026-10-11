@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Italian twin of values/strings_common.xml — same keys, same format args. -->
+<resources>
+    <string name="common_cancel">Annulla</string>
+    <string name="common_ok">OK</string>
+    <string name="common_close">Chiudi</string>
+    <string name="common_delete">Elimina</string>
+    <string name="common_edit">Modifica</string>
+    <string name="common_add">Aggiungi</string>
+    <string name="common_confirm">Conferma</string>
+    <string name="common_retry">Riprova</string>
+    <string name="common_copy">Copia</string>
+    <string name="common_copied">Copiato</string>
+    <string name="common_loading">Caricamento…</string>
+    <string name="common_uncategorised">Senza categoria</string>
+    <string name="common_no_rate">cambio n.d.</string>
+    <string name="common_last_sync">Ultimo sync %1$s</string>
+    <string name="common_never_synced">Mai sincronizzato</string>
+
+    <!-- Selettore periodo -->
+    <string name="period_7d">7g</string>
+    <string name="period_30d">30g</string>
+    <string name="period_90d">90g</string>
+    <string name="period_1y">1a</string>
+    <string name="period_all">Tutto</string>
+    <string name="period_today">oggi</string>
+
+    <!-- Sankey (report tracker) -->
+    <string name="tracker_sankey_income">Entrate</string>
+    <string name="tracker_sankey_out_and_savings">Uscite + Risparmio</string>
+    <string name="tracker_sankey_savings">Risparmio</string>
+    <string name="tracker_sankey_total">Totale</string>
+
+    <!-- Tabelle report -->
+    <string name="tracker_reports_by_category">Per categoria · %1$s</string>
+    <string name="tracker_reports_by_wallet">Per wallet</string>
+    <string name="tracker_reports_top_counterparties">Controparti principali</string>
+    <string name="tracker_reports_counterparties_note">In arrivo nella prossima fase — le etichette delle controparti stanno nell’archivio cifrato con il PIN di ogni wallet, quindi un riepilogo tra wallet richiede di sbloccarli tutti o una tabella di etichette a livello di registro.</string>
+    <string name="tracker_reports_empty_period">Nessuna transazione nel periodo selezionato.</string>
+    <string name="tracker_reports_empty_wallets">Nessun wallet nel registro.</string>
+    <string name="tracker_reports_col_category">Categoria</string>
+    <string name="tracker_reports_col_wallet">Wallet</string>
+    <string name="tracker_reports_col_balance">Saldo</string>
+    <string name="tracker_reports_col_in">Entrate</string>
+    <string name="tracker_reports_col_out">Uscite</string>
+    <string name="tracker_reports_col_net">Netto</string>
+    <string name="tracker_reports_col_last">Ultima</string>
+</resources>

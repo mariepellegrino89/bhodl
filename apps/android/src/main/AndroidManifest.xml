@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!--
+      Security: wallet data (SQLCipher DBs, KDF descriptors) must never
+      leave the device via Auto Backup or device-to-device transfer.
+      allowBackup=false covers API <= 30; fullBackupContent=false is the
+      legacy opt-out; dataExtractionRules (API 31+) excludes every domain
+      for both cloud backup and device transfer.
+    -->
+    <application
+        android:allowBackup="false"
+        android:fullBackupContent="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        tools:targetApi="s"
+        android:label="BHODL"
+        android:supportsRtl="true">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:label="BHODL">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+
+</manifest>

@@ -1,0 +1,55 @@
+# Workspace-level cargo configuration.
+#
+# Forces the Windows MSVC target to STATIC-link the C runtime so that the
+# `bhodl_uniffi.dll` cdylib produced from `crates/bhodl-uniffi/` is
+# binary-compatible with the pre-built `uniffi_runtime.dll` shipped in the
+# `ch.ubique.uniffi:runtime-jvm:1.0.x` Maven artifact (which is itself
+# static-CRT linked).
+#
+# Background. UniFFI's Kotlin Multiplatform fork by Ubique splits the FFI
+# scaffolding across two cdylibs: our own `bhodl_uniffi.dll` (returned
+# `RustBuffer` values are allocated here) and the shared `uniffi_runtime.dll`
+# (every `RustBuffer.free()` is dispatched here from the Kotlin runtime
+# helpers). When the two cdylibs disagree on CRT linkage, their `malloc/free`
+# implementations end up in disjoint heaps; cross-DLL frees then become
+# `EXCEPTION_ACCESS_VIOLATION` (the JNA flavour: `java.lang.Error: Invalid
+# memory access`). Pinning both to static-CRT puts every allocation through
+# the same UCRT-based path and the cross-DLL handoff stops corrupting state.
+#
+# Security stance. Static-CRT linkage does NOT remove dynamic library safety
+# guarantees that matter for this project. The Rust standard library still
+# routes `Box`/`Vec` through `std::alloc::System`, which on Windows MSVC
+# resolves to `HeapAlloc(GetProcessHeap(), ...)` regardless of static vs
+# dynamic CRT — the heap is the per-process default heap exposed by
+# `kernel32`. What changes is *where the malloc/free symbols live*: with
+# `+crt-static` they are statically linked into our cdylib, so a hypothetical
+# attacker cannot redirect them by side-loading a malicious `vcruntime140.dll`.
+# It is, if anything, a marginal hardening.
+#
+# Trade-off. Static CRT slightly grows the cdylib (~200-400 KiB on Windows)
+# and means binary-level updates to the system VC runtime no longer apply
+# transitively. Acceptable in our context: we ship the Rust toolchain pin
+# in `rust-toolchain.toml`, so each release rebuilds the cdylib against a
+# known-good CRT.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
+
+# Android (NDK) cross-builds.
+#
+# `rusqlite`'s `bundled-sqlcipher-vendored-openssl` compiles OpenSSL from
+# source for every Android ABI. OpenSSL's entropy code probes `getentropy()`
+# at runtime through a weak symbol, but the NDK headers mark that function as
+# introduced in API 28 while our minSdk is 26, so clang rejects the build
+# ("'getentropy' is unavailable: introduced in Android 28"). The NDK-documented
+# remedy is to make unavailable symbols weak: the runtime `!= NULL` check then
+# does exactly what OpenSSL intends on API 26/27 devices (falls back to
+# /dev/urandom) instead of failing the build or the dlopen.
+#
+# The `cc` crate (used by openssl-src) reads `CFLAGS_<target>`; `[env]` also
+# reaches build scripts, so this works for plain `cargo build --target ...`
+# and for the Gradle `cargoBuild*Android*` tasks alike.
+[env]
+CFLAGS_aarch64_linux_android = "-D__ANDROID_UNAVAILABLE_SYMBOLS_ARE_WEAK__"
+CFLAGS_armv7_linux_androideabi = "-D__ANDROID_UNAVAILABLE_SYMBOLS_ARE_WEAK__"
+CFLAGS_i686_linux_android = "-D__ANDROID_UNAVAILABLE_SYMBOLS_ARE_WEAK__"
+CFLAGS_x86_64_linux_android = "-D__ANDROID_UNAVAILABLE_SYMBOLS_ARE_WEAK__"

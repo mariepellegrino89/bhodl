@@ -1,0 +1,83 @@
+name: Tor (live)
+
+# Live Tor tests: a real Tor daemon + the public internet (mempool.space
+# signet Esplora, a .onion Esplora, check.torproject.org, rate and price
+# providers). External network = flaky, so this NEVER runs on pull
+# requests — nightly and on demand only. See scripts/tor-tests.sh.
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+# Least privilege: the job only needs to read the repository.
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+  BHODL_TOR_SOCKS: socks5h://127.0.0.1:9050
+  # Tests fail (instead of skipping) when Tor is unreachable.
+  BHODL_TOR_REQUIRED: '1'
+
+concurrency:
+  group: tor-${{ github.ref }}
+  cancel-in-progress: true
+
+# Supply chain: actions pinned to full commit SHAs — the same SHAs as
+# ci.yml (bump both files together).
+
+jobs:
+  tor-tests:
+    name: tor-tests (rust + desktop)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      # Same rationale as ci.yml jvm-test: no Android needed, and the
+      # Ubique uniffi plugin's Android wiring breaks on the runner SDK.
+      ANDROID_HOME: ""
+      ANDROID_SDK_ROOT: ""
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Tor
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tor
+          sudo systemctl start tor
+          tor --version
+      - name: Install pinned Rust toolchain (rust-toolchain.toml)
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Cache Gradle
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle.kts', 'gradle/libs.versions.toml', 'gradle/verification-metadata.xml') }}
+          restore-keys: gradle-${{ runner.os }}-
+      - name: Wait for Tor bootstrap (check.torproject.org says IsTor)
+        id: tor
+        run: |
+          if ! TOR_WAIT_SECS=300 scripts/tor-tests.sh --wait-only; then
+            sudo journalctl -u tor@default --no-pager | tail -50
+            exit 1
+          fi
+      - name: Rust live Tor tests (bhodl-wallet-onchain, feature tor-tests)
+        run: cargo test -p bhodl-wallet-onchain --features tor-tests tor_live -- --nocapture
+      - name: Kotlin live Tor tests (:apps:desktop:torTest)
+        # Run even if the Rust suite failed, so both results are visible.
+        if: ${{ !cancelled() && steps.tor.outcome == 'success' }}
+        run: ./gradlew :apps:desktop:torTest --stacktrace
+      - name: Upload test report on failure
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: tor-test-report
+          path: apps/desktop/build/reports/tests/torTest/

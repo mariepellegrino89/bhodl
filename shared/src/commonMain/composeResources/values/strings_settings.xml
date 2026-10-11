@@ -1,0 +1,183 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  UX review 2026-10 (rec 3) — Settings screen sections (appearance,
+  system, wallet, labels) and the settings / price messages shown to the
+  user. Every key has its Italian twin in values-it/strings_settings.xml
+  (enforced by StringsParityTest). Use the typographic apostrophe (’).
+-->
+<resources>
+    <!-- Shared -->
+    <string name="set_toggle_on">On</string>
+    <string name="set_toggle_off">Off</string>
+    <string name="set_wallet_not_unlocked">Wallet not unlocked.</string>
+
+    <!-- Appearance › Color convention -->
+    <string name="set_color_convention_title">Color convention</string>
+    <string name="set_color_convention_hint">Western markets: green = positive, red = negative. Asian markets: inverted.</string>
+    <string name="set_color_western">Western</string>
+    <string name="set_color_eastern">Eastern</string>
+
+    <!-- Appearance › Fiat overlay -->
+    <string name="set_fiat_title">Fiat currency (overlay)</string>
+    <string name="set_fiat_hint">Shows the estimated fiat value next to every amount in sat/BTC. Price from CoinGecko / mempool.space, refreshed every 5 min.</string>
+    <string name="set_fiat_off">Off</string>
+    <string name="set_fiat_fetching">Fetching…</string>
+    <string name="set_fiat_no_price">No price yet.</string>
+    <string name="set_fiat_last">last: %1$s</string>
+    <string name="set_fiat_error">Error: %1$s</string>
+    <string name="set_fiat_no_provider">No price available from any provider.</string>
+
+    <!-- Appearance › Privacy -->
+
+    <!-- Appearance › Bitcoin Lens -->
+    <string name="set_lens_title">Bitcoin Lens (advanced)</string>
+    <string name="set_lens_surfaces">Fiat-visible operational surfaces</string>
+    <string name="set_lens_bank_csv">Bank CSV import rows</string>
+    <string name="set_lens_current_month">Current-month fiat-counterparty transactions</string>
+    <string name="set_lens_tax">Tax exports</string>
+    <string name="set_lens_invoices">Invoice / receipt attachments</string>
+    <string name="set_lens_nw_chart">Show fiat overlay on net-worth chart</string>
+    <string name="set_lens_footer">Outside these surfaces, all amounts display in BTC/sat.</string>
+
+    <!-- System › Investment prices -->
+    <string name="set_invfetch_title">Auto-fetch investment prices</string>
+    <string name="set_invfetch_hint">Yahoo Finance (no API key). Every investment ticker is refreshed every 5 min. Routed through Tor when it is on in its section.</string>
+    <string name="set_recompute_hint">Recompute the BTC cost basis of every lot from its purchase date (historical rate). Uses the network.</string>
+    <string name="set_recompute_button">Recompute BTC cost basis</string>
+    <string name="set_recompute_running">Recomputing…</string>
+    <string name="set_recompute_registry_locked">Registry locked — unlock the device.</string>
+    <string name="set_recompute_done">Updated %1$s/%2$s lots</string>
+    <string name="set_recompute_done_failed">Updated %1$s/%2$s lots · %3$s without a rate</string>
+    <string name="set_recompute_failed">Recompute failed.</string>
+
+    <!-- System › Esplora / Tor -->
+    <string name="set_esplora_invalid_url">Invalid Esplora URL — expected http(s)://host[:port][/path].</string>
+    <string name="set_esplora_plaintext_tor">⚠ Plaintext HTTP endpoint — Tor does not encrypt the last hop: the Tor exit relay can read sync traffic.</string>
+    <string name="set_esplora_plaintext_no_tor">⚠ Plaintext HTTP endpoint without Tor — sync traffic is unencrypted.</string>
+    <string name="set_tor_route">Route Esplora through Tor (SOCKS5)</string>
+    <string name="set_tor_route_hint">Requires a running Tor daemon. Sync, broadcast and fee fetch traffic will be onion-routed.</string>
+    <string name="set_tor_proxy_label">SOCKS5 proxy URL</string>
+    <string name="set_tor_proxy_hint">socks5:// is saved as socks5h:// so host names are resolved through Tor (no DNS leak).</string>
+    <string name="set_tor_proxy_invalid">Invalid proxy URL — expected socks5://host:port or socks5h://host:port.</string>
+
+    <!-- System › Network / Debug / Modules -->
+    <string name="set_network_title">Current network</string>
+    <string name="set_network_hint">Locked at creation. To switch, wipe this wallet (below) then create or restore on the new network.</string>
+    <string name="set_debug_hint">Tools for testing pre-release features. Not for production use.</string>
+    <string name="set_debug_watch">Debug: Watch wallets</string>
+    <string name="set_modules_title">Modules</string>
+    <string name="set_modules_hint">Choose what you want to track beyond your Bitcoin.</string>
+    <string name="set_module_investments">Investments</string>
+    <string name="set_module_budget_bills">Budget &amp; Bills</string>
+    <string name="set_module_savings_goals">Savings Goals</string>
+    <string name="set_module_manual_assets">Manual Assets &amp; Liabilities</string>
+    <string name="set_module_analytics_labs">Analytics Labs</string>
+
+    <!-- Wallet › Switch / rename -->
+    <string name="set_switch_title">Switch wallet</string>
+    <string name="set_switch_hint">Pick another signing wallet. You will be prompted for that wallet’s PIN; the current wallet is logged out automatically.</string>
+    <string name="set_switch_to">Switch to “%1$s”</string>
+    <string name="set_rename_title">Wallet name</string>
+    <string name="set_rename_hint">Shown in the Welcome wallet picker and the tracking screens. Renaming does not touch the wallet’s on-disk files — it only updates the registry label.</string>
+    <string name="set_rename_field">Name</string>
+    <string name="set_rename_read_failed">Failed to read current label.</string>
+    <string name="set_rename_empty">Name cannot be empty.</string>
+    <string name="set_rename_duplicate">Another wallet already uses this name.</string>
+    <string name="set_rename_saved">Saved.</string>
+    <string name="set_rename_not_found">Wallet not found in registry.</string>
+    <string name="set_rename_save_failed">Save failed.</string>
+    <string name="set_rename_saving">Saving…</string>
+    <string name="set_rename_save">Save name</string>
+
+    <!-- Wallet › Add to Tracker -->
+    <string name="set_tracker_title">Track in Tracker</string>
+    <string name="set_tracker_hint">Add this wallet to the Tracker as a watch-only mirror so the balance and history show up there without needing to unlock the signing PIN.</string>
+    <string name="set_tracker_checking">Checking pairing status…</string>
+    <string name="set_tracker_already">✓ This wallet is already tracked.</string>
+    <string name="set_tracker_adding">Adding…</string>
+    <string name="set_tracker_add">Add to Tracker</string>
+    <string name="set_tracker_added">Added to Tracker.</string>
+    <string name="set_tracker_add_failed">Add to Tracker failed.</string>
+    <string name="set_tracker_read_failed">Failed to read wallet info.</string>
+    <string name="set_tracker_notor_title">Mainnet sync without Tor</string>
+    <string name="set_tracker_notor_body">Adding the watch-only mirror will trigger an Esplora full-scan against a public server WITHOUT Tor. The server will see every receive + change address derived from this wallet’s xpub.\n\nRecommended: enable Tor in Settings → Tor first.</string>
+    <string name="set_tracker_notor_continue">Continue without Tor</string>
+
+    <!-- Wallet › Encrypted backup -->
+    <string name="set_backup_title">Encrypted backup</string>
+    <string name="set_backup_hint">Export the seed (mnemonic + BIP-39 passphrase) into an age-encrypted ASCII blob. Use a separate password — not your unlock PIN. Save it to paper or a password manager.</string>
+    <string name="set_backup_password">Backup password</string>
+    <string name="set_backup_password_hint">A password of at least %1$d characters is required — Export stays disabled until you set one.</string>
+    <string name="set_backup_password_confirm">Confirm backup password</string>
+    <string name="set_backup_password_mismatch">Passwords do not match.</string>
+    <string name="set_backup_exporting">Exporting…</string>
+    <string name="set_backup_export">Export backup</string>
+    <string name="set_backup_export_failed">export failed</string>
+    <string name="set_backup_save_prompt">Save to file or copy this and store it somewhere safe:</string>
+    <string name="set_backup_save_file">Save to file…</string>
+    <string name="set_backup_save_dialog_title">Save encrypted backup</string>
+    <string name="set_backup_file_filter">Text file (*.txt)</string>
+    <string name="set_backup_saved_to">Saved to %1$s</string>
+    <string name="set_backup_save_failed">Save failed: %1$s</string>
+
+    <!-- Wallet › Recovery phrase / descriptor -->
+    <string name="set_recovery_title">Show recovery phrase</string>
+    <string name="set_recovery_hint">Re-display the BIP-39 mnemonic for a paper backup. Anyone who can read this can spend your funds — only reveal it on a screen no one else is watching. Two-tap to confirm.</string>
+    <string name="set_recovery_tap_again">Tap again to reveal the recovery phrase.</string>
+    <string name="set_recovery_confirm">Confirm: reveal phrase</string>
+    <string name="set_recovery_word_count">%1$d-word recovery phrase</string>
+    <string name="set_recovery_passphrase">BIP-39 passphrase</string>
+    <string name="set_recovery_hide">Hide recovery phrase</string>
+    <string name="set_recovery_reveal_failed">reveal failed</string>
+    <string name="set_watchdesc_title">Watch-only descriptor</string>
+    <string name="set_watchdesc_hint">Export the wallet’s public xpub and descriptor for import into Sparrow, Liana, Specter — or paste the xpub into the debug screen. Contains no secret material; anyone with this can see your balance but cannot spend.</string>
+    <string name="set_watchdesc_show">Show watch-only descriptor</string>
+    <string name="set_watchdesc_xpub_label">Account xpub (paste into debug screen)</string>
+    <string name="set_watchdesc_copy_xpub">Copy xpub</string>
+    <string name="set_watchdesc_external_label">External descriptor (paste into Sparrow/Liana)</string>
+    <string name="set_watchdesc_copy_external">Copy external descriptor</string>
+    <string name="set_watchdesc_hide">Hide watch-only descriptor</string>
+
+    <!-- Wallet PIN re-auth purposes (completes “Re-enter this wallet’s PIN to …”) -->
+    <string name="set_reauth_purpose_backup">export an encrypted backup of the seed</string>
+    <string name="set_reauth_purpose_reveal">reveal the recovery phrase</string>
+    <string name="set_reauth_purpose_descriptor">show the watch-only descriptor</string>
+    <string name="set_reauth_purpose_delete">delete this wallet</string>
+
+    <!-- Wallet › Delete / factory reset -->
+    <string name="set_delete_title">Delete this wallet</string>
+    <string name="set_delete_hint">Removes only the currently-active wallet from the registry and erases its encrypted database from disk. Other registered wallets (signing and watch-only) are left untouched. Recovery is only possible from this wallet’s BIP-39 seed phrase. Two-tap confirm, then your wallet PIN.</string>
+    <string name="set_delete_backup_first">Use the Backup section above (Export encrypted backup) before continuing.</string>
+    <string name="set_delete_tip">↑ Tip: export an encrypted backup first</string>
+    <string name="set_delete_no_active">No active wallet to delete.</string>
+    <string name="set_delete_tap_again">Tap again to permanently delete this wallet.</string>
+    <string name="set_delete_working">Deleting…</string>
+    <string name="set_delete_confirm">Confirm: delete this wallet</string>
+    <string name="set_delete_failed">Delete failed.</string>
+    <string name="set_wipe_title">Factory reset</string>
+    <string name="set_wipe_hint">Deletes EVERY wallet (signing and watch-only), the registry, KDF descriptors, and all encrypted databases on this device. Recovery is only possible from each wallet’s BIP-39 seed phrase or its encrypted backup. To delete a single wallet without touching the others, use “Delete this wallet” above. Requires typing %1$s.</string>
+    <string name="set_wipe_button">Factory reset (all wallets)…</string>
+
+    <!-- Labels (BIP-329) -->
+    <string name="set_labels_title">BIP-329 labels</string>
+    <string name="set_labels_hint">Export every transaction / address label this wallet stores into a portable JSONL file, or import labels produced by another BIP-329 wallet (Sparrow, Liana, …). Re-importing the same file is idempotent — duplicates are upserted, not appended.</string>
+    <string name="set_labels_working">Working…</string>
+    <string name="set_labels_export">Export labels…</string>
+    <string name="set_labels_import">Import labels…</string>
+    <string name="set_labels_exported">Exported %1$d label(s) to %2$s</string>
+    <string name="set_labels_imported">Imported %1$s label(s).</string>
+    <string name="set_labels_export_failed">Export failed.</string>
+    <string name="set_labels_import_failed">Import failed.</string>
+    <string name="set_labels_import_failed_note">%1$s No labels were changed.</string>
+    <string name="set_labels_export_dialog">Export BIP-329 labels</string>
+    <string name="set_labels_import_dialog">Import BIP-329 labels</string>
+    <string name="set_labels_filter_jsonl">JSONL file (*.jsonl)</string>
+    <string name="set_labels_filter_jsonl_txt">JSONL file (*.jsonl, *.txt)</string>
+    <string name="set_labels_load_failed">Load failed: %1$s</string>
+
+    <!-- Startup banner: unreadable settings file -->
+    <string name="set_persist_corrupt_backup">Your settings file could not be read, so default settings are in use. The original was saved as %1$s.</string>
+    <string name="set_persist_corrupt_backup_tor">Your settings file could not be read, so default settings are in use (Tor kept ON). The original was saved as %1$s.</string>
+    <string name="set_persist_corrupt_nobackup">Your settings file could not be read, so default settings are in use. The original file could not be backed up.</string>
+    <string name="set_persist_corrupt_nobackup_tor">Your settings file could not be read, so default settings are in use (Tor kept ON). The original file could not be backed up.</string>
+</resources>

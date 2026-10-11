@@ -1,0 +1,14 @@
+# cargo-audit configuration. Mirrors the reviewed exceptions in
+# deny.toml [advisories].ignore — keep the two lists in sync; see
+# deny.toml for the full rationale and review dates (2026-12-31).
+[advisories]
+ignore = [
+    # rustls-webpki 0.101.7 via minreq <- esplora-client 0.12 <- bdk_esplora 0.22.2
+    "RUSTSEC-2026-0098",
+    "RUSTSEC-2026-0099",
+    "RUSTSEC-2026-0104",
+    # unmaintained, compile-time only (uniffi 0.28 / age proc-macros)
+    "RUSTSEC-2025-0141",
+    "RUSTSEC-2024-0436",
+    "RUSTSEC-2026-0173",
+]

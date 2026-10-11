@@ -1,0 +1,47 @@
+name: Design feedback
+description: Critique a screen, propose a design, or claim a design task.
+labels: ["design"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping with design. You do not need to build the app: the current screens
+        are in [docs/screenshots](https://github.com/mariepellegrino89/bhodl/tree/main/docs/screenshots)
+        and the open tasks in [docs/design-help-wanted.md](https://github.com/mariepellegrino89/bhodl/blob/main/docs/design-help-wanted.md).
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind of contribution
+      options:
+        - Feedback on an existing screen
+        - Proposal / mockup
+        - Claiming a task from design-help-wanted.md
+        - Accessibility issue
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: screen
+    attributes:
+      label: Screen or flow
+      placeholder: e.g. Wallet > Send, Tracker > Portfolio, onboarding
+    validations:
+      required: true
+  - type: textarea
+    id: observation
+    attributes:
+      label: What you noticed or propose
+      description: The problem from the user's point of view, and your idea. Annotated screenshots help.
+    validations:
+      required: true
+  - type: input
+    id: link
+    attributes:
+      label: Design file link
+      description: Figma, Penpot or image link with view access (optional).
+  - type: checkboxes
+    id: direction
+    attributes:
+      label: Design direction
+      options:
+        - label: I have read the design direction in CONTRIBUTING.md (dense, bitcoin as unit of account, fiat only where operational), or I am arguing against it on purpose.

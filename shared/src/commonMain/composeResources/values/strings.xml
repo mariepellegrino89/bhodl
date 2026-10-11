@@ -1,0 +1,315 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  English baseline strings for BHODL.
+  Localisations land in sibling directories: values-it/strings.xml,
+  values-es/strings.xml, etc. (compose-multiplatform-resources convention).
+
+  Naming convention: <screen_or_area>_<element>_<intent>
+  Examples: app_name, balance_hero_label, send_button_confirm.
+
+  Phase-2 polish iteration: only the navigation chrome and the
+  Settings screen are i18n-d for now. Send / History / Address book
+  bodies stay hardcoded until the next i18n pass — touching them
+  also rewires the Send flow tests we have heavy investment in.
+-->
+<resources>
+    <string name="app_name">BHODL</string>
+
+    <!-- Navigation common -->
+    <string name="action_back">Back</string>
+    <string name="action_save">Save</string>
+
+    <!-- Dashboard -->
+    <string name="dashboard_button_receive">Receive</string>
+    <string name="dashboard_button_send">Send</string>
+    <string name="dashboard_button_history">History</string>
+    <string name="dashboard_button_address_book">Address book</string>
+    <string name="dashboard_button_settings">Settings</string>
+    <string name="dashboard_button_logout">Logout</string>
+
+    <!-- Wallet workspace (UX review 2026-10, items 5–8) -->
+    <string name="wallet_tab_transactions">Transactions</string>
+    <string name="wallet_tab_send">Send</string>
+    <string name="wallet_tab_receive">Receive</string>
+    <string name="wallet_tab_addresses">Addresses</string>
+    <string name="wallet_tab_utxos">UTXOs</string>
+    <string name="wallet_tab_settings">Wallet settings</string>
+    <string name="wallet_header_balance">Balance</string>
+    <string name="wallet_header_signing">Signing wallet</string>
+    <string name="wallet_header_watch">Watch-only wallet</string>
+    <string name="wallet_sync">Sync</string>
+    <string name="wallet_syncing">Syncing…</string>
+    <string name="wallet_synced_at">Synced %1$s</string>
+    <string name="wallet_not_synced">Not synced yet</string>
+    <string name="wallet_sync_failed">Sync failed</string>
+    <string name="wallet_action_contacts">Contacts</string>
+    <string name="wallet_action_lock">Lock</string>
+    <string name="wallet_restoring_title">Restoring wallet</string>
+    <string name="wallet_restoring_body">Scanning the chain for past activity. This one-time full scan can take a few minutes; balance and history appear when it completes.</string>
+    <string name="wallet_tracker_banner_title">Track this wallet?</string>
+    <string name="wallet_tracker_banner_body">Add an xpub-only mirror so the Tracker shows this wallet’s balance and history without the signing PIN.</string>
+    <string name="wallet_tracker_banner_add">Add to Tracker</string>
+    <string name="wallet_tracker_banner_adding">Adding…</string>
+    <string name="wallet_tracker_banner_skip">Skip</string>
+    <string name="wallet_tx_col_date">DATE</string>
+    <string name="wallet_tx_col_label">LABEL · CATEGORY</string>
+    <string name="wallet_tx_col_amount">AMOUNT</string>
+    <string name="wallet_tx_col_status">STATUS</string>
+    <string name="wallet_tx_col_confs">CONF.</string>
+    <string name="wallet_tx_filter_all">All</string>
+    <string name="wallet_tx_filter_incoming">Incoming</string>
+    <string name="wallet_tx_filter_outgoing">Outgoing</string>
+    <string name="wallet_tx_filter_pending">Pending</string>
+    <string name="wallet_tx_search">Search label, category or txid</string>
+    <string name="wallet_tx_count">%1$d of %2$d transactions</string>
+    <string name="wallet_tx_status_pending">Pending</string>
+    <string name="wallet_tx_status_confirming">Confirming %1$d/6</string>
+    <string name="wallet_tx_status_confirming_unknown">Confirming</string>
+    <string name="wallet_tx_fee_bumped">Fee bumped</string>
+    <string name="wallet_tx_replaced">Replaced</string>
+    <string name="wallet_tx_speed_up">Speed up</string>
+    <string name="wallet_tx_empty">No transactions yet. Sync or wait for an incoming payment.</string>
+    <string name="wallet_tx_no_match">No transactions match the filter.</string>
+    <string name="wallet_tx_loading">Loading transactions…</string>
+    <string name="wallet_tx_refreshing">Refreshing from the server…</string>
+    <string name="wallet_tx_sort_hint">Sort by %1$s</string>
+    <string name="wallet_txd_title">Transaction</string>
+    <string name="wallet_txd_close">Close</string>
+    <string name="wallet_txd_received">Received</string>
+    <string name="wallet_txd_sent">Sent</string>
+    <string name="wallet_txd_fee">Network fee</string>
+    <string name="wallet_txd_block">Confirmed in block %1$s</string>
+    <string name="wallet_txd_mempool">In mempool (unconfirmed)</string>
+    <string name="wallet_txd_confirmations">Confirmations</string>
+    <string name="wallet_txd_txid">Transaction ID</string>
+    <string name="wallet_txd_copy">Copy</string>
+    <string name="wallet_txd_label">Label (BIP-329)</string>
+    <string name="wallet_txd_category">Category</string>
+    <string name="wallet_txd_save">Save</string>
+    <string name="wallet_txd_saving">Saving…</string>
+    <string name="wallet_txd_clear">Clear</string>
+    <string name="wallet_txd_speed_up_rbf">Replace it with a higher fee (RBF). Exact cost of the chosen preset:</string>
+    <string name="wallet_txd_speed_up_cpfp">Spend the incoming coin in a child transaction that pays for both (CPFP). Exact cost of the chosen preset:</string>
+    <string name="wallet_txd_speed_up_cost">+%1$s at %2$d sat/vB · %3$s</string>
+    <string name="wallet_txd_speed_up_calculating">Calculating the exact cost…</string>
+    <string name="wallet_txd_speed_up_unavailable">Cost unavailable: %1$s</string>
+    <string name="wallet_txd_speed_up_review">Review speed-up</string>
+    <string name="wallet_txd_cpfp_change">Speed up via change (CPFP)</string>
+    <string name="wallet_txd_replaced_note">Replaced by a fee bump — never confirms.</string>
+    <string name="wallet_txd_not_found">Transaction not found in this wallet’s history.</string>
+    <string name="wallet_fee_header">Fee</string>
+    <string name="wallet_fee_economy">Economy</string>
+    <string name="wallet_fee_normal">Normal</string>
+    <string name="wallet_fee_priority">Priority</string>
+    <string name="wallet_fee_eta_minutes">~%1$d min</string>
+    <string name="wallet_fee_eta_hours">~%1$d h</string>
+    <string name="wallet_fee_total">≈ %1$s</string>
+    <string name="wallet_fee_estimate_note">Totals are estimates for this payment’s size; Review shows the exact fee.</string>
+    <string name="wallet_fee_custom">Custom fee rate</string>
+    <string name="wallet_fee_custom_hint">Use your own rate instead of a preset.</string>
+    <string name="wallet_fee_custom_field">Fee rate (sat/vB)</string>
+    <string name="wallet_fee_custom_active">Custom rate in use</string>
+    <string name="wallet_send_recipient_header">Recipient</string>
+    <string name="wallet_send_options_header">Options</string>
+    <string name="wallet_send_address_field">Recipient address (or bitcoin: URI)</string>
+    <string name="wallet_send_from_book">From address book</string>
+    <string name="wallet_send_loading">Loading…</string>
+    <string name="wallet_send_amount_field">Amount (satoshis)</string>
+    <string name="wallet_send_max">Send MAX</string>
+    <string name="wallet_send_max_hint">Drain every available sat to the recipient. No change.</string>
+    <string name="wallet_send_add_recipient">+ Add another recipient</string>
+    <string name="wallet_send_coin_control">Coin control</string>
+    <string name="wallet_send_coin_control_hint">Pin specific UTXOs as the only inputs.</string>
+    <string name="wallet_send_review">Review</string>
+    <string name="wallet_send_review_payjoin">Review PayJoin</string>
+    <string name="wallet_send_building">Building…</string>
+    <string name="wallet_send_contacting_payjoin">Contacting PayJoin receiver…</string>
+    <string name="wallet_coin_control_auto">Automatic coin selection is used unless you turn on coin control.</string>
+    <string name="wallet_rcv_step1_title">Label this payment first</string>
+    <string name="wallet_rcv_step1_body">Optional. A label and a tracker category set now are applied to the payment as soon as it arrives.</string>
+    <string name="wallet_rcv_label">Label (optional)</string>
+    <string name="wallet_rcv_category">Tracker category (optional)</string>
+    <string name="wallet_rcv_amount">Amount in sat (optional)</string>
+    <string name="wallet_rcv_payer_message">Message for the payer (optional)</string>
+    <string name="wallet_rcv_payer_message_hint">Shown to the payer in the payment request. Your label stays private.</string>
+    <string name="wallet_rcv_continue">Show address</string>
+    <string name="wallet_rcv_skip">Skip, show address</string>
+    <string name="wallet_rcv_address_title">Receive address</string>
+    <string name="wallet_rcv_reuse_warning">This address has already received funds. Reusing it links your payments together — generate a new address instead.</string>
+    <string name="wallet_rcv_copy_address">Copy address</string>
+    <string name="wallet_rcv_copied_address">Copied address</string>
+    <string name="wallet_rcv_copy_uri">Copy URI</string>
+    <string name="wallet_rcv_copied_uri">Copied URI</string>
+    <string name="wallet_rcv_new_address">New address</string>
+    <string name="wallet_rcv_generating">Generating…</string>
+    <string name="wallet_rcv_edit_label">New request</string>
+    <string name="wallet_rcv_qr_description">QR code to copy the receive address</string>
+    <string name="wallet_rcv_labelled">Label: %1$s</string>
+    <string name="wallet_rcv_categorised">Category: %1$s</string>
+    <string name="wallet_rcv_error">Could not derive an address</string>
+    <string name="wallet_rcv_not_unlocked">Wallet not unlocked</string>
+    <string name="wallet_addr_receive">Receive</string>
+    <string name="wallet_addr_change">Change</string>
+    <string name="wallet_addr_col_index">#</string>
+    <string name="wallet_addr_col_address">ADDRESS</string>
+    <string name="wallet_addr_col_label">LABEL · CATEGORY</string>
+    <string name="wallet_addr_col_status">STATUS</string>
+    <string name="wallet_addr_used">Used</string>
+    <string name="wallet_addr_unused">Unused</string>
+    <string name="wallet_addr_empty">No addresses revealed yet. Generate one in the Receive tab.</string>
+    <string name="wallet_addr_show">Show</string>
+    <string name="wallet_addr_count">%1$d addresses · %2$d used</string>
+    <string name="wallet_utxo_col_outpoint">OUTPOINT</string>
+    <string name="wallet_utxo_col_address">ADDRESS</string>
+    <string name="wallet_utxo_col_type">TYPE</string>
+    <string name="wallet_utxo_col_status">STATUS</string>
+    <string name="wallet_utxo_col_amount">AMOUNT</string>
+    <string name="wallet_utxo_freeze">Freeze</string>
+    <string name="wallet_utxo_unfreeze">Unfreeze</string>
+    <string name="wallet_utxo_frozen">Frozen</string>
+    <string name="wallet_utxo_confirmed">Confirmed</string>
+    <string name="wallet_utxo_unconfirmed">Unconfirmed</string>
+    <string name="wallet_utxo_receive">Receive</string>
+    <string name="wallet_utxo_change">Change</string>
+    <string name="wallet_utxo_spend_selected">Send selected (%1$d)</string>
+    <string name="wallet_utxo_summary">%1$d coins · %2$s · %3$d selected (%4$s)</string>
+    <string name="wallet_utxo_empty">No coins yet.</string>
+    <string name="wallet_utxo_hint">Frozen coins are never picked by automatic selection and cannot be spent until you unfreeze them. Select coins to spend exactly those (coin control).</string>
+    <string name="wallet_utxo_failed">Could not update the coin: %1$s</string>
+    <string name="wallet_settings_moved">Backup, labels, recovery phrase, descriptor, rename and delete are in Wallet › Wallet settings.</string>
+    <string name="wallet_settings_open">Open wallet settings</string>
+    <string name="wallet_review_title">Review</string>
+    <string name="wallet_review_subtitle">Confirm what you are about to broadcast.</string>
+    <string name="wallet_review_diagram">Transaction diagram</string>
+    <string name="wallet_review_diagram_show">Show diagram</string>
+    <string name="wallet_review_diagram_hide">Hide diagram</string>
+    <string name="wallet_review_inputs">Inputs · %1$d</string>
+    <string name="wallet_review_role_recipient">recipient</string>
+    <string name="wallet_review_role_change">change · yours</string>
+    <string name="wallet_review_role_self">to yourself</string>
+    <string name="wallet_review_fee_node">Network fee</string>
+    <string name="wallet_review_diagram_a11y">Transaction diagram: inputs (%1$d) totalling %2$s flow to outputs (%3$d): %4$s. Network fee %5$s.</string>
+    <string name="wallet_review_output_a11y">%1$s to %2$s (%3$s)</string>
+    <string name="wallet_watch_readonly">Read-only wallet — no signing keys on this device.</string>
+    <string name="wallet_watch_promote">Promote to signing (add seed)</string>
+    <string name="wallet_watch_back">Back to wallets</string>
+    <!-- /Wallet workspace -->
+
+
+
+
+
+    <!-- Settings screen -->
+    <string name="settings_title">Settings</string>
+
+    <string name="settings_theme_section">Theme</string>
+    <string name="settings_theme_dark">Dark</string>
+    <string name="settings_theme_light">Light</string>
+    <string name="settings_theme_system">System</string>
+    <string name="settings_theme_neon">Neon</string>
+    <string name="settings_theme_system_hint">System follows your operating system’s light/dark setting.</string>
+
+    <string name="settings_appearance_section">Appearance</string>
+
+    <string name="settings_unit_section">Bitcoin unit</string>
+    <string name="settings_unit_description">How on-chain amounts are shown across the app.</string>
+    <string name="settings_unit_sats">Sats</string>
+    <string name="settings_unit_btc">BTC</string>
+    <string name="settings_unit_auto">Auto</string>
+    <string name="settings_unit_sats_hint">Always sats — e.g. %1$s</string>
+    <string name="settings_unit_btc_hint">Always BTC — e.g. %1$s</string>
+    <string name="settings_unit_auto_hint">Sats below 1 BTC, BTC at or above — e.g. %1$s · %2$s</string>
+    <string name="settings_bip177_label">BIP177 notation</string>
+    <string name="settings_bip177_description">Show sats with the ₿ prefix (%1$s) instead of the sat suffix.</string>
+
+    <string name="settings_density_section">Density</string>
+    <string name="settings_density_compact">Compact</string>
+    <string name="settings_density_ultra">Ultra-dense</string>
+    <string name="settings_density_compact_hint">32 px table rows (default).</string>
+    <string name="settings_density_ultra_hint">24 px table rows — more rows per screen.</string>
+
+    <string name="settings_esplora_section">Esplora endpoint</string>
+    <!-- One line: compose-resources keeps XML newlines + indentation verbatim (B14).
+         It also does not unescape a backslash-apostrophe: use ’ instead. -->
+    <string name="settings_esplora_description">Override the default mempool.space URL — point to your own electrs / mempool instance for privacy or self-hosting.</string>
+    <string name="settings_esplora_field_label">URL</string>
+    <string name="settings_esplora_reset">Reset to default</string>
+    <string name="settings_esplora_active_default">Active: %1$s (default)</string>
+    <string name="settings_esplora_active_override">Active: %1$s</string>
+    <string name="settings_esplora_network">Applies to %1$s only. Each network keeps its own endpoint; other networks are not affected.</string>
+    <string name="settings_esplora_field_label_network">%1$s Esplora URL</string>
+
+    <string name="settings_language_section">Language</string>
+    <string name="settings_language_system">System</string>
+    <string name="settings_language_english">English</string>
+    <string name="settings_language_italian">Italiano</string>
+
+    <!-- Tracker (UX review 2026-10, P0 fixes) -->
+    <string name="tracker_note_optional">Note (optional)</string>
+    <string name="tracker_wallets_header">WALLETS</string>
+    <string name="tracker_refresh_balances">Refresh balances</string>
+    <string name="tracker_refreshing">Refreshing…</string>
+    <string name="tracker_add_wallet">Add</string>
+    <string name="tracker_add_watch_xpub">Watch-only wallet (xpub)</string>
+    <string name="tracker_create_signing_wallet">New signing wallet</string>
+    <string name="tracker_net_worth_label">net worth</string>
+    <string name="tracker_n_categories">%1$d categories</string>
+    <string name="tracker_kpi_inflow_exceeds">Inflow &gt; outflow</string>
+    <string name="tracker_kpi_outflow_exceeds">Outflow &gt; inflow</string>
+    <string name="tracker_investments_fiat_rows_only">fiat: %1$s rows only</string>
+    <string name="tracker_budget_prorated_header">Budget (%1$s, prorated)</string>
+    <string name="tracker_budget_per_month">%1$s / month</string>
+
+    <!-- Tracker P1 (UX review 2026-10, items 9-12) -->
+    <string name="tracker_sell_compare_title">Lot selection: compare methods</string>
+    <string name="tracker_sell_compare_hint">Enter the quantity and the sale price to see which lots each method sells.</string>
+    <string name="tracker_sell_method_fifo">FIFO</string>
+    <string name="tracker_sell_method_hifo">HIFO</string>
+    <string name="tracker_sell_method_specific">Specific ID</string>
+    <string name="tracker_sell_configured">configured</string>
+    <string name="tracker_sell_selected">selected</string>
+    <string name="tracker_sell_realized_fiat">Realized P&amp;L</string>
+    <string name="tracker_sell_realized_btc">Realized P&amp;L in bitcoin</string>
+    <string name="tracker_sell_pick_lots">Select to pick the lots yourself.</string>
+    <string name="tracker_sell_not_enough_lots">Not enough open lots.</string>
+    <string name="tracker_sell_override_note">Differs from this investment’s method (%1$s): this sale is booked with the lots shown.</string>
+    <string name="tracker_rule_from_edit_title">Always do this?</string>
+    <string name="tracker_rule_from_edit_question">Always categorise %1$s as “%2$s”?</string>
+    <string name="tracker_rule_match_by">Match by</string>
+    <string name="tracker_rule_by_wallet">Wallet</string>
+    <string name="tracker_rule_by_amount">Exact amount</string>
+    <string name="tracker_rule_pattern_wallet">transactions of wallet “%1$s”</string>
+    <string name="tracker_rule_pattern_amount">transactions of exactly %1$s</string>
+    <string name="tracker_rule_preview">Existing uncategorised transactions it applies to: %1$d</string>
+    <string name="tracker_rule_apply_existing">Also categorise them now</string>
+    <string name="tracker_rule_create">Create rule</string>
+    <string name="tracker_rule_not_now">Not now</string>
+    <string name="tracker_rule_order_hint">Rules run top to bottom: the first match wins.</string>
+    <string name="tracker_rule_move_up">Move up</string>
+    <string name="tracker_rule_move_down">Move down</string>
+    <string name="tracker_budget_col_status">Status</string>
+    <string name="tracker_budget_status_under">Under budget</string>
+    <string name="tracker_budget_status_at_risk">At risk</string>
+    <string name="tracker_budget_status_over">Over</string>
+    <string name="tracker_budget_status_reached">Reached</string>
+    <string name="tracker_budget_status_behind">Behind</string>
+    <string name="tracker_budget_sats_note">Budgets are in sats. When the bitcoin price moves, the same fiat spending costs a different number of sats. The note under a row splits the change into price and spending. Nothing is smoothed: the move is the signal.</string>
+    <string name="tracker_budget_move_line">vs previous %1$s: %2$s · price %3$s (BTC %4$s) · spending %5$s</string>
+    <string name="tracker_sheet_title">BALANCE SHEET</string>
+    <string name="tracker_sheet_col_name">Name</string>
+    <string name="tracker_sheet_col_type">Type</string>
+    <string name="tracker_sheet_col_value">Value</string>
+    <string name="tracker_sheet_col_change">Change · %1$s</string>
+    <string name="tracker_sheet_col_pct_nw">% of NW</string>
+    <string name="tracker_sheet_col_updated">Updated</string>
+    <string name="tracker_sheet_section_wallets">Bitcoin wallets</string>
+    <string name="tracker_sheet_section_investments">Investments</string>
+    <string name="tracker_sheet_section_manual">Manual assets</string>
+    <string name="tracker_sheet_section_liabilities">Liabilities</string>
+    <string name="tracker_sheet_subtotal">Subtotal</string>
+    <string name="tracker_sheet_net_worth">Net worth</string>
+    <string name="tracker_sheet_empty_section">Nothing here yet.</string>
+    <string name="tracker_sheet_updated_today">today</string>
+    <string name="tracker_sheet_updated_days">%1$dd ago</string>
+    <string name="tracker_sheet_change_note">Change over the selected period, in bitcoin. Investments and manual assets are valued at today’s fiat value and the BTC rate at the start of the period, like the net-worth history.</string>
+</resources>

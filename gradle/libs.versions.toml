@@ -1,0 +1,75 @@
+# Version catalog for the BHODL KMP/Android/Desktop builds.
+# All version bumps land here; subprojects only reference aliases.
+#
+# Stack chosen for Phase-0 spike (May 2026):
+#   - Kotlin 2.2.21 (latest 2.2.x; pinned because Compose 1.10.x targets 2.2)
+#   - Compose Multiplatform 1.10.3 (latest stable, iOS Stable since 1.8.0)
+#   - AGP 8.9.3 (latest 8.9 stable; AGP 9.x exists but is bleeding-edge)
+#   - ch.ubique.uniffi.plugin 1.0.8 (latest, paired with uniffi-rs 0.28.3)
+#   - kotlinx-coroutines 1.10.2 (matches CMP 1.10.x baseline)
+
+[versions]
+kotlin = "2.2.21"
+compose-multiplatform = "1.10.3"
+agp = "8.9.3"
+android-compileSdk = "35"
+android-minSdk = "26"
+android-targetSdk = "35"
+coroutines = "1.10.2"
+uniffi-plugin = "1.0.8"
+# JetBrains-maintained KMP port of androidx.navigation:navigation-compose.
+# Type-safe routes via @Serializable data classes (Kotlin 2.0+).
+navigation-compose = "2.9.2"
+kotlinx-serialization = "1.9.0"
+# Kotlinx Kover — line + branch coverage for the JVM modules. We
+# stay on the 0.8.x stream (latest stable as of 2026-05) which
+# supports Kotlin 2.x and the Compose Multiplatform JVM target.
+kover = "0.8.3"
+# Testcontainers — L3 integration tests on JVM. Lifts a real
+# bitcoind regtest + electrs (Esplora-compatible REST) per test
+# class so the cdylib + BDK + Esplora roundtrip is exercised
+# against actual containers, not the FakeWalletPort.
+testcontainers = "1.21.3"
+# Koalaplot — Compose Multiplatform charting (line / bar / pie / donut).
+# Apache 2.0, Gradle-metadata multi-platform artifact. Used by the
+# Tracking dashboard tab (Phase 3.5).
+koalaplot = "0.9.0"
+# qrose — pure-Kotlin Compose Multiplatform QR-code renderer. MIT.
+# No native deps; works on JVM desktop, Android, iOS, JS, Wasm.
+qrose = "1.0.1"
+
+[libraries]
+kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
+kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
+kotlinx-coroutines-swing = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-swing", version.ref = "coroutines" }
+
+# Android x: the absolute minimum needed to host a Compose Activity.
+androidx-activity-compose = { module = "androidx.activity:activity-compose", version = "1.10.1" }
+
+# Compose Multiplatform navigation (JetBrains KMP port of androidx.navigation).
+navigation-compose = { module = "org.jetbrains.androidx.navigation:navigation-compose", version.ref = "navigation-compose" }
+kotlinx-serialization-core = { module = "org.jetbrains.kotlinx:kotlinx-serialization-core", version.ref = "kotlinx-serialization" }
+kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinx-serialization" }
+
+# Testcontainers — generic container management. We use GenericContainer
+# directly rather than the ad-hoc bitcoind module so we keep total
+# control over the image and entrypoint args.
+testcontainers = { module = "org.testcontainers:testcontainers", version.ref = "testcontainers" }
+testcontainers-junit = { module = "org.testcontainers:junit-jupiter", version.ref = "testcontainers" }
+
+# Koalaplot charts for the Tracking dashboard.
+koalaplot-core = { module = "io.github.koalaplot:koalaplot-core", version.ref = "koalaplot" }
+
+# qrose QR-code renderer (receive-address screen).
+qrose = { module = "io.github.alexzhirkevich:qrose", version.ref = "qrose" }
+
+[plugins]
+kotlin-multiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
+kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
+android-application = { id = "com.android.application", version.ref = "agp" }
+android-library = { id = "com.android.library", version.ref = "agp" }
+compose-multiplatform = { id = "org.jetbrains.compose", version.ref = "compose-multiplatform" }
+compose-compiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+uniffi = { id = "ch.ubique.uniffi.plugin", version.ref = "uniffi-plugin" }
+kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
+kover = { id = "org.jetbrains.kotlinx.kover", version.ref = "kover" }

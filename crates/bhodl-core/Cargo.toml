@@ -1,0 +1,26 @@
+[package]
+name = "bhodl-core"
+description = "Shared primitives for BHODL: amounts, layers, balances, errors."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+readme = "README.md"
+# Workspace-internal crate. We use `path = "..."` deps; `publish = false`
+# tells crates.io / cargo-deny we do not intend to push this to the registry,
+# which in turn lets `allow-wildcard-paths` cover the inbound deps.
+publish = false
+
+[dependencies]
+thiserror = { workspace = true }
+argon2 = { workspace = true }
+rand = { workspace = true }
+# `KdfParams` is `Serialize` / `Deserialize` so it can be persisted
+# inside `wallet.kdf.json` alongside the salt — that file is what
+# unlocks an older wallet after a parameter bump.
+serde = { workspace = true }
+
+[lints]
+workspace = true

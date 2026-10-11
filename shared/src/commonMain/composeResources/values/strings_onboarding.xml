@@ -1,0 +1,231 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  UX review 2026-10 (rec 3) — onboarding, unlock, PIN and wizard strings
+  (Welcome, PIN setup, mnemonic, restore, migration, watch-only add /
+  promote, wipe, tracker section names). Italian twin in
+  values-it/strings_onboarding.xml. Use the typographic apostrophe (’).
+-->
+<resources>
+    <!-- ConfirmWipeDialog -->
+    <string name="onb_wipe_title">Erase ALL wallets on this device?</string>
+    <string name="onb_wipe_body">This permanently deletes EVERY wallet (signing and watch-only), the wallet registry, all tracking data and the PIN history on this device. Funds can only be recovered from each wallet’s recovery phrase or encrypted backup.\n\nType %1$s to confirm.</string>
+    <string name="onb_wipe_field">Type %1$s</string>
+    <string name="onb_wipe_erasing">Erasing…</string>
+    <string name="onb_wipe_confirm">Erase all wallets</string>
+
+    <!-- PIN errors / lockout (wizard) -->
+    <string name="onb_pin_wrong">Wrong PIN.</string>
+    <string name="onb_pin_err_network">This wallet was created on a different network than the one recorded on disk (wallet.network is missing or wrong). The PIN was not counted as a failed attempt.</string>
+    <string name="onb_pin_err_storage">The wallet files could not be read (missing, locked by another process, or damaged). The PIN was not counted as a failed attempt.</string>
+    <string name="onb_pin_err_newer">This data was written by a newer version of BHODL, which this version cannot open (downgrades are not supported). Update BHODL to the latest version to open it. The PIN was not counted as a failed attempt.</string>
+    <string name="onb_pin_err_unlock_failed">Unlock failed.</string>
+    <string name="onb_pin_lockout">Too many wrong PINs. Wait %1$ds before retrying.</string>
+    <string name="onb_device_pin_verify_failed">Could not verify the device PIN: %1$s. The PIN was not counted as a failed attempt.</string>
+    <string name="onb_unknown_error">unknown error</string>
+    <string name="onb_fee_rate_high">%1$d sat/vB is higher than typical. Double-check the fee tier or your custom rate before sending.</string>
+    <string name="onb_fee_rate_extreme">%1$d sat/vB is extreme. This is almost certainly a typo or a bad mempool feed — review carefully before sending.</string>
+    <string name="onb_wipe_aborted">Wipe stopped: %1$d database file(s) are still in use and could not be deleted. Nothing else was removed, so your wallets are still intact. Close other BHODL windows and retry.</string>
+    <string name="onb_wipe_incomplete">Wipe incomplete: %1$d item(s) could not be deleted (%2$s).</string>
+    <string name="onb_wipe_nothing">Nothing to wipe.</string>
+    <string name="onb_wipe_done">Wiped %1$d items.</string>
+
+    <!-- WalletPinReauthDialog -->
+    <string name="onb_pin_check_failed">PIN check failed.</string>
+    <string name="onb_reauth_title">Enter wallet PIN</string>
+    <string name="onb_reauth_body">Re-enter this wallet’s PIN to %1$s.</string>
+    <string name="onb_reauth_pin_label">Wallet PIN</string>
+    <string name="onb_checking">Checking…</string>
+
+    <!-- DevicePinUnlockScreen -->
+    <string name="onb_device_pin">Device PIN</string>
+    <string name="onb_device_pin_unlock_body">Enter your device PIN to open the wallet registry. This is the PIN you set during the multi-wallet update.</string>
+    <string name="onb_device_pin_wrong_wait">Wrong device PIN. Wait %1$ds before retrying.</string>
+    <string name="onb_device_pin_wrong">Wrong device PIN.</string>
+    <string name="onb_registry_open_failed">Failed to open registry.</string>
+    <string name="onb_opening">Opening…</string>
+    <string name="onb_open_registry">Open registry</string>
+
+    <!-- Generate / Confirm mnemonic -->
+    <string name="onb_gen_title">Your recovery phrase</string>
+    <string name="onb_gen_body">Write these 12 words down on paper, in order. They are the only way to restore your wallet if you lose this device.</string>
+    <string name="onb_generating">Generating…</string>
+    <string name="onb_gen_failed">Generation failed: %1$s</string>
+    <string name="onb_gen_written">I’ve written it down</string>
+    <string name="onb_confirm_title">Confirm your recovery phrase</string>
+    <string name="onb_confirm_body">Type the requested words from the phrase you just wrote down.</string>
+    <string name="onb_confirm_word">Word #%1$d</string>
+    <string name="onb_confirm_missing">Please fill every field.</string>
+    <string name="onb_confirm_wrong">Wrong: %1$s. Re-check the phrase.</string>
+
+    <!-- Restore mnemonic / backup -->
+    <string name="onb_restore_title">Restore wallet</string>
+    <string name="onb_restore_body">Type or paste your 12-word recovery phrase. Words must be lowercase, separated by spaces. We accept 12, 15, 18, 21 or 24 words.</string>
+    <string name="onb_restore_phrase_label">Recovery phrase</string>
+    <string name="onb_restore_words_empty">0 / 12 words</string>
+    <string name="onb_restore_words_one">1 word</string>
+    <string name="onb_restore_words_many">%1$d words</string>
+    <string name="onb_restore_wrong_count">Need 12, 15, 18, 21 or 24 words (got %1$d).</string>
+    <string name="onb_restore_invalid">Invalid recovery phrase.</string>
+    <string name="onb_validating">Validating…</string>
+    <string name="onb_continue">Continue</string>
+    <string name="onb_restore_backup_title">Restore from backup</string>
+    <string name="onb_restore_backup_body">Paste the age-encrypted backup you exported from Settings → Encrypted backup, then type the backup password (NOT your PIN).</string>
+    <string name="onb_load_from_file">Load from file…</string>
+    <string name="onb_backup_blob">Backup blob</string>
+    <string name="onb_backup_password">Backup password</string>
+    <string name="onb_backup_paste_first">Paste the backup blob first.</string>
+    <string name="onb_backup_type_password">Type the backup password.</string>
+    <string name="onb_decryption_failed">Decryption failed.</string>
+    <string name="onb_decrypting">Decrypting…</string>
+    <string name="onb_decrypt_continue">Decrypt and continue</string>
+    <string name="onb_backup_dialog_title">Load encrypted backup</string>
+    <string name="onb_backup_file_filter">Text / age files (*.txt, *.age)</string>
+    <string name="onb_load_failed">Load failed: %1$s</string>
+
+    <!-- ModulesScreen -->
+    <string name="onb_modules_title">Modules</string>
+    <string name="onb_modules_intro">Choose what you want to track beyond your Bitcoin.</string>
+    <string name="onb_module_investments">Investments</string>
+    <string name="onb_module_investments_desc">Stocks, ETFs, commodities. Lot tracking, dual P&amp;L (fiat + BTC), opportunity cost vs HODL.</string>
+    <string name="onb_module_budget">Budget &amp; Bills</string>
+    <string name="onb_module_budget_desc">Category budgets, recurring bills, cash flow forecast, savings/burn/FIRE KPIs.</string>
+    <string name="onb_module_goals">Savings Goals</string>
+    <string name="onb_module_goals_desc">Target-based goals with progress tracking, sinking funds, sat or fiat denomination.</string>
+    <string name="onb_module_manual">Manual Assets &amp; Liabilities</string>
+    <string name="onb_module_manual_desc">Real estate, cash, vehicles, debts. Full net-worth breakdown beyond BTC.</string>
+    <string name="onb_module_labs">Analytics Labs</string>
+    <string name="onb_module_labs_desc">Sankey flows, activity scatter, calendar heatmap, YoY comparison, advanced charts.</string>
+    <string name="onb_modules_footer">You can change these anytime from Settings.</string>
+
+    <!-- Unlock / Migration -->
+    <string name="onb_unlock_title">Welcome back</string>
+    <string name="onb_unlock_body">Enter your PIN to unlock the wallet.</string>
+    <string name="onb_pin_label">PIN</string>
+    <string name="onb_pin_wrong_wait">Wrong PIN. Wait %1$ds before retrying.</string>
+    <string name="onb_unlocking">Unlocking…</string>
+    <string name="onb_unlock_wait">Unlock (%1$ds)</string>
+    <string name="onb_unlock">Unlock</string>
+    <string name="onb_mig_title">Update your wallet</string>
+    <string name="onb_mig_body">BHODL now supports multiple wallets — read-only tracking for asset visibility plus one signing wallet at a time. Set a device PIN to protect the wallet list, and confirm your existing PIN to migrate your current wallet.</string>
+    <string name="onb_mig_backup_hint">Recommended: export an encrypted backup first via the previous version of the app. Migration is atomic and reversible, but a fresh backup is the safest insurance.</string>
+    <string name="onb_mig_new_device_pin">New device PIN (min 6 chars)</string>
+    <string name="onb_mig_confirm_device_pin">Confirm new device PIN</string>
+    <string name="onb_device_pins_mismatch">Device PINs do not match.</string>
+    <string name="onb_mig_current_pin">Your current wallet PIN</string>
+    <string name="onb_wallet_pin_wrong_wait">Wrong wallet PIN. Wait %1$ds before retrying.</string>
+    <string name="onb_wallet_pin_wrong">Wrong wallet PIN.</string>
+    <string name="onb_mig_failed">Migration failed.</string>
+    <string name="onb_migrating">Migrating…</string>
+    <string name="onb_migrate">Migrate wallet</string>
+
+    <!-- WelcomeScreen -->
+    <string name="onb_sync_failed">sync failed</string>
+    <string name="onb_sync_partial">Could not sync %1$d wallet(s) — showing cached balances. %2$s</string>
+    <string name="onb_loading_wallets">Loading wallets…</string>
+    <string name="onb_open_tracker">Open Tracker (net worth &amp; portfolio)</string>
+    <string name="onb_erase_all_local">Erase ALL local wallets…</string>
+    <string name="onb_remove_watch_title">Remove watch wallet?</string>
+    <string name="onb_remove_watch_body">This will permanently delete “%1$s” from the registry and erase its encrypted chain-state file from disk. No signing keys are touched. You can re-add the same xpub later, but the cached transaction history will be re-fetched from scratch.</string>
+    <string name="onb_remove">Remove</string>
+    <string name="onb_your_wallets">Your wallets</string>
+    <string name="onb_remove_tracker">Remove tracker</string>
+    <string name="onb_remove_watch">Remove watch wallet</string>
+    <string name="onb_hide_options">Hide options</string>
+    <string name="onb_add_new_wallet">+ Add new wallet</string>
+    <string name="onb_create_wallet">Create new wallet</string>
+    <string name="onb_restore_phrase">Restore from recovery phrase</string>
+    <string name="onb_restore_backup">Restore from encrypted backup</string>
+    <string name="onb_add_watch">Add watch-only (xpub)</string>
+    <string name="onb_kind_signing_tracked">Signing (tracked)</string>
+    <string name="onb_kind_signing">Signing</string>
+    <string name="onb_kind_watch_xpub">Watch (xpub)</string>
+    <string name="onb_kind_watch_addresses">Watch (addresses)</string>
+    <string name="onb_kind_watch_hd">Watch (HD)</string>
+    <string name="onb_welcome_title">Welcome</string>
+    <string name="onb_welcome_body">BHODL is a self-custodial Bitcoin wallet. This is the alpha demo flow.</string>
+    <string name="onb_have_wallet">I already have a wallet</string>
+
+    <!-- PinSetupScreen -->
+    <string name="onb_default_wallet_name">My Wallet</string>
+    <string name="onb_pin_title">Set a PIN</string>
+    <string name="onb_pin_body">The PIN unlocks the wallet on this device. Use at least %1$d digits. The PIN never leaves this device.</string>
+    <string name="onb_wallet_name">Wallet name</string>
+    <string name="onb_add_to_tracker">Add to Tracker</string>
+    <string name="onb_add_to_tracker_hint">Show this wallet’s balance &amp; history in the Tracker (xpub-only mirror, no signing PIN needed to view).</string>
+    <string name="onb_pin_strength_moderate">%1$d-digit PIN: moderate protection against offline attacks — 8+ digits recommended.</string>
+    <string name="onb_confirm_pin">Confirm PIN</string>
+    <string name="onb_hide_advanced">Hide advanced</string>
+    <string name="onb_advanced_passphrase">Advanced (BIP-39 passphrase)</string>
+    <string name="onb_passphrase_hint">Optional 13th BIP-39 word. Mixed into the seed; without it, even the recovery phrase cannot restore this wallet. Leave blank if you don’t know what this is.</string>
+    <string name="onb_passphrase_label">BIP-39 passphrase (optional)</string>
+    <string name="onb_passphrase_confirm">Confirm BIP-39 passphrase</string>
+    <string name="onb_passphrases_mismatch">Passphrases do not match.</string>
+    <string name="onb_passphrases_mismatch_closed">BIP-39 passphrases do not match — open Advanced to fix.</string>
+    <string name="onb_pins_mismatch">PINs do not match.</string>
+    <string name="onb_pin_empty">Enter a PIN.</string>
+    <string name="onb_pin_too_short">PIN is too short (%1$d / %2$d minimum).</string>
+    <string name="onb_pin_too_long">PIN is too long (%1$d / %2$d maximum).</string>
+    <string name="onb_pin_non_numeric">PIN must contain only digits.</string>
+    <string name="onb_registry_locked">Your wallet registry is locked. Enter your device PIN to open it before creating this wallet.</string>
+    <string name="onb_open_registry_first">Open the wallet registry with your device PIN first.</string>
+    <string name="onb_wallet_name_taken">A wallet with this name already exists. Pick a different name.</string>
+    <string name="onb_wallet_create_failed">Wallet creation failed.</string>
+    <string name="onb_creating_wallet">Creating wallet…</string>
+    <string name="onb_finish_setup">Finish setup</string>
+    <string name="onb_same_pin_title">Use a different PIN per wallet</string>
+    <string name="onb_same_pin_body">You set the same PIN for this wallet as your device PIN. For best protection, use a different PIN for each signing wallet:\n\n• The device PIN protects the wallet list, watch-only chain state, and tracking data.\n• Each wallet PIN protects the signing key for that wallet only.\n\nWith distinct PINs, learning one PIN does not give an attacker access to the other tier. You can change this wallet’s PIN later from Settings.</string>
+    <string name="onb_i_understand">I understand</string>
+    <string name="onb_no_tor_title">Mainnet sync without Tor</string>
+    <string name="onb_no_tor_body">Adding the watch-only mirror will trigger an Esplora full-scan against a public server WITHOUT Tor. The server will see every receive + change address derived from this wallet’s xpub and most providers log queries.\n\nRecommended: enable Tor in Settings → Tor first. Otherwise tap “Continue without Tor” to proceed.</string>
+    <string name="onb_adding">Adding…</string>
+    <string name="onb_continue_without_tor">Continue without Tor</string>
+
+    <!-- PromoteWatchScreen -->
+    <string name="onb_promote_load_failed">Failed to load wallet.</string>
+    <string name="onb_promote_title">Promote: %1$s</string>
+    <string name="onb_promote_intro">Add the signing keys for this watch-only wallet. After promotion you can send + sign from it; the wallet’s history and label are preserved.</string>
+    <string name="onb_promote_seed_verify_failed">Failed to verify seed.</string>
+    <string name="onb_promote_seed_mismatch">Seed does not match this wallet. Check the BIP-39 passphrase if you used one.</string>
+    <string name="onb_promote_failed">Promotion failed.</string>
+    <string name="onb_promote_same_pin_body">You set the same PIN for this wallet as your device PIN. For best protection, use a different PIN for each signing wallet. You can change this later from Settings.</string>
+    <string name="onb_promote_pin_title">Confirm with your device PIN</string>
+    <string name="onb_promote_pin_body">Promoting a watch wallet to a signing wallet adds spending keys for it. To prevent an attacker who walked up to an unlocked app from triggering this, confirm with your device PIN first.</string>
+    <string name="onb_verifying">Verifying…</string>
+    <string name="onb_promote_verify_title">Verify these addresses</string>
+    <string name="onb_promote_verify_body">These are the first three receive addresses derived from this wallet’s stored descriptor. If they don’t match what you expect, cancel — do NOT enter your seed below.</string>
+    <string name="onb_promote_address">Address #%1$d</string>
+    <string name="onb_promote_addresses_ok">Addresses look right — continue</string>
+    <string name="onb_promote_addresses_wrong">Cancel — something looks wrong</string>
+    <string name="onb_promote_seed_title">Enter your recovery phrase</string>
+    <string name="onb_promote_seed_body">Type the 12-word BIP-39 mnemonic for this wallet. We derive the xpub locally and verify it matches the stored descriptor before continuing.</string>
+    <string name="onb_promote_verify_seed">Verify seed</string>
+    <string name="onb_pin_invalid">Enter a valid PIN.</string>
+    <string name="onb_promote_wallet_pin_title">Set a wallet PIN</string>
+    <string name="onb_promote_wallet_pin_body">Pick a PIN that protects this wallet’s signing keys going forward. It can differ from the device PIN — the security review recommends it does, for tier isolation.</string>
+    <string name="onb_promoting">Promoting…</string>
+    <string name="onb_promote_submit">Promote to signing wallet</string>
+
+    <!-- AddWatchScreen -->
+    <string name="onb_registry_not_open">Registry not open. Restart the app.</string>
+    <string name="onb_xpub_dup_signing">This xpub is already registered as “%1$s” (signing wallet). Pick a different xpub or remove the existing entry first.</string>
+    <string name="onb_xpub_dup_watch">This xpub is already registered as “%1$s” (watch wallet). Pick a different xpub or remove the existing entry first.</string>
+    <string name="onb_add_failed">Add failed.</string>
+    <string name="onb_add_watch_title">Add watch-only wallet</string>
+    <string name="onb_add_watch_body">Track another wallet’s balance and history by pasting its account xpub. No signing keys are imported — the watch wallet can see addresses and transactions but cannot spend.</string>
+    <string name="onb_add_watch_label">Label (e.g. ‘Cold storage’)</string>
+    <string name="onb_add_watch_xpub">Xpub / tpub / vpub / upub</string>
+    <string name="onb_script_type">Script type</string>
+    <string name="onb_script_native_segwit">Native SegWit</string>
+    <string name="onb_script_nested_segwit">Nested SegWit</string>
+    <string name="onb_network">Network</string>
+    <string name="onb_add_watch_submit">Add watch wallet</string>
+    <string name="onb_add_watch_no_tor_body">You’re about to add a mainnet watch wallet and sync it against a public Esplora server WITHOUT Tor. The server will see every receive + change address derived from your xpub, and most public Esplora providers log queries. The link between your IP, this xpub, and your balance / activity is then permanently in their logs.\n\nRecommended: enable Tor in Settings → Tor before continuing.</string>
+
+    <!-- Routes TrackerSection -->
+    <string name="onb_nav_section_home">Home</string>
+    <string name="onb_nav_section_transactions">Transactions</string>
+    <string name="onb_nav_section_budget">Budget &amp; Bills</string>
+    <string name="onb_nav_section_goals">Goals</string>
+    <string name="onb_nav_section_portfolio">Portfolio</string>
+    <string name="onb_nav_section_reports">Reports</string>
+</resources>

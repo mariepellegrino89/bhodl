@@ -1,0 +1,148 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  UX review 2026-10 (rec 3) — wallet send flow, fees (RBF / CPFP / PSBT
+  review), PayJoin and address book. Italian twin in
+  values-it/strings_wallet_send.xml (same keys, same format args).
+-->
+<resources>
+
+    <!-- PSBT review (send, batch, RBF, CPFP) -->
+    <string name="wsend_psbt_outputs">Outputs (%1$d)</string>
+    <string name="wsend_psbt_role_change">change · yours</string>
+    <string name="wsend_psbt_role_self">to yourself</string>
+    <string name="wsend_psbt_role_recipient">recipient</string>
+    <string name="wsend_psbt_network_fee">Network fee</string>
+    <string name="wsend_psbt_size">Size</string>
+    <string name="wsend_psbt_sent_others">Sent to others</string>
+    <string name="wsend_psbt_total_leaving">Total leaving your wallet</string>
+    <string name="wsend_psbt_unconfirmed_warning">This transaction spends an UNCONFIRMED coin received from someone else. The sender can still double-spend it, which would invalidate this payment.</string>
+    <string name="wsend_psbt_foreign_inputs">%1$d input(s) do not belong to this wallet and will not be signed by it.</string>
+    <string name="wsend_psbt_fee_above_limit">The fee (%1$s) is above the safety limit of %2$s for this payment.</string>
+    <string name="wsend_psbt_high_fee_ack">I understand and want to pay this fee</string>
+    <string name="wsend_high_fee_title">Unusually high fee</string>
+    <string name="wsend_high_fee_body">This transaction would pay %1$s in fees, above the %2$s safety limit. Check the fee rate. Continue only if you really intend to pay this much.</string>
+    <string name="wsend_high_fee_build_anyway">Build anyway</string>
+
+    <!-- Shared by the fee screens -->
+    <string name="wsend_wallet_not_unlocked">Wallet not unlocked.</string>
+    <string name="wsend_enter_positive_rate">Enter a positive fee rate.</string>
+    <string name="wsend_working">Working…</string>
+
+    <!-- Bump fee (RBF) -->
+    <string name="wsend_bump_failed">bump failed</string>
+    <string name="wsend_bump_title">Bump fee</string>
+    <string name="wsend_bump_intro">Replace the pending transaction with a higher-fee version. The new rate must strictly exceed the original.</string>
+    <string name="wsend_bump_new_rate">New fee rate (sat/vB)</string>
+    <string name="wsend_bump_review">Review replacement</string>
+    <string name="wsend_bump_original_fee">Original fee</string>
+    <string name="wsend_bump_fee_increase">Fee increase</string>
+    <string name="wsend_bump_sign_replace">Sign &amp; replace</string>
+    <string name="wsend_sign_broadcast">Sign &amp; broadcast</string>
+
+    <!-- CPFP -->
+    <string name="wsend_cpfp_failed">speed up failed</string>
+    <string name="wsend_cpfp_incoming_title">Speed up incoming</string>
+    <string name="wsend_cpfp_incoming_body">Spend the wallet outputs we received in this transaction at a higher fee. Miners will include both transactions in the same block (CPFP) so the parent confirms faster.</string>
+    <string name="wsend_cpfp_incoming_review">Review speed-up</string>
+    <string name="wsend_cpfp_change_title">Rescue stuck change</string>
+    <string name="wsend_cpfp_change_body">Spend this transaction’s change UTXO at a higher fee. Package relay drags the parent along, so the original outgoing transaction confirms faster (CPFP).</string>
+    <string name="wsend_cpfp_change_review">Review speed-up via change</string>
+    <string name="wsend_cpfp_target_rate">Target package fee rate (sat/vB)</string>
+    <string name="wsend_cpfp_review_title">Review CPFP child</string>
+    <string name="wsend_cpfp_parent_fee">Parent fee</string>
+    <string name="wsend_cpfp_ancestors">Unconfirmed ancestors</string>
+    <string name="wsend_cpfp_child_fee">Child fee</string>
+    <string name="wsend_cpfp_package_rate">Package rate</string>
+    <string name="wsend_cpfp_target">target</string>
+
+    <!-- Address book + contact picker -->
+    <string name="wsend_not_unlocked">Wallet not unlocked</string>
+    <string name="wsend_load_failed">load failed</string>
+    <string name="wsend_book_add_failed">add failed</string>
+    <string name="wsend_book_both_required">Both fields are required.</string>
+    <string name="wsend_book_add_title">Add a contact</string>
+    <string name="wsend_book_label">Label</string>
+    <string name="wsend_address">Address</string>
+    <string name="wsend_book_save">Save contact</string>
+    <string name="wsend_book_empty">No contacts yet. Add one above.</string>
+    <string name="wsend_picker_title">Pick a contact</string>
+    <string name="wsend_picker_search">Search by label</string>
+    <string name="wsend_picker_empty">No contacts yet. Add one from the Address book.</string>
+    <string name="wsend_picker_no_match">No match for “%1$s”.</string>
+
+    <!-- Send success -->
+    <string name="wsend_success_title">Sent</string>
+    <string name="wsend_success_body">Broadcast accepted by the network. The dashboard will reflect the new mempool entry on next sync.</string>
+    <string name="wsend_success_txid">Transaction id</string>
+    <string name="wsend_success_copy_txid">Copy txid</string>
+    <string name="wsend_success_done">Done</string>
+
+    <!-- Review & send -->
+    <string name="wsend_review_decode_failed">decode failed</string>
+    <string name="wsend_review_sign_failed">sign failed</string>
+    <string name="wsend_review_broadcast_failed">broadcast failed</string>
+    <string name="wsend_review_sign_error">Sign: %1$s</string>
+    <string name="wsend_review_broadcast_error">Broadcast: %1$s</string>
+    <string name="wsend_review_decoding">Decoding transaction…</string>
+    <string name="wsend_review_cannot_review">Cannot review this transaction: %1$s</string>
+    <string name="wsend_review_mismatch">⚠ %1$s Signing is blocked — go back and rebuild.</string>
+    <string name="wsend_review_wrong_address">The transaction does not pay the address you entered.</string>
+    <string name="wsend_review_wrong_amount">The transaction does not pay the amount you entered to that address.</string>
+    <string name="wsend_review_signing">Signing…</string>
+    <string name="wsend_review_broadcasting">Broadcasting…</string>
+    <string name="wsend_review_confirm">Confirm and send</string>
+
+    <!-- Send form -->
+    <string name="wsend_fetch_failed">fetch failed</string>
+    <string name="wsend_payjoin_failed">PayJoin failed</string>
+    <string name="wsend_build_failed">build failed</string>
+    <string name="wsend_enter_recipient">Enter a recipient address</string>
+    <string name="wsend_enter_positive_amount">Enter a positive amount in satoshis</string>
+    <string name="wsend_fee_unavailable_manual">Fee estimate unavailable — enter a fee rate (sat/vB) manually.</string>
+    <string name="wsend_no_utxo_selected">Coin control is on but no UTXO is selected.</string>
+    <string name="wsend_fee_source">%1$s · %2$s fee estimates</string>
+    <string name="wsend_invalid_uri">Invalid bitcoin: URI — %1$s</string>
+    <string name="wsend_to_label">To: %1$s</string>
+    <string name="wsend_send_all">(send all)</string>
+    <string name="wsend_recipient_incomplete">Recipient #%1$s is missing an address or amount.</string>
+    <string name="wsend_recipient_n">Recipient #%1$d</string>
+    <string name="wsend_remove">Remove</string>
+    <string name="wsend_amount_sat">Amount (sat)</string>
+    <string name="wsend_loading_utxos">Loading UTXOs…</string>
+    <string name="wsend_no_spendable_utxos">No spendable UTXOs.</string>
+    <string name="wsend_selected_n_of_m">Selected: %1$d of %2$d</string>
+    <string name="wsend_utxo_change">change</string>
+    <string name="wsend_utxo_receive">receive</string>
+    <string name="wsend_utxo_confirmed">confirmed</string>
+    <string name="wsend_utxo_mempool">mempool</string>
+    <string name="wsend_utxo_frozen">FROZEN · not spendable</string>
+    <string name="wsend_fetching_fees">Fetching fee estimates…</string>
+    <string name="wsend_fee_unavailable_reason">Fee estimate unavailable — enter the fee rate manually (%1$s).</string>
+    <string name="wsend_category_value">Category: %1$s</string>
+    <string name="wsend_category_none">Category (none yet)</string>
+    <string name="wsend_category_add">Add category (optional)</string>
+    <string name="wsend_category_field">Category (optional)</string>
+    <string name="wsend_category_placeholder">e.g. Fixed costs, Investments, Food</string>
+
+    <!-- PayJoin (BIP78) -->
+    <string name="wsend_payjoin_detected">PayJoin endpoint detected</string>
+    <string name="wsend_payjoin_explainer">Review contacts the receiver and shows the final transaction for your approval before anything is signed. To take part, your original payment is signed and shared with the receiver, who may broadcast it as a normal payment even if you cancel.</string>
+    <string name="wsend_payjoin_tor_required">⚠ This PayJoin endpoint is a Tor hidden service. Enable Tor in Settings to use it, or clear PayJoin to pay normally.</string>
+    <string name="wsend_payjoin_clear">Clear PayJoin (pay normally)</string>
+    <string name="wsend_payjoin_review_title">Review PayJoin</string>
+    <string name="wsend_payjoin_unavailable">PayJoin unavailable</string>
+    <string name="wsend_payjoin_failure">The receiver’s PayJoin could not be used: %1$s\n\nYou can send the same payment as a regular (non-PayJoin) transaction instead.</string>
+    <string name="wsend_payjoin_unknown_error">unknown error</string>
+    <string name="wsend_payjoin_outputs">Outputs</string>
+    <string name="wsend_payjoin_role_payment">payment</string>
+    <string name="wsend_payjoin_role_receiver">receiver</string>
+    <string name="wsend_payjoin_fee">Network fee: %1$s</string>
+    <string name="wsend_payjoin_fee_original">(original %1$s, %2$s)</string>
+    <string name="wsend_payjoin_fee_share">Your share of the extra fee: %1$s</string>
+    <string name="wsend_payjoin_receiver_inputs">Receiver added %1$d input(s)</string>
+    <string name="wsend_payjoin_total_leaving">Total leaving your wallet: %1$s</string>
+    <string name="wsend_payjoin_size">Size: ~%1$d vB</string>
+    <string name="wsend_payjoin_original_note">The receiver already holds your signed original payment and may broadcast it instead of the PayJoin.</string>
+    <string name="wsend_payjoin_sign">Sign &amp; broadcast PayJoin</string>
+    <string name="wsend_payjoin_send_without">Send without PayJoin</string>
+</resources>

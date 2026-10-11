@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/mariepellegrino89/bhodl/security/advisories/new
+    about: Please report security issues privately here, never in a public issue.
+  - name: Design tasks looking for help
+    url: https://github.com/mariepellegrino89/bhodl/blob/main/docs/design-help-wanted.md
+    about: Scoped design and UX tasks you can pick up without building the app.

@@ -1,0 +1,69 @@
+name: Bug report
+description: Something in BHODL does not work as expected.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. **Security issues go to the private advisory form, not here.**
+        Never paste your recovery phrase, PIN, backup password, xpub or real addresses.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open the Wallet tab
+        2. ...
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Wallet (send / receive / transactions / UTXOs)
+        - Tracker (net worth / budget / portfolio / reports)
+        - Onboarding, PIN, backup, restore
+        - Settings, privacy mode, Security Hub
+        - Build / tooling
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: network
+    attributes:
+      label: Network
+      options:
+        - Signet
+        - Testnet4
+        - Regtest
+        - Not network related
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Commit or version
+      description: Output of `git rev-parse --short HEAD`, or the release you used.
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: Windows 11, Ubuntu 24.04, macOS 15 ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      description: Remove personal paths and data first. Privacy mode (Ctrl+Shift+H) hides amounts in screenshots.
+      render: text

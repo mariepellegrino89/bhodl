@@ -1,0 +1,60 @@
+[package]
+name = "bhodl-wallet-onchain"
+description = "On-chain Bitcoin wallet primitives for BHODL: BIP86 taproot single-sig, descriptor-driven."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+readme = "README.md"
+publish = false
+
+[dependencies]
+bhodl-core = { path = "../bhodl-core" }
+bitcoin = { workspace = true }
+bip39 = { workspace = true }
+thiserror = { workspace = true }
+bdk_wallet = { workspace = true }
+bdk_esplora = { workspace = true }
+bdk_chain = { workspace = true }
+rusqlite = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+rand = { workspace = true }
+# Password-based encrypted backup of the wallet seed (mnemonic +
+# passphrase). The age format is widely supported (CLI, libraries
+# in many languages) so the user can recover even if BHODL is gone.
+# Pinned to a minimum-feature subset — armor for ASCII output, no
+# OpenSSL / no SSH recipients (the wallet uses only password auth).
+age = { version = "0.11", default-features = false, features = ["armor"] }
+secrecy = "0.10"
+zeroize = { workspace = true }
+ureq = { workspace = true }
+url = { workspace = true }
+# Phase 3 multi-wallet identity (UUIDv4 per registry entry).
+uuid = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+proptest = { workspace = true }
+
+# Regtest harness via bitcoind + electrs/esplora downloaded on first build.
+# Unix-only because the electrsd 0.28 build script uses
+# `std::os::unix::fs::PermissionsExt::from_mode`. Linux and macOS CI runners
+# pick this up; Windows hosts skip the integration tests automatically.
+[target.'cfg(unix)'.dev-dependencies]
+bdk_testenv = { version = "0.13", default-features = false, features = ["std", "download"] }
+
+[features]
+# Enable tests that hit real network endpoints (CoinGecko, blockchain.info,
+# Frankfurter). Off by default so `cargo test` stays fast and offline.
+online-tests = []
+# Tests that route through a REAL Tor daemon (src/tor_live_tests.rs).
+# Proxy from BHODL_TOR_SOCKS (default socks5h://127.0.0.1:9050); they
+# skip without Tor unless BHODL_TOR_REQUIRED is set. Run by the nightly
+# `tor` workflow, never on pull requests. See scripts/tor-tests.sh.
+tor-tests = []
+
+[lints]
+workspace = true
