@@ -124,7 +124,10 @@ jobs:
           key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle.kts', 'gradle/libs.versions.toml', 'gradle/verification-metadata.xml') }}
           restore-keys: gradle-${{ runner.os }}-
       - name: Run JVM tests
-        run: ./gradlew :shared:jvmTest :apps:desktop:jvmTest --stacktrace
+        # Compose resources read the screen resolution when strings are
+        # resolved outside composition, which throws HeadlessException on
+        # a runner without a display: run the tests on a virtual one.
+        run: xvfb-run --auto-servernum ./gradlew :shared:jvmTest :apps:desktop:jvmTest --stacktrace
       - name: Upload test report on failure
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
