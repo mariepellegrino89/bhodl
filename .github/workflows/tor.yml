@@ -2,11 +2,9 @@ name: Tor (live)
 
 # Live Tor tests: a real Tor daemon + the public internet (mempool.space
 # signet Esplora, a .onion Esplora, check.torproject.org, rate and price
-# providers). External network = flaky, so this NEVER runs on pull
-# requests — nightly and on demand only. See scripts/tor-tests.sh.
+# providers). External network = flaky, so this never runs automatically
+# (no PRs, no schedule) — on demand only. See scripts/tor-tests.sh.
 on:
-  schedule:
-    - cron: '17 3 * * *'
   workflow_dispatch:
 
 # Least privilege: the job only needs to read the repository.
