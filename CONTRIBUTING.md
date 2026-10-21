@@ -111,6 +111,12 @@ cargo deny check
 ./gradlew :apps:desktop:run
 ```
 
+Dependency bumps: Gradle verifies artifact checksums, so after changing a version run
+`./gradlew --write-verification-metadata sha256 :shared:jvmTest :apps:desktop:jvmTest` and commit
+the updated `gradle/verification-metadata.xml`. The `OSV scan` job then checks it for known
+vulnerabilities; see handbook section 5.3 for how to handle a finding. Docker images used by the
+integration tests are pinned by digest and bumped deliberately (handbook section 5.3).
+
 ## Pull request workflow
 
 1. Fork the repo and branch from `main` (`type/short-description`, e.g. `fix/fee-rounding`).
