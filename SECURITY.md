@@ -101,7 +101,31 @@ the advisory unless they prefer to stay anonymous.
   derives a different wallet (standard BIP-39 behavior).
 - **Backup export**: age encryption (age-cli compatible format). Encrypted
   blob + user password. Restore flow decrypts to plaintext mnemonic
-  (held in memory, zeroized on drop).
+  (Rust-side copies zeroized on drop; see the limitations below for the
+  copies that cross the FFI boundary).
+
+### Known memory-hygiene limitations
+
+Secret material is wiped best-effort on the Rust side (`Zeroizing`,
+`non_secure_erase`), but the recovery phrase and backup password cannot be
+fully scrubbed once they cross the Kotlin/Rust FFI boundary:
+
+- `WalletHandle.peek_mnemonic`, `WalletHandle.generate_random_mnemonic` and
+  `decrypt_backup` return plain `String`s. uniffi lowers them into a
+  `RustBuffer` that is freed but not zeroed, so one un-wiped copy remains
+  in the native heap until reused.
+- On the JVM the phrase lives in immutable `String` objects (and Compose
+  text state) that cannot be wiped and persist until garbage collection.
+- A Rust-owned `#[uniffi::Object]` holding a `Zeroizing<String>` with an
+  explicit `wipe()` would shrink this, but is blocked today: the Windows
+  KMP uniffi fork crashes on `String`-returning methods of any
+  `#[uniffi::Object]` other than `WalletHandle`
+  (`docs/uniffi-runtime.md`, Hazard 2), and the desktop screens consume
+  the phrase as `String` throughout.
+
+Mitigation: an attacker able to read process memory of an unlocked wallet
+is out of scope (see Scope); keep the reveal and restore screens short
+lived and use full-disk encryption with swap/hibernation protection.
 
 ## Supply Chain
 

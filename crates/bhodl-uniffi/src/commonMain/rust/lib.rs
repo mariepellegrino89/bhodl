@@ -410,6 +410,9 @@ impl WalletHandle {
             detail: "wallet mutex poisoned".into(),
         })?;
         let words = MnemonicWordCount::from_count(word_count)?;
+        // The returned phrase is moved into uniffi's `RustBuffer` and
+        // handed to Kotlin as an immutable JVM String; neither copy is
+        // wiped (see SECURITY.md, "Known memory-hygiene limitations").
         Ok(core_generate_mnemonic(words)?)
     }
 
@@ -744,14 +747,16 @@ impl WalletHandle {
         let guard = self.inner.lock().map_err(|_| WalletError::Storage {
             detail: "wallet mutex poisoned".into(),
         })?;
-        // `peek_mnemonic` returns owned Strings from the DB.
-        // Wrap them in Zeroizing so the intermediate Rust-side copies
-        // are wiped when the Zeroizing wrappers drop. We then clone the
-        // inner String values into the MnemonicReveal that crosses the
-        // FFI boundary; the Zeroizing copies are dropped immediately
-        // after the struct is built. The JVM String produced from
-        // MnemonicReveal.mnemonic is outside our control — documented
-        // limitation.
+        // `peek_mnemonic` returns owned Strings from the DB. Wrap them in
+        // Zeroizing so these Rust-side copies are wiped on drop.
+        //
+        // KNOWN LIMITATION: the `MnemonicReveal` built below is a second,
+        // un-wiped copy. uniffi lowers it into a `RustBuffer` for the FFI
+        // call and that buffer is freed, NOT zeroed, once Kotlin has
+        // lifted it; the Kotlin side then holds an immutable JVM `String`
+        // that cannot be wiped either. Returning a Rust-owned wipeable
+        // object is not viable today (see `docs/uniffi-runtime.md`
+        // Hazard 2 and SECURITY.md, "Known memory-hygiene limitations").
         let (mnemonic_z, passphrase_z) = {
             let (m, p) = guard.peek_mnemonic()?;
             (zeroize::Zeroizing::new(m), zeroize::Zeroizing::new(p))
@@ -760,7 +765,8 @@ impl WalletHandle {
             mnemonic: mnemonic_z.to_string(),
             passphrase: passphrase_z.to_string(),
         };
-        // mnemonic_z and passphrase_z drop here, wiping the copies.
+        // mnemonic_z and passphrase_z drop here, wiping only the Rust-side
+        // source copies; `reveal` itself is handed to uniffi un-wiped.
         Ok(reveal)
     }
 
@@ -2153,13 +2159,18 @@ pub struct BackupContents {
 #[uniffi::export]
 pub fn decrypt_backup(blob: String, password: String) -> Result<BackupContents, WalletError> {
     // Wrap the inputs so the Rust-side copies are wiped on drop. The
-    // JVM-side Strings are outside our control — documented limitation.
+    // lifted argument buffers and the JVM-side Strings are outside our
+    // control (see SECURITY.md, "Known memory-hygiene limitations").
     let blob = zeroize::Zeroizing::new(blob);
     let password = zeroize::Zeroizing::new(password);
     let bundle = bhodl_wallet_onchain::decrypt_bundle(&blob, &password)?;
-    // `BackupBundle` now implements `ZeroizeOnDrop` so its fields cannot
-    // be moved out by value. Clone into `BackupContents`; `bundle` drops
-    // at the end of this block and wipes the decrypted mnemonic/passphrase.
+    // `BackupBundle` implements `ZeroizeOnDrop` so its fields cannot be
+    // moved out by value. Clone into `BackupContents`; `bundle` drops at
+    // the end of this function and wipes ITS copy. The clones in
+    // `BackupContents` are NOT wiped: uniffi lowers them into a
+    // `RustBuffer` that is freed without zeroing, and the Kotlin side
+    // receives immutable JVM Strings (see SECURITY.md, "Known
+    // memory-hygiene limitations").
     Ok(BackupContents {
         version: bundle.version,
         network: bundle.network.clone(),
@@ -3768,9 +3779,8 @@ impl RegistryHandle {
         // which is expected to be wrong most of the time).
         let (salt, kdf_params) =
             params_for_known_key(&self.data_dir, KdfScope::Registry, &self.device_key)?;
-        let derived: SecretKey = zeroize::Zeroizing::new(
-            bhodl_core::derive_key_from_pin_with_params(&candidate, &salt, &kdf_params)?,
-        );
+        let derived: SecretKey =
+            bhodl_core::derive_key_from_pin_with_params(&candidate, &salt, &kdf_params)?;
         Ok(kdf::constant_time_eq(&*derived, &self.device_key))
     }
 
@@ -4778,7 +4788,7 @@ fn backup_matches_account(
     let Ok(key) = bhodl_core::derive_key_from_pin_with_params(pin, &salt, &params) else {
         return false;
     };
-    let key: SecretKey = zeroize::Zeroizing::new(key);
+    let key: SecretKey = key;
     let Ok(backup_account) = OnchainAccount::load_persistent(network, &sqlite, &key) else {
         return false;
     };

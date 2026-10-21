@@ -98,6 +98,11 @@ pub(crate) const BACKUP_MAX_SCRYPT_WORK_FACTOR: u8 = 21;
 /// anything bigger is not ours and is refused before it is buffered.
 const MAX_BUNDLE_JSON_LEN: u64 = 64 * 1024;
 
+/// Initial capacity of the plaintext JSON buffer in [`encrypt_bundle`];
+/// sized so a normal bundle (mnemonic + passphrase + metadata) never
+/// reallocates and leaves stray plaintext copies behind.
+const JSON_BUF_CAPACITY: usize = 8 * 1024;
+
 /// Encrypt a [`BackupBundle`] under `password` and return the
 /// ASCII-armored age payload.
 ///
@@ -112,8 +117,6 @@ const MAX_BUNDLE_JSON_LEN: u64 = 64 * 1024;
 ///   scrypt, a broken `Write` impl) — none should fire on the
 ///   in-memory pipeline we use here.
 pub fn encrypt_bundle(bundle: &BackupBundle, password: &str) -> Result<String, OnchainError> {
-    use zeroize::Zeroize;
-
     // Reject an empty backup password at export time. An empty password
     // would let anyone who obtains the file decrypt it without any
     // brute-force cost. The decrypt path does NOT enforce this so that
@@ -124,7 +127,11 @@ pub fn encrypt_bundle(bundle: &BackupBundle, password: &str) -> Result<String, O
         ));
     }
 
-    let mut json = serde_json::to_vec(bundle)
+    // Serialise into a pre-sized, zeroize-on-drop buffer. `to_vec` would
+    // grow by doubling and leave un-wiped partial copies on the heap; the
+    // capacity here is generous so a typical bundle never reallocates.
+    let mut json = zeroize::Zeroizing::new(Vec::<u8>::with_capacity(JSON_BUF_CAPACITY));
+    serde_json::to_writer(&mut *json, bundle)
         .map_err(|e| OnchainError::Storage(format!("backup serialise: {e}")))?;
 
     let secret = SecretString::from(password);
@@ -150,11 +157,10 @@ pub fn encrypt_bundle(bundle: &BackupBundle, password: &str) -> Result<String, O
         Ok(())
     })();
     // Scrub the intermediate JSON buffer that carried the mnemonic +
-    // passphrase in plaintext UTF-8. The age writer has copied the
-    // bytes into its own (already-encrypted) output by this point; we
-    // are scrubbing OUR remaining copy regardless of whether the
-    // encryption itself succeeded or errored mid-way through.
-    json.zeroize();
+    // passphrase in plaintext UTF-8. `Zeroizing` wipes it on drop
+    // whether or not encryption succeeded; dropping here makes the
+    // wipe happen before the (potentially slow) error path unwinds.
+    drop(json);
     result?;
 
     String::from_utf8(armored).map_err(|e| OnchainError::Storage(format!("backup utf8: {e}")))
