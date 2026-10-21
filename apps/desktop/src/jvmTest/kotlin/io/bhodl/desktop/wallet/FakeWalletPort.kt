@@ -351,6 +351,7 @@ public class FakeWalletPort(
         val expectedAmountSat: ULong,
         val feeRateSatVb: ULong,
         val proxyUrl: String?,
+        val allowHighFee: Boolean = false,
     )
 
     public data class PayjoinSignCall(
@@ -403,10 +404,12 @@ public class FakeWalletPort(
         expectedAmountSat: ULong,
         feeRateSatVb: ULong,
         proxyUrl: String?,
+        allowHighFee: Boolean,
     ): PayjoinReview {
-        failPayjoinNegotiate?.let { throw it }
-        val call = PayjoinNegotiateCall(uri, expectedAddress, expectedAmountSat, feeRateSatVb, proxyUrl)
+        val call = PayjoinNegotiateCall(uri, expectedAddress, expectedAmountSat, feeRateSatVb, proxyUrl, allowHighFee)
         payjoinNegotiateCalls += call
+        failPayjoinNegotiate?.let { throw it }
+        if (!allowHighFee) failBuildUnlessHighFeeAllowed?.let { throw it }
         return payjoinReviewBuilder(call)
     }
 
