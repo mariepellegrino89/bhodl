@@ -663,9 +663,10 @@ pub struct ReceiveLabelCopy {
 ///   manual BIP32 path used by [`peek_taproot_address`], which must
 ///   produce bit-for-bit identical output to the BIP86 test vectors.
 ///
-/// **Phase-1 trade-offs**: no zeroize on the in-memory key material, no
-/// signing. The on-disk DB is `SQLCipher`-encrypted (AES-256, key from
-/// caller); the master xpriv held in this struct is still plain memory.
+/// **Trade-offs**: the master xpriv is wiped best-effort on drop
+/// (`non_secure_erase` plus a chain-code overwrite, see the `Drop` impl),
+/// but while the account is alive it sits in plain process memory. The
+/// on-disk DB is `SQLCipher`-encrypted (AES-256, key from caller).
 ///
 /// Derivation path follows BIP86: `m/86'/coin'/0'/0/index` (external) and
 /// `m/86'/coin'/0'/1/index` (internal / change), where `coin = 0` for
@@ -945,12 +946,16 @@ impl OnchainAccount {
     /// Use [`next_unused_address`] when you need to track which addresses
     /// have been revealed.
     pub fn peek_taproot_address(&self, index: u32) -> Result<Address, OnchainError> {
-        if let Some(xpriv) = self.xpriv {
+        if let Some(xpriv) = self.xpriv.as_ref() {
             let coin: u32 = u32::from(!matches!(self.network, BhodlNetwork::Mainnet));
             let path = DerivationPath::from_str(&format!("m/86'/{coin}'/0'/0/{index}"))
                 .map_err(|e| OnchainError::DerivationPath(e.to_string()))?;
-            let derived = xpriv.derive_priv(&self.secp, &path)?;
+            let mut derived = xpriv.derive_priv(&self.secp, &path)?;
             let internal_pubkey = derived.private_key.x_only_public_key(&self.secp).0;
+            // Wipe the derived child key (scalar + chain code) before it
+            // goes out of scope; best-effort, same as the `Drop` impl.
+            derived.private_key.non_secure_erase();
+            derived.chain_code = bitcoin::bip32::ChainCode::from([0u8; 32]);
             Ok(Address::p2tr(
                 &self.secp,
                 internal_pubkey,
