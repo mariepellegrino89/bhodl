@@ -47,6 +47,9 @@ jobs:
           persist-credentials: false
       - name: Install pinned Rust toolchain (rust-toolchain.toml)
         run: rustup toolchain install
+      # bhodl-keystore links libdbus-1 for the Secret Service backend.
+      - name: Install libdbus headers
+        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: cargo clippy --workspace --all-targets -- -D warnings
 
@@ -63,6 +66,9 @@ jobs:
           persist-credentials: false
       - name: Install pinned Rust toolchain (rust-toolchain.toml)
         run: rustup toolchain install
+      - name: Install libdbus headers
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: cargo test --workspace --no-fail-fast
 
@@ -110,6 +116,8 @@ jobs:
           persist-credentials: false
       - name: Install pinned Rust toolchain (rust-toolchain.toml)
         run: rustup toolchain install
+      - name: Install libdbus headers
+        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
@@ -162,6 +170,8 @@ jobs:
           persist-credentials: false
       - name: Install pinned Rust toolchain (rust-toolchain.toml)
         run: rustup toolchain install
+      - name: Install libdbus headers
+        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
