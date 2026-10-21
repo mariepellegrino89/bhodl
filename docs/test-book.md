@@ -531,10 +531,10 @@ puoi testare in modalità "rifiuto rete" che surface l'errore corretto.
 
 | #     | Steps                                                                 | Risultato atteso                                                                | Pass |
 |-------|-------|------|------|
-| 15.1  | Logout → da Welcome (se ti porta a Unlock, fai Back) → vedi "Erase ALL local wallets…" in basso. | Pulsante TextButton, colore tertiary (de-enfatizzato). Alternativa: Settings → "Erase Wallet" (14b.13–14b.14) è la strada primaria. | [auto] SecretActionsUiTest.`Welcome reset needs DELETE and then reports the wipe` |
-| 15.2  | Tap "Erase ALL local wallets…".                              | Si apre il dialog "Erase ALL wallets on this device?" con campo "Type DELETE"; il bottone di conferma è disabilitato finché il testo non è `DELETE`. | [auto] SecretActionsUiTest.`Welcome reset needs DELETE and then reports the wipe` + `wipe dialog stays disabled for anything but DELETE` |
+| 15.1  | Logout → da Welcome (se ti porta a Unlock, fai Back) → vedi "Erase ALL local wallets…" in basso. | Pulsante TextButton, colore tertiary (de-enfatizzato). Alternativa: Settings → "Erase Wallet" (14b.13–14b.14) è la strada primaria. | [auto] SecretActionsUiTest.`Welcome reset without a registry moves the files to trash after the seed acknowledgement` |
+| 15.2  | Tap "Erase ALL local wallets…".                              | Si apre il dialog "Erase ALL wallets on this device?" con campo "Type DELETE"; il bottone di conferma è disabilitato finché il testo non è `DELETE` **e** (audit 2026-10, §54) finché non si inserisce il PIN del dispositivo (registry presente) o si spunta "I have the recovery phrase…" (percorso cestino). | [auto] SecretActionsUiTest.`Welcome reset with a registry requires the device PIN and counts wrong attempts` + `wipe dialog stays disabled for anything but DELETE` |
 | 15.3  | Aspetta 5 secondi senza tappare.                                       | Il dialog resta aperto (nessun timeout); Cancel lo chiude senza cancellare nulla. | [ ] |
-| 15.4  | Digita `DELETE` → "Erase all wallets".                                                          | Messaggio "Wiped N items." Files `~/.bhodl/wallet.sqlite`, `~/.bhodl/wallet.kdf.json`, `~/.bhodl/wallet.network` (2.5) non esistono più. | [auto] SecretActionsUiTest.`Welcome reset needs DELETE and then reports the wipe` |
+| 15.4  | Con PIN del dispositivo: digita PIN + `DELETE` → "Erase all wallets". Senza PIN ("I forgot the device PIN" o nessun registry): `DELETE` + spunta → "Move wallets to recovery folder". | Con PIN: "Wiped N items.", i file non esistono più. Senza PIN: "Moved N items to …/.bhodl-trash/<AAAAMMGG-hhmmss>"; `~/.bhodl` non ha più wallet, i file sono nel cestino con lo stesso percorso relativo. Vedi §54.1–54.4. | [auto] SecretActionsUiTest.`Welcome reset with a registry requires the device PIN and counts wrong attempts` + `forgot device PIN switches to the trash path` |
 | 15.5  | Riapri app.                                                            | Boot guard parte da Welcome (no salt → nuovo install fresco).                   | [ ] |
 
 ---
@@ -2516,4 +2516,51 @@ un modulo tracker attivo (Reports visibile), valuta fiat EUR.
   --tests "io.bhodl.desktop.screens.UnitsOnboardingTest" \
   --tests "io.bhodl.desktop.screens.NetWorthHeroBitcoinLensTest"   --tests "io.bhodl.desktop.screens.RuleAmountPrivacyTest"   --tests "io.bhodl.desktop.ui.money.SignedAmountScanTest" \
   --tests "io.bhodl.desktop.screens.TableColumnHidingTest"
+```
+
+---
+
+## 54. Audit 2026-10 — hardening UI desktop: reset pre-auth, blocco nel wizard, clipboard (2026-10-21)
+
+> Tre finding residui dell'audit 2026-10.
+> **Reset pre-auth** (Welcome › "Erase ALL local wallets…", raggiungibile dal
+> gate PIN bloccato con Back): se esiste un registry serve il **PIN del
+> dispositivo** (tentativi contati come sul gate, stesso lockout) per la
+> cancellazione definitiva. "I forgot the device PIN" (o nessun registry)
+> **non cancella**: i file vengono spostati in `~/.bhodl-trash/<AAAAMMGG-hhmmss>/`
+> (UTC, stesso percorso relativo di `~/.bhodl`) dopo la spunta "I have the
+> recovery phrase (or encrypted backup) of every wallet". Il cestino non
+> viene mai svuotato dall'app. Settings › Factory reset (sessione
+> autenticata) resta solo `DELETE`.
+> **Blocco inattività nel wizard**: GenerateMnemonic, RestoreMnemonic,
+> RestoreBackup, ConfirmMnemonic e PinSetup (o un seed parcheggiato in
+> `SetupSecrets`) armano il blocco anche al primo avvio senza wallet né
+> registry; alla scadenza il seed viene azzerato e si torna al boot guard
+> (Welcome su installazione nuova, gate PIN se c'è un registry).
+> **Clipboard**: tutte le copie di dati del wallet (indirizzo, URI BIP21,
+> txid, xpub / descriptor) passano da `SensitiveClipboard`: su Windows
+> pubblicano anche i formati `ExcludeClipboardContentFromMonitorProcessing`,
+> `CanIncludeInClipboardHistory` = 0 e `CanUploadToCloudClipboard` = 0, quindi
+> non finiscono nella cronologia Win+V né nel clipboard cloud. xpub e
+> descriptor mantengono l'auto-clear a 60 s.
+
+| #     | Test                                              | Passi                                                                                                   | Atteso                                                                                                                                                                                                 | Pass |
+|-------|---------------------------------------------------|---------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|------|
+| 54.1  | Reset pre-auth con PIN del dispositivo            | 1. Install con registry, app chiusa. 2. Avvio → gate PIN → Back → Welcome › "Erase ALL local wallets…". 3. `DELETE` senza PIN. 4. PIN sbagliato. 5. PIN giusto. | 3: bottone disabilitato. 4: "Wrong device PIN.", nessun file toccato, il tentativo conta (stesso lockout del gate). 5: "Wiped N items.", `~/.bhodl` senza registry né wallet; nessuna cartella `~/.bhodl-trash`. | [auto] SecretActionsUiTest.`Welcome reset with a registry requires the device PIN and counts wrong attempts` |
+| 54.2  | "Ho dimenticato il PIN" → cestino recuperabile    | 1. Come 54.1 punto 2. 2. Spunta "I forgot the device PIN". 3. `DELETE` senza spunta backup. 4. Spunta "I have the recovery phrase…" → "Move wallets to recovery folder". | 2: il campo PIN sparisce, il testo indica la cartella `…/.bhodl-trash`. 3: bottone disabilitato. 4: "Moved N items to …/.bhodl-trash/<timestamp>". L'app riparte da Welcome come installazione nuova. | [auto] SecretActionsUiTest.`forgot device PIN switches to the trash path` + LocalWipeTrashTest.`move to trash empties the data dir and keeps every file restorable` |
+| 54.3  | Ripristino dal cestino                            | 1. Dopo 54.2 chiudi l'app. 2. Sposta il contenuto di `~/.bhodl-trash/<timestamp>/` dentro `~/.bhodl/`. 3. Riavvia e inserisci il PIN ricordato. | Il gate PIN accetta il PIN e i wallet tornano tutti, con storico e tracking. | [ ]  |
+| 54.4  | Reset senza registry (legacy / nessun PIN device) | 1. Data dir con solo wallet legacy. 2. Welcome › Erase ALL local wallets…. | Nessun campo PIN né "forgot PIN": solo `DELETE` + spunta backup, file spostati nel cestino. Due reset nello stesso secondo creano cartelle distinte (`…-1`). | [auto] SecretActionsUiTest.`Welcome reset without a registry moves the files to trash after the seed acknowledgement` + LocalWipeTrashTest.`a second reset in the same second gets its own folder` |
+| 54.5  | Blocco inattività su GenerateMnemonic (primo avvio) | 1. Data dir vuota, avvia. 2. Create wallet: resta sulla schermata con le parole senza toccare mouse/tastiera per 15 min (o minimizza la finestra per > 60 s). | Entro ~10 s dalla scadenza l'app torna a Welcome; Back non riporta alla frase; ricominciando "Create wallet" viene generata una frase **diversa**. | [auto] IdleLockTest.`the setup wizard arms the lock even with nothing open` (policy; il watcher di App resta manuale) |
+| 54.6  | Blocco inattività su ConfirmMnemonic / PinSetup   | 1. Come 54.5 ma prosegui fino a ConfirmMnemonic (o PinSetup) e resta inattivo 15 min. | Ritorno a Welcome; il seed parcheggiato è azzerato (nessuna schermata del wizard raggiungibile con Back). Con un registry aperto (wizard avviato dal Tracker) si torna invece al gate PIN. | [auto] IdleLockTest.`the setup wizard arms the lock even with nothing open` |
+| 54.7  | Clipboard fuori dalla cronologia Windows          | 1. Windows 10/11, Impostazioni › Appunti: cronologia (e sincronizzazione) attive. 2. Copia un testo qualsiasi da un'altra app. 3. Receive › Copy address; Settings › Show watch-only descriptor › Copy xpub; dettaglio tx › Copy txid. 4. Win+V. 5. Incolla subito in un editor. | 4: nella cronologia c'è il testo del punto 2 ma **nessuno** dei valori di BHODL. 5: incolla il valore corretto. Dopo 60 s l'xpub / descriptor non è più negli appunti (gli indirizzi restano). | [auto] SensitiveClipboardTest (formati e auto-clear su clipboard privata) — la verifica Win+V resta manuale |
+| 54.8  | Clipboard su macOS / Linux                        | 1. Copia indirizzo e xpub. 2. Incolla.                                                                   | Incollato il testo esatto; l'xpub si svuota dopo 60 s; nessun formato extra (solo testo).                                                                                                              | [auto] SensitiveClipboardTest.`elsewhere only plain text is offered` |
+| 54.9  | Stringhe in italiano                              | 1. Lingua Italiano. 2. Welcome › Cancella TUTTI i wallet locali….                                        | "Ho dimenticato il PIN del dispositivo", "Ho la frase di recupero (o il backup cifrato)…", "Sposta i wallet nella cartella di recupero", "Spostati N elementi in …". | [ ]  |
+
+### Verifiche automatizzate
+
+```
+./gradlew :apps:desktop:jvmTest --tests "io.bhodl.desktop.screens.SecretActionsUiTest" \
+  --tests "io.bhodl.desktop.wizard.LocalWipeTrashTest" \
+  --tests "io.bhodl.desktop.IdleLockTest" \
+  --tests "io.bhodl.desktop.ui.SensitiveClipboardTest"
 ```
