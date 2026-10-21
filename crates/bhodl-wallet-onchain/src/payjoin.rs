@@ -556,6 +556,12 @@ pub(crate) fn post_payjoin(
             url
         }
         PayjoinRoute::Proxied { url, proxy } => {
+            // Fresh random isolation token per PayJoin request: it must
+            // not share a Tor circuit with any wallet sync or rate fetch.
+            let proxy = crate::tor::ureq_socks_proxy_url_isolated(
+                proxy,
+                &crate::tor::new_isolation_token()?,
+            )?;
             let proxy = ureq::Proxy::new(proxy)
                 .map_err(|e| OnchainError::InvalidArgument(format!("PayJoin proxy URL: {e}")))?;
             let onion = matches!(url.host(), Some(url::Host::Domain(d)) if is_onion(d));
