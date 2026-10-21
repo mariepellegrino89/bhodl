@@ -14,6 +14,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
 import androidx.navigation.NavController
+import androidx.navigation.NavDestination.Companion.hasRoute
 import io.bhodl.desktop.navigation.Route
 import io.bhodl.desktop.navigation.TrackerSection
 import io.bhodl.desktop.settings.SettingsStore
@@ -142,7 +143,16 @@ public fun App() {
         while (true) {
             delay(IDLE_LOCK_CHECK_INTERVAL_MS)
             val registryOpen = RegistryStore.current() != null
-            val sessionOpen = registryOpen || WalletStore.current() != null
+            // Audit 2026-10 — the setup wizard arms the lock too (fresh
+            // install: no registry / wallet yet, but a seed on screen).
+            // lockAndRouteToGate() wipes SetupSecrets and, with nothing
+            // on disk, lands on Welcome.
+            val sessionOpen = IdleLock.sessionArmed(
+                registryOpen = registryOpen,
+                walletOpen = WalletStore.current() != null,
+                setupSecretsParked = SetupSecrets.size(),
+                onSetupRoute = navController.currentDestination.isSetupWizardRoute(),
+            )
             if (IdleLock.shouldLock(
                     sessionOpen = sessionOpen,
                     registryOpen = registryOpen,
@@ -694,6 +704,19 @@ internal fun NavController.lockAndRouteToGate() {
     navigate(bootGuardTarget()) {
         popUpTo(0) { inclusive = true }
     }
+}
+
+/**
+ * `true` on the setup-wizard screens that show or collect seed material
+ * (audit 2026-10 — they arm the idle lock even before anything is open).
+ */
+internal fun androidx.navigation.NavDestination?.isSetupWizardRoute(): Boolean {
+    val d = this ?: return false
+    return d.hasRoute(Route.GenerateMnemonic::class) ||
+        d.hasRoute(Route.RestoreMnemonic::class) ||
+        d.hasRoute(Route.RestoreBackup::class) ||
+        d.hasRoute(Route.ConfirmMnemonic::class) ||
+        d.hasRoute(Route.PinSetup::class)
 }
 
 /** Re-run the cold-boot routing decision with an empty back stack. */
