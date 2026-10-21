@@ -1,0 +1,36 @@
+[package]
+name = "bhodl-uniffi-bindgen-kmp"
+description = "Kotlin Multiplatform UniFFI bindgen CLI, built from the workspace so its dependency tree is pinned by Cargo.lock."
+version.workspace = true
+edition = "2021"
+rust-version.workspace = true
+license = "MPL-2.0"
+authors.workspace = true
+repository.workspace = true
+publish = false
+
+# Same binary name the Ubique Gradle plugin expects (see shared/build.gradle.kts).
+[[bin]]
+name = "uniffi-bindgen-kotlin-multiplatform"
+path = "src/main.rs"
+
+# main.rs is a verbatim copy of bindgen/src/main.rs from
+# UbiqueInnovation/uniffi-kotlin-multiplatform-bindings @ 3a6a106 (MPL-2.0),
+# hence the MPL-2.0 license on this crate. The generator library is pulled
+# from the same exact commit.
+# Keep `rev` in sync with that commit and with the `uniffi-plugin` version in
+# gradle/libs.versions.toml. The ch.ubique.uniffi Gradle plugin would
+# otherwise run `cargo install --git` WITHOUT --locked; building it here puts
+# every transitive crate in Cargo.lock, so cargo-deny / cargo-audit cover it.
+[dependencies]
+uniffi_bindgen_kotlin_multiplatform = { git = "https://github.com/UbiqueInnovation/uniffi-kotlin-multiplatform-bindings.git", rev = "3a6a106e51e900066a944137196e2e9e6673128b" }
+uniffi_bindgen = "=0.28.3"
+anyhow = "1"
+camino = "1"
+cargo_metadata = "0.15"
+clap = { version = "=4.5.7", features = ["derive", "cargo", "std"] }
+home = "=0.5.11"
+which = "8"
+
+[lints.rust]
+unsafe_code = "forbid"
