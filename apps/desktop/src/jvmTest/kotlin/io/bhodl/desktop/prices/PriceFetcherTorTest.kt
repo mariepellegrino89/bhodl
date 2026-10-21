@@ -25,14 +25,24 @@ import kotlin.test.assertTrue
  */
 class PriceFetcherTorTest {
 
-    private data class SocksRequest(val atyp: Int, val host: String, val port: Int, val httpHead: String)
+    private data class SocksRequest(
+        val atyp: Int,
+        val host: String,
+        val port: Int,
+        val httpHead: String,
+        val methods: List<Int> = emptyList(),
+        val creds: Pair<String, String>? = null,
+    )
 
     /**
      * One-shot fake SOCKS5 server. After the handshake it reads the HTTP
      * request head and answers with [httpResponse] (plain HTTP — the test
      * injects an identity TLS layer).
      */
-    private fun fakeSocks(httpResponse: ByteArray): Pair<Int, ArrayBlockingQueue<SocksRequest>> {
+    private fun fakeSocks(
+        httpResponse: ByteArray,
+        noAuthOnly: Boolean = false,
+    ): Pair<Int, ArrayBlockingQueue<SocksRequest>> {
         val server = ServerSocket(0, 1, InetAddress.getLoopbackAddress())
         val seen = ArrayBlockingQueue<SocksRequest>(1)
         thread(isDaemon = true) {
@@ -42,8 +52,20 @@ class PriceFetcherTorTest {
                     val out = s.getOutputStream()
                     assertEquals(5, input.read())
                     val nMethods = input.read()
-                    input.readFully(ByteArray(nMethods))
-                    out.write(byteArrayOf(5, 0))
+                    val methods = ByteArray(nMethods).also { input.readFully(it) }.map { it.toInt() }
+                    var creds: Pair<String, String>? = null
+                    if (2 in methods && !noAuthOnly) {
+                        // Like Tor: user/pass wins when offered.
+                        out.write(byteArrayOf(5, 2))
+                        out.flush()
+                        assertEquals(1, input.read())
+                        val u = ByteArray(input.read()).also { input.readFully(it) }.toString(Charsets.US_ASCII)
+                        val p = ByteArray(input.read()).also { input.readFully(it) }.toString(Charsets.US_ASCII)
+                        creds = u to p
+                        out.write(byteArrayOf(1, 0))
+                    } else {
+                        out.write(byteArrayOf(5, 0))
+                    }
                     out.flush()
                     input.read() // ver
                     input.read() // cmd
@@ -63,7 +85,7 @@ class PriceFetcherTorTest {
                         if (b == -1) break
                         head.append(b.toChar())
                     }
-                    seen.offer(SocksRequest(atyp, host, port, head.toString()))
+                    seen.offer(SocksRequest(atyp, host, port, head.toString(), methods, creds))
                     out.write(httpResponse)
                     out.flush()
                 }
@@ -95,6 +117,44 @@ class PriceFetcherTorTest {
         assertTrue("Host: api.coingecko.example\r\n" in req.httpHead)
         assertTrue("Connection: close\r\n" in req.httpHead)
         assertFalse("BHODL" in req.httpHead, "no app-identifying User-Agent")
+    }
+
+    @Test
+    fun `tor path authenticates with a random per-session isolation token`() {
+        val body = "{}"
+        val resp = "HTTP/1.1 200 OK\r\nContent-Length: ${body.length}\r\n\r\n$body".toByteArray()
+        val tokens = (1..2).map {
+            val (port, seen) = fakeSocks(resp)
+            PriceFetcher.torHttpGet("https://mempool.example/p", "127.0.0.1", port, tlsWrap = identityTls)
+            val req = assertNotNull(seen.poll(5, TimeUnit.SECONDS))
+            assertEquals(listOf(0, 2), req.methods, "offer no-auth and user/pass")
+            val (user, pass) = assertNotNull(req.creds)
+            assertEquals("x", pass)
+            assertEquals(32, user.length)
+            assertTrue(user.all { it in '0'..'9' || it in 'a'..'f' })
+            user
+        }
+        assertEquals(tokens[0], tokens[1], "stable within the session")
+        assertEquals(PriceFetcher.priceIsolationToken, tokens[0])
+        assertTrue(PriceFetcher.newIsolationToken() != PriceFetcher.newIsolationToken())
+    }
+
+    @Test
+    fun `tor path proceeds without isolation when the proxy picks no-auth`() {
+        val (port, seen) = fakeSocks("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n{}".toByteArray(), noAuthOnly = true)
+        assertEquals("{}", PriceFetcher.torHttpGet("https://mempool.example/p", "127.0.0.1", port, tlsWrap = identityTls))
+        val req = assertNotNull(seen.poll(5, TimeUnit.SECONDS))
+        assertEquals(listOf(0, 2), req.methods)
+        assertEquals(null, req.creds)
+    }
+
+    @Test
+    fun `tor path without a token offers only no-auth`() {
+        val (port, seen) = fakeSocks("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n{}".toByteArray())
+        PriceFetcher.torHttpGet("https://mempool.example/p", "127.0.0.1", port, tlsWrap = identityTls, isolationToken = null)
+        val req = assertNotNull(seen.poll(5, TimeUnit.SECONDS))
+        assertEquals(listOf(0), req.methods)
+        assertEquals(null, req.creds)
     }
 
     @Test
