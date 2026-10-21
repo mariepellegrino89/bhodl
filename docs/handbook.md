@@ -69,7 +69,8 @@ title bar, the `~/.bhodl/` data dir).
 ├── crates/
 │   ├── bhodl-core/                  # Crypto primitives (KDF, Network, Amount)
 │   ├── bhodl-wallet-onchain/        # BDK-backed wallet + SQLCipher persistence
-│   └── bhodl-uniffi/                # FFI surface (Kotlin/Swift bindings)
+│   ├── bhodl-uniffi/                # FFI surface (Kotlin/Swift bindings)
+│   └── uniffi-bindgen-kmp/          # Kotlin Multiplatform bindgen CLI (locked build)
 ├── shared/                          # KMP module — Compose theme, FFI consumer
 │   └── src/jvmTest/                 # JVM smoke tests against the cdylib
 ├── apps/
@@ -85,6 +86,15 @@ The Rust workspace and the Kotlin Multiplatform / Gradle layer share a
 single source tree. The bridge is **uniffi-rs 0.28.3** + the Ubique
 **Kotlin Multiplatform fork** of the binding generator, with one
 critical Windows ABI workaround documented in §7.
+
+The bindgen CLI is built from the workspace crate `crates/uniffi-bindgen-kmp`
+(a copy of the upstream `main.rs` plus a git dependency pinned to an exact
+Ubique commit), not by the Gradle plugin's own `cargo install --git`, which
+runs without `--locked`. `shared/build.gradle.kts` overrides `installBindgen`
+to run `cargo install --locked --path crates/uniffi-bindgen-kmp`, so every
+transitive crate is pinned in `Cargo.lock` and covered by `cargo deny` /
+`cargo audit`. When bumping `uniffi-plugin` in `gradle/libs.versions.toml`,
+bump the `rev` in that crate's `Cargo.toml` too.
 
 ---
 

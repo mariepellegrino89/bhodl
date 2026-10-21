@@ -78,3 +78,6 @@ ignore = [
 unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+# Exactly one reviewed git source: the Kotlin Multiplatform UniFFI bindgen
+# (crates/uniffi-bindgen-kmp), pinned by commit in Cargo.lock.
+allow-git = ["https://github.com/UbiqueInnovation/uniffi-kotlin-multiplatform-bindings"]
