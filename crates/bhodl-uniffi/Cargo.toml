@@ -21,6 +21,7 @@ path = "src/commonMain/rust/lib.rs"
 
 [dependencies]
 bhodl-core = { path = "../bhodl-core" }
+bhodl-keystore = { path = "../bhodl-keystore" }
 bhodl-wallet-onchain = { path = "../bhodl-wallet-onchain" }
 uniffi = { workspace = true, features = ["cli"] }
 thiserror = { workspace = true }

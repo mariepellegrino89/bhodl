@@ -17,9 +17,10 @@ pub use amount::{Amount, AmountError};
 pub use direction::Direction;
 pub use error::BhodlError;
 pub use key_derivation::{
-    DERIVED_KEY_LEN, KDF_MAX_M_COST_KIB, KDF_MAX_P_COST, KDF_MAX_T_COST, KdfParams,
-    KeyDerivationError, MIN_NEW_PIN_LEN, SALT_LEN, derive_key_from_pin,
-    derive_key_from_pin_with_params, generate_salt, validate_new_pin,
+    DERIVED_KEY_LEN, DEVICE_SECRET_LEN, KDF_MAX_M_COST_KIB, KDF_MAX_P_COST, KDF_MAX_T_COST,
+    KdfParams, KeyDerivationError, MIN_NEW_PIN_LEN, MIN_PASSPHRASE_LEN, SALT_LEN,
+    combine_with_device_secret, derive_key_from_pin, derive_key_from_pin_with_params,
+    generate_salt, validate_new_pin, validate_new_secret,
 };
 pub use layer::Layer;
 pub use network::Network;

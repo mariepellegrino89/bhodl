@@ -70,10 +70,14 @@ use uuid::Uuid;
 // unchanged. The test-only helpers (write_kdf_file, seal_kdf_file_with_mac,
 // read_or_create_salt) are imported inside `mod tests`, not here, to
 // avoid an unused-import warning in non-test builds.
+#[cfg(test)]
+mod device_key_tests;
 mod kdf;
+mod keystore;
 use crate::kdf::{
-    KdfFile, KdfScope, LEGACY_SALT_FILE_NAME, SecretKey, WALLET_KDF_ARTIFACTS,
-    migrate_kdf_if_stale, params_for_known_key, read_existing, rename_with_retry, unlock_with,
+    KdfFile, KdfScope, LEGACY_SALT_FILE_NAME, SecretKey, WALLET_KDF_ARTIFACTS, WATCH_REKEY_MARKER,
+    migrate_if_stale, migrate_wallet_if_stale, params_for_known_key, read_existing,
+    rename_with_retry, sweep_watch_states, unlock_with, write_watch_rekey_marker,
 };
 
 uniffi::setup_scaffolding!();
@@ -147,6 +151,20 @@ pub enum WalletError {
     Io { detail: String },
     #[error("invalid salt file: expected {expected} bytes, got {actual}")]
     InvalidSalt { expected: u32, actual: u32 },
+    /// The store is bound to an OS-held device secret (descriptor v3)
+    /// and that secret is gone or cannot be decrypted by this OS account:
+    /// OS reinstall, another user, deleted keyring entry, data dir moved
+    /// to another machine. NOT a wrong PIN — the PIN cannot open this
+    /// store on this device any more; restore from the recovery phrase
+    /// or an encrypted backup.
+    #[error("device key missing: {detail}")]
+    DeviceKeyMissing { detail: String },
+    /// The OS keystore holding the device secret could not be reached
+    /// (keyring locked and the unlock prompt dismissed, Secret Service
+    /// not running, …). NOT a wrong PIN — the PIN was not checked; retry
+    /// after unlocking the keyring.
+    #[error("OS keystore unavailable: {detail}")]
+    DeviceKeystoreUnavailable { detail: String },
     /// Phase 8.6 — typed rate errors replacing the old substring-match
     /// workaround in `BtcRateHistoryClient.kt`.
     #[error("rate: currency not supported: {currency}")]
@@ -510,45 +528,54 @@ impl WalletHandle {
         // H1 — the descriptor MAC (if any) is verified before the open,
         // but the descriptor is only SEALED by `unlock_with` after the
         // open below succeeded with this key. A fresh descriptor is
-        // created here (new-PIN policy enforced) when none exists.
-        let (account, unlocked) = unlock_with(&db_dir, KdfScope::Wallet, &pin, true, |key| {
-            match OnchainAccount::create_or_load_persistent(
-                core_network,
-                &mnemonic,
-                &passphrase,
-                &db_path,
-                key,
-            ) {
-                Ok(acc) => Ok(acc),
-                Err(err) if orphan_sqlite_before => {
-                    // Recovery path for finding #14: the boot guard saw
-                    // no wallet (markers absent), the user authorised a
-                    // fresh create / restore, but a previous wipe left
-                    // `wallet.sqlite` behind under a Windows file-lock
-                    // and the new PIN-derived key cannot decrypt it. The
-                    // DB is already inaccessible (no kdf.json paired
-                    // with it). L5 — set it aside instead of deleting
-                    // it, so nothing is ever destroyed on a guess, then
-                    // retry the open exactly once with the same new key.
-                    let orphan = orphan_sqlite_path(&db_dir);
-                    rename_with_retry(&db_path, &orphan).map_err(|io_err| WalletError::Io {
+        // created here (new-secret policy enforced, device-bound through
+        // the OS keystore when one is available) when none exists.
+        let ks = keystore::active();
+        let (account, unlocked) = unlock_with(
+            &db_dir,
+            KdfScope::Wallet,
+            &pin,
+            true,
+            &*ks,
+            |key| {
+                match OnchainAccount::create_or_load_persistent(
+                    core_network,
+                    &mnemonic,
+                    &passphrase,
+                    &db_path,
+                    key,
+                ) {
+                    Ok(acc) => Ok(acc),
+                    Err(err) if orphan_sqlite_before => {
+                        // Recovery path for finding #14: the boot guard saw
+                        // no wallet (markers absent), the user authorised a
+                        // fresh create / restore, but a previous wipe left
+                        // `wallet.sqlite` behind under a Windows file-lock
+                        // and the new PIN-derived key cannot decrypt it. The
+                        // DB is already inaccessible (no kdf.json paired
+                        // with it). L5 — set it aside instead of deleting
+                        // it, so nothing is ever destroyed on a guess, then
+                        // retry the open exactly once with the same new key.
+                        let orphan = orphan_sqlite_path(&db_dir);
+                        rename_with_retry(&db_path, &orphan).map_err(|io_err| WalletError::Io {
                         detail: format!(
                             "recovery: set aside orphan wallet.sqlite after open failed ({err}): {io_err}",
                         ),
                     })?;
-                    Ok(OnchainAccount::create_or_load_persistent(
-                        core_network,
-                        &mnemonic,
-                        &passphrase,
-                        &db_path,
-                        key,
-                    )?)
+                        Ok(OnchainAccount::create_or_load_persistent(
+                            core_network,
+                            &mnemonic,
+                            &passphrase,
+                            &db_path,
+                            key,
+                        )?)
+                    }
+                    Err(err) => Err(err.into()),
                 }
-                Err(err) => Err(err.into()),
-            }
-        })?;
+            },
+        )?;
 
-        migrate_kdf_if_stale(&db_dir, &unlocked, &pin, &account)?;
+        migrate_wallet_if_stale(&db_dir, &unlocked, &pin, &*ks, &account)?;
 
         Ok(std::sync::Arc::new(Self {
             inner: Mutex::new(account),
@@ -594,15 +621,21 @@ impl WalletHandle {
         // lives elsewhere. `create_if_missing = false`.
         // H1/H2 — MAC verified before the open, descriptor sealed only
         // after it, `.next` fallback for an interrupted KDF migration.
-        let (account, unlocked) = unlock_with(&db_dir, KdfScope::Wallet, &pin, false, |key| {
-            Ok(OnchainAccount::load_persistent(
-                core_network,
-                &db_path,
-                key,
-            )?)
-        })?;
+        // A device-bound wallet whose OS keystore entry is gone fails with
+        // `DeviceKeyMissing` here, before any Argon2id work.
+        let ks = keystore::active();
+        let (account, unlocked) =
+            unlock_with(&db_dir, KdfScope::Wallet, &pin, false, &*ks, |key| {
+                Ok(OnchainAccount::load_persistent(
+                    core_network,
+                    &db_path,
+                    key,
+                )?)
+            })?;
 
-        migrate_kdf_if_stale(&db_dir, &unlocked, &pin, &account)?;
+        // Argon2id parameter bump and/or transparent device binding of a
+        // PIN-only wallet (crash-safe, see kdf::migrate_if_stale).
+        migrate_wallet_if_stale(&db_dir, &unlocked, &pin, &*ks, &account)?;
 
         // M2 — first successful unlock of the migrated wallet: drop the
         // pre-3.0 backup (it keeps a weak-KDF copy of the seed).
@@ -2029,9 +2062,15 @@ fn map_rate_error(e: RateError) -> WalletError {
 #[cfg(test)]
 fn open_registry_verified(data_dir: &Path, device_pin: &str) -> Result<Registry, WalletError> {
     let db_path = data_dir.join(REGISTRY_FILE_NAME);
-    let (registry, _) = unlock_with(data_dir, KdfScope::Registry, device_pin, false, |key| {
-        open_registry(&db_path, key).map_err(WalletError::from)
-    })?;
+    let ks = keystore::active();
+    let (registry, _) = unlock_with(
+        data_dir,
+        KdfScope::Registry,
+        device_pin,
+        false,
+        &*ks,
+        |key| open_registry(&db_path, key).map_err(WalletError::from),
+    )?;
     Ok(registry)
 }
 
@@ -2381,7 +2420,13 @@ impl WatchHandle {
 pub struct RegistryHandle {
     inner: Mutex<Registry>,
     data_dir: PathBuf,
+    /// SQLCipher key of the registry (and of every watch-state file).
     device_key: [u8; ENCRYPTION_KEY_LEN],
+    /// Argon2id output of the device PIN. Equal to `device_key` for a
+    /// PIN-only registry; for a device-bound one it is what
+    /// [`RegistryHandle::matches_device_pin`] compares against (the
+    /// device key also contains the OS-held device secret).
+    pin_key: SecretKey,
 }
 
 impl Drop for RegistryHandle {
@@ -2416,16 +2461,48 @@ impl RegistryHandle {
         fs::create_dir_all(&data_dir)?;
         // H1 — MAC verified before the open, descriptor sealed only
         // after SQLCipher accepted the key. A fresh registry enforces
-        // the new-PIN policy.
+        // the new-secret policy and is device-bound when a keystore is
+        // available.
         let registry_path = data_dir.join(REGISTRY_FILE_NAME);
-        let (registry, unlocked) =
-            unlock_with(&data_dir, KdfScope::Registry, &device_pin, true, |key| {
-                open_registry(&registry_path, key).map_err(WalletError::from)
-            })?;
+        let ks = keystore::active();
+        let (registry, unlocked) = unlock_with(
+            &data_dir,
+            KdfScope::Registry,
+            &device_pin,
+            true,
+            &*ks,
+            |key| open_registry(&registry_path, key).map_err(WalletError::from),
+        )?;
+
+        // Transparent device binding of a PIN-only registry. Salt and
+        // params are kept, so the old key stays `pin_key` — that is what
+        // lets an interrupted watch-state sweep resume on a later unlock.
+        let mut device_key: SecretKey = unlocked.key.clone();
+        if let Some(new_key) = migrate_if_stale(
+            &data_dir,
+            KdfScope::Registry,
+            &unlocked,
+            &device_pin,
+            &*ks,
+            false,
+            |key| {
+                // The watch-state files share the registry key: flag the
+                // sweep BEFORE the registry key changes.
+                write_watch_rekey_marker(&data_dir)?;
+                registry.rekey(key).map_err(WalletError::from)
+            },
+        )? {
+            device_key = new_key;
+        }
+        if data_dir.join(WATCH_REKEY_MARKER).exists() && *unlocked.pin_key != *device_key {
+            sweep_watch_states(&data_dir, &unlocked.pin_key, &device_key);
+        }
+
         Ok(std::sync::Arc::new(Self {
             inner: Mutex::new(registry),
             data_dir,
-            device_key: *unlocked.key,
+            device_key: *device_key,
+            pin_key: unlocked.pin_key.clone(),
         }))
     }
 
@@ -3763,7 +3840,9 @@ impl RegistryHandle {
         let derived: SecretKey = zeroize::Zeroizing::new(
             bhodl_core::derive_key_from_pin_with_params(&candidate, &salt, &kdf_params)?,
         );
-        Ok(kdf::constant_time_eq(&*derived, &self.device_key))
+        // Compare against the Argon2id output, not the device key: for a
+        // device-bound registry the latter also mixes in the OS secret.
+        Ok(kdf::constant_time_eq(&*derived, &*self.pin_key))
     }
 
     /// Register an HD watch wallet from an account-level xpub.
@@ -4187,6 +4266,42 @@ fn remove_sqlite_files(path: &Path) {
     }
 }
 
+/// Whether new wallets / registries on this device can be bound to an OS
+/// keystore, and therefore which secret policy their creation enforces.
+#[derive(uniffi::Record, Debug, Clone, PartialEq, Eq)]
+pub struct DeviceKeystoreStatus {
+    /// `true`: new stores are device-bound and a 6-digit PIN is enough.
+    /// `false`: new stores require a passphrase of at least
+    /// `min_passphrase_length` characters.
+    pub available: bool,
+    /// Human-readable backend name ("Windows DPAPI", "macOS Keychain",
+    /// "Secret Service", …), or "none".
+    pub backend: String,
+    /// Why the keystore is unavailable (diagnostics), `None` when available.
+    pub detail: Option<String>,
+    /// Minimum length of a numeric PIN (only accepted when `available`).
+    pub min_pin_length: u32,
+    /// Minimum length of a passphrase.
+    pub min_passphrase_length: u32,
+}
+
+/// Probe the OS keystore that would protect a NEW store's device secret.
+///
+/// Cheap but may touch the D-Bus / Keychain: call it off the UI thread.
+/// Never prompts the user.
+#[uniffi::export]
+pub fn device_keystore_status() -> DeviceKeystoreStatus {
+    let ks = keystore::active();
+    let probe = ks.probe();
+    DeviceKeystoreStatus {
+        available: probe.is_ok(),
+        backend: ks.name().to_string(),
+        detail: probe.err().map(|e| strip_filesystem_paths(&e.to_string())),
+        min_pin_length: bhodl_core::MIN_NEW_PIN_LEN as u32,
+        min_passphrase_length: bhodl_core::MIN_PASSPHRASE_LEN as u32,
+    }
+}
+
 /// Generate a fresh UUIDv4 in hyphenated string form. Convenience
 /// for callers that want the FFI side to mint the identity (e.g. the
 /// migration code).
@@ -4463,14 +4578,21 @@ pub fn run_migration_if_needed(
     // OnchainAccount away immediately afterwards.
     // Read-only on the legacy KDF state (never creates a descriptor);
     // MAC verified before the open, sealed only after it succeeded.
-    let (legacy_account, _) =
-        unlock_with(&data_dir, KdfScope::Wallet, &legacy_pin, false, |key| {
+    let ks = keystore::active();
+    let (legacy_account, _) = unlock_with(
+        &data_dir,
+        KdfScope::Wallet,
+        &legacy_pin,
+        false,
+        &*ks,
+        |key| {
             Ok(OnchainAccount::load_persistent(
                 core_network,
                 &legacy_wallet_sqlite,
                 key,
             )?)
-        })?;
+        },
+    )?;
     let descriptor_pub = legacy_account.export_descriptors().external;
     drop(legacy_account); // release SQLite file lock before move in Phase B.
 
@@ -4478,9 +4600,14 @@ pub fn run_migration_if_needed(
     // migrated wallet row. This is a device-PIN *creation*, so
     // `unlock_with` enforces the new-PIN policy on the fresh descriptor.
     {
-        let (registry, _) = unlock_with(&data_dir, KdfScope::Registry, &device_pin, true, |key| {
-            open_registry(&registry_path, key).map_err(WalletError::from)
-        })?;
+        let (registry, _) = unlock_with(
+            &data_dir,
+            KdfScope::Registry,
+            &device_pin,
+            true,
+            &*ks,
+            |key| open_registry(&registry_path, key).map_err(WalletError::from),
+        )?;
         registry.add_wallet(&WalletRecord {
             id: wallet_id,
             label: wallet_label.clone(),
@@ -5042,11 +5169,16 @@ mod tests {
                 .join("migration.pre-3.0.bak/wallet.network")
                 .exists()
         );
-        // Registry row matches.
+        // Registry row matches. The new registry is device-bound, so it
+        // opens through the keystore-aware unlock, not a bare Argon2 key.
         let (rsalt, rparams) = read_or_create_registry_kdf(tmp.path()).unwrap();
-        let rkey =
+        let pin_only =
             bhodl_core::derive_key_from_pin_with_params("99999999", &rsalt, &rparams).unwrap();
-        let registry = open_registry(&tmp.path().join("registry.sqlite"), &rkey).unwrap();
+        assert!(
+            open_registry(&tmp.path().join("registry.sqlite"), &pin_only).is_err(),
+            "the device PIN alone must not open a device-bound registry"
+        );
+        let registry = open_registry_verified(tmp.path(), "99999999").unwrap();
         let rows = registry.list_wallets().unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].network, "signet");
@@ -5895,6 +6027,7 @@ mod tests {
             version: KdfFile::LEGACY_VERSION,
             salt_hex: hex::encode(salt),
             kdf: params,
+            protection: None,
             mac_hex: None,
         };
         fs::write(&path, serde_json::to_vec_pretty(&legacy).unwrap()).unwrap();
@@ -5997,6 +6130,12 @@ mod tests {
 
     #[test]
     fn h1_legacy_v1_mac_is_accepted_once_then_resealed_as_v2() {
+        // No keystore: the reseal keeps the PIN-only key (with a keystore
+        // the unlock would also bind it to a device secret, see
+        // device_key_tests).
+        let _no_keystore = keystore::override_for_test(std::sync::Arc::new(
+            bhodl_keystore::UnavailableKeystore::new("test"),
+        ));
         let tmp = tempfile::tempdir().unwrap();
         install_wallet_with_params(tmp.path(), "123456", bhodl_core::KdfParams::CURRENT);
         let salt = read_kdf(tmp.path()).salt().unwrap();
@@ -6017,7 +6156,7 @@ mod tests {
         assert_eq!(read_kdf(tmp.path()).version, KdfFile::LEGACY_VERSION);
         unlock(tmp.path(), "123456").expect("old-style MAC accepted");
         let resealed = read_kdf(tmp.path());
-        assert_eq!(resealed.version, KdfFile::CURRENT_VERSION);
+        assert_eq!(resealed.version, KdfFile::SEALED_V2_VERSION);
         resealed.verify_mac(&key).unwrap();
     }
 
@@ -6159,6 +6298,7 @@ mod tests {
                 t_cost: 3,
                 p_cost: 4,
             },
+            protection: None,
             mac_hex: None,
         };
         let path = tmp.path().join(KdfFile::FILE_NAME);
@@ -6197,6 +6337,7 @@ mod tests {
 
         // (b) rewritten as an unsealed v1 file — refused by the marker.
         stripped.version = KdfFile::LEGACY_VERSION;
+        stripped.protection = None;
         fs::write(&path, serde_json::to_vec(&stripped).unwrap()).unwrap();
         let err = unlock(tmp.path(), "123456").err().expect("must refuse");
         assert!(format!("{err:?}").contains("MAC missing"), "got {err:?}");
@@ -6358,7 +6499,9 @@ mod tests {
         let moved = read_kdf(&wallet_dir);
         assert_eq!(moved.salt().unwrap(), salt);
         assert_eq!(moved.kdf, bhodl_core::KdfParams::LEGACY_OWASP_MIN);
-        assert_eq!(moved.version, KdfFile::CURRENT_VERSION);
+        // Sealed PIN-only (the migration only opens the legacy wallet; the
+        // first real unlock below bumps params and binds it to the device).
+        assert_eq!(moved.version, KdfFile::SEALED_V2_VERSION);
         assert!(!data_dir.join("wallet.salt").exists());
         assert!(!data_dir.join(KdfFile::FILE_NAME).exists());
         assert!(!KdfScope::Wallet.marker_path(data_dir).exists());

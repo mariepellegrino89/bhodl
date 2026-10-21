@@ -134,9 +134,51 @@ pub(crate) fn open_encrypted_connection(
     Ok(conn)
 }
 
+/// Outcome of [`rekey_encrypted_db_if_needed`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RekeyOutcome {
+    /// The file already opens with the new key: nothing done.
+    AlreadyCurrent,
+    /// The file opened with the old key and was re-encrypted.
+    Rekeyed,
+    /// Neither key opens the file (corrupt, foreign, or keyed by
+    /// something else): left untouched.
+    Unreadable,
+}
+
+/// Re-encrypt the standalone `SQLCipher` file at `db_path` from `old_key`
+/// to `new_key`, idempotently.
+///
+/// Used when a store's key changes (device-key migration) and other
+/// database files keyed with the same key must follow. Safe to repeat
+/// after a crash: a file that already opens with `new_key` is left alone,
+/// and `PRAGMA rekey` is atomic per file (rollback journal), so a file is
+/// always readable with exactly one of the two keys.
+///
+/// # Errors
+///
+/// [`OnchainError::Storage`] if the file opened with `old_key` but the
+/// rekey itself failed.
+pub fn rekey_encrypted_db_if_needed(
+    db_path: &Path,
+    old_key: &[u8; ENCRYPTION_KEY_LEN],
+    new_key: &[u8; ENCRYPTION_KEY_LEN],
+) -> Result<RekeyOutcome, OnchainError> {
+    if open_encrypted_connection(db_path, new_key).is_ok() {
+        return Ok(RekeyOutcome::AlreadyCurrent);
+    }
+    let Ok(conn) = open_encrypted_connection(db_path, old_key) else {
+        return Ok(RekeyOutcome::Unreadable);
+    };
+    let key_literal = key_pragma_literal(new_key);
+    conn.pragma_update(None, "rekey", key_literal.as_str())
+        .map_err(|e| OnchainError::Storage(e.to_string()))?;
+    Ok(RekeyOutcome::Rekeyed)
+}
+
 /// Build the `x'<hex>'` raw-key literal `SQLCipher` expects inside a
 /// [`Zeroizing`] buffer, so the hex copy of the key is wiped on drop.
-fn key_pragma_literal(key: &[u8; ENCRYPTION_KEY_LEN]) -> Zeroizing<String> {
+pub(crate) fn key_pragma_literal(key: &[u8; ENCRYPTION_KEY_LEN]) -> Zeroizing<String> {
     use std::fmt::Write as _;
     // 2 hex chars per byte + the `x''` wrapper; pre-sized so the buffer
     // never reallocates (a realloc would strand an un-wiped copy).
@@ -2958,6 +3000,40 @@ pub(crate) fn map_network(n: BhodlNetwork) -> BtcNetwork {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rekey_encrypted_db_if_needed_is_idempotent() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("w.sqlite");
+        let old = [1u8; ENCRYPTION_KEY_LEN];
+        let new = [2u8; ENCRYPTION_KEY_LEN];
+        let other = [3u8; ENCRYPTION_KEY_LEN];
+        {
+            let conn = open_encrypted_connection(&path, &old).unwrap();
+            conn.execute_batch("CREATE TABLE t(x); INSERT INTO t VALUES (42);")
+                .unwrap();
+        }
+        assert_eq!(
+            rekey_encrypted_db_if_needed(&path, &old, &new).unwrap(),
+            RekeyOutcome::Rekeyed
+        );
+        // Second run (e.g. after a crash before the marker was cleared).
+        assert_eq!(
+            rekey_encrypted_db_if_needed(&path, &old, &new).unwrap(),
+            RekeyOutcome::AlreadyCurrent
+        );
+        assert!(open_encrypted_connection(&path, &old).is_err());
+        let conn = open_encrypted_connection(&path, &new).unwrap();
+        let x: i64 = conn.query_row("SELECT x FROM t", [], |r| r.get(0)).unwrap();
+        assert_eq!(x, 42);
+        drop(conn);
+        // A file keyed with something else is reported, never touched.
+        assert_eq!(
+            rekey_encrypted_db_if_needed(&path, &other, &[4u8; ENCRYPTION_KEY_LEN]).unwrap(),
+            RekeyOutcome::Unreadable
+        );
+        assert!(open_encrypted_connection(&path, &new).is_ok());
+    }
 
     #[test]
     fn esplora_timeout_is_larger_only_when_a_proxy_is_configured() {

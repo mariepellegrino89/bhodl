@@ -1,25 +1,58 @@
-//! PIN-based key derivation for the on-disk wallet database.
+//! PIN-based key derivation for the on-disk wallet databases.
 //!
-//! Bridges human-typed PINs to the 32-byte AES-256 key `SQLCipher` consumes
-//! through `PRAGMA key`. Argon2id is the modern KDF of choice (winner of
-//! the 2015 Password Hashing Competition, recommended by RFC 9106 and
-//! OWASP 2024). The output is a raw 32-byte buffer ready to be passed to
-//! the persistence layer — it is never serialised, logged, or written to
-//! disk. The only artifact that ever leaves memory is the salt.
+//! Bridges human-typed PINs / passphrases to the 32-byte AES-256 key
+//! `SQLCipher` consumes through `PRAGMA key`. Argon2id is the modern KDF
+//! of choice (winner of the 2015 Password Hashing Competition,
+//! recommended by RFC 9106 and OWASP 2024). Keys are raw 32-byte buffers
+//! handed to the persistence layer — never serialised, logged, or written
+//! to disk. Only the salt (and, for device-bound stores, a pointer to the
+//! OS-held device secret) ever leave memory.
+//!
+//! ## Key schedule
+//!
+//! ```text
+//! pin_key = Argon2id(secret, salt, m = 64 MiB, t = 3, p = 4)        (32 bytes)
+//!
+//! device-bound store (descriptor v3, protection "device_key"):
+//!   db_key = HKDF-SHA256(ikm  = pin_key || device_secret,
+//!                        salt = salt,
+//!                        info = "bhodl/sqlcipher-key/v1 argon2id+device-secret")
+//! otherwise:
+//!   db_key = pin_key
+//! ```
+//!
+//! `device_secret` is a random 256-bit value generated when the store is
+//! created (or migrated) and kept by the operating system — Windows DPAPI
+//! (`CurrentUser`), the macOS login Keychain, or the Linux Secret Service —
+//! via the `bhodl-keystore` crate. See [`combine_with_device_secret`].
 //!
 //! ## Threat model in scope
 //!
-//! - An attacker who has read access to the wallet DB file (including the
-//!   salt) but does not know the PIN must run a full Argon2id attack on
-//!   each guess to test it. With the parameters below (m = 64 MiB, t = 3,
-//!   p = 4) this means ~0.5–0.8 s per attempt on a 2024 desktop core set,
-//!   plus 64 MiB of RAM per parallel attempt — i.e. exhausting a 6-digit
-//!   PIN (10^6 candidates) costs on the order of a few CPU-days, trivially
-//!   parallelisable on a GPU/cloud budget. PINs
-//!   alone are not protection against a determined offline attacker; the
-//!   wallet UX must communicate this and pair the PIN with a hardware
-//!   keystore wrap (Keystore on Android, Secure Enclave on iOS, OS
-//!   keyring on desktop) in the production unlock flow.
+//! - **Copy of the data directory only** (stolen backup, synced folder,
+//!   disk image read from another account): for a device-bound store the
+//!   copy does not contain the device secret, so a PIN guess cannot be
+//!   tested offline at all — the attacker faces a 256-bit search. This is
+//!   what makes a 6-digit PIN acceptable.
+//! - **Data directory + OS keystore access** (malware running as the
+//!   user, or an attacker holding the full disk *and* the user's login
+//!   password): the device secret is recoverable and the PIN is again the
+//!   only barrier. Each guess then costs a full Argon2id evaluation
+//!   (~0.5–0.8 s and 64 MiB on a 2024 desktop core set): a 6-digit PIN
+//!   (10^6 candidates) falls in a few CPU-days, trivially parallelisable.
+//! - **No keystore available** (headless Linux without a Secret Service
+//!   provider): a NEW store cannot be device-bound and must use a
+//!   passphrase of at least [`MIN_PASSPHRASE_LEN`] characters
+//!   ([`validate_new_secret`] with `device_bound = false`) — the wallet
+//!   never silently falls back to a 6-digit PIN with nothing behind it.
+//!   Stores created before this policy existed still open (unlock paths
+//!   only require a non-empty secret) and are migrated to device-bound on
+//!   the first unlock where a keystore is reachable.
+//! - **Lost device secret** (OS reinstall, another user account, keyring
+//!   reset, data dir restored on another machine): a device-bound store
+//!   can no longer be opened with the PIN. Recovery is from the BIP39
+//!   recovery phrase or an encrypted backup. This is the price of the
+//!   offline-brute-force protection and is reported as a dedicated error,
+//!   never as "wrong PIN".
 //! - An attacker who can read process memory while the wallet is unlocked
 //!   bypasses this layer entirely. That is the responsibility of the
 //!   `OnchainAccount::Drop` zeroize logic and platform memory hygiene.
@@ -35,11 +68,15 @@
 //!
 //! Mobile re-evaluation: the same parameters take ~1.5 s on a low-end
 //! Android device. We will introduce a runtime cost-class detection
-//! (cheap / strong) when the Android target lands.
+//! (cheap / strong) when the Android target lands, together with the
+//! Android Keystore / iOS Secure Enclave device-secret backends.
 
 use argon2::{Algorithm, Argon2, Params, Version};
+use hkdf::Hkdf;
 use rand::TryRngCore;
+use sha2::Sha256;
 use thiserror::Error;
+use zeroize::Zeroizing;
 
 /// Length of the salt the caller must persist alongside the wallet DB
 /// (next to it, not encrypted by it — the salt is required *before* the
@@ -87,6 +124,18 @@ pub const KDF_MAX_P_COST: u32 = 16;
 /// existing wallet only requires a non-empty PIN so that wallets created
 /// under an older, laxer policy stay openable).
 pub const MIN_NEW_PIN_LEN: usize = 6;
+
+/// Minimum length (in characters) of a NEW passphrase. Mandatory when the
+/// store cannot be bound to an OS keystore; an opt-in alternative to the
+/// numeric PIN otherwise.
+pub const MIN_PASSPHRASE_LEN: usize = 12;
+
+/// Length of the OS-held device secret mixed into the database key.
+pub const DEVICE_SECRET_LEN: usize = 32;
+
+/// HKDF `info` of the device-bound database key. Changing it changes every
+/// device-bound key: it may only move together with a descriptor version.
+const DEVICE_KEY_HKDF_INFO: &[u8] = b"bhodl/sqlcipher-key/v1 argon2id+device-secret";
 
 impl KdfParams {
     /// Reject parameter sets read from an untrusted on-disk descriptor
@@ -146,6 +195,19 @@ pub enum KeyDerivationError {
     /// ASCII digits only, at least [`MIN_NEW_PIN_LEN`] long.
     #[error("new PIN must be at least {MIN_NEW_PIN_LEN} ASCII digits")]
     WeakPin,
+    /// A NEW passphrase (a secret that is not all ASCII digits) is
+    /// shorter than [`MIN_PASSPHRASE_LEN`] characters.
+    #[error("new passphrase must be at least {MIN_PASSPHRASE_LEN} characters")]
+    WeakPassphrase,
+    /// No OS keystore can bind the new store to this device, so a short
+    /// numeric PIN would be brute-forceable from a copy of the data
+    /// directory: a passphrase of at least [`MIN_PASSPHRASE_LEN`]
+    /// characters is required instead.
+    #[error(
+        "passphrase required: no OS keystore is available to protect a short PIN \
+         (use at least {MIN_PASSPHRASE_LEN} characters)"
+    )]
+    PassphraseRequired,
     /// KDF parameters (typically read back from disk) are outside the
     /// accepted bounds — see [`KdfParams::validate_bounds`].
     #[error("invalid KDF parameters: {0}")]
@@ -202,6 +264,66 @@ pub fn validate_new_pin(pin: &str) -> Result<(), KeyDerivationError> {
         return Err(KeyDerivationError::WeakPin);
     }
     Ok(())
+}
+
+/// Enforce the secret policy for paths that CREATE a new secret store.
+///
+/// - `device_bound = true` (an OS keystore holds the device secret): a
+///   numeric PIN of at least [`MIN_NEW_PIN_LEN`] ASCII digits, or a
+///   passphrase of at least [`MIN_PASSPHRASE_LEN`] characters.
+/// - `device_bound = false` (no keystore): only secrets of at least
+///   [`MIN_PASSPHRASE_LEN`] characters, digits-only or not.
+///
+/// A secret made only of ASCII digits is a PIN; anything else is a
+/// passphrase. Length is counted in Unicode scalar values; a secret of
+/// only whitespace is never accepted as a passphrase.
+///
+/// # Errors
+///
+/// [`KeyDerivationError::EmptyPin`], [`KeyDerivationError::WeakPin`],
+/// [`KeyDerivationError::WeakPassphrase`] or
+/// [`KeyDerivationError::PassphraseRequired`].
+pub fn validate_new_secret(secret: &str, device_bound: bool) -> Result<(), KeyDerivationError> {
+    if secret.is_empty() {
+        return Err(KeyDerivationError::EmptyPin);
+    }
+    let numeric = secret.bytes().all(|b| b.is_ascii_digit());
+    if secret.chars().count() >= MIN_PASSPHRASE_LEN && !secret.trim().is_empty() {
+        return Ok(());
+    }
+    match (numeric, device_bound) {
+        (true, true) if secret.len() >= MIN_NEW_PIN_LEN => Ok(()),
+        (true, true) => Err(KeyDerivationError::WeakPin),
+        (true, false) => Err(KeyDerivationError::PassphraseRequired),
+        (false, _) => Err(KeyDerivationError::WeakPassphrase),
+    }
+}
+
+/// Bind an Argon2id output to the OS-held device secret:
+/// `HKDF-SHA256(ikm = pin_key || device_secret, salt = salt, info)`.
+///
+/// Both halves are needed to reproduce the key: the Argon2id output alone
+/// (a PIN brute-forced against a stolen data dir) is useless without the
+/// device secret, and vice versa. `salt` is the store's Argon2 salt,
+/// re-used as HKDF salt for per-store separation.
+///
+/// # Panics
+///
+/// Never in practice: a 32-byte output is always a valid HKDF-SHA256
+/// length (the limit is 255 × 32 bytes).
+pub fn combine_with_device_secret(
+    pin_key: &[u8; DERIVED_KEY_LEN],
+    device_secret: &[u8; DEVICE_SECRET_LEN],
+    salt: &[u8; SALT_LEN],
+) -> [u8; DERIVED_KEY_LEN] {
+    let mut ikm = Zeroizing::new([0u8; DERIVED_KEY_LEN + DEVICE_SECRET_LEN]);
+    ikm[..DERIVED_KEY_LEN].copy_from_slice(pin_key);
+    ikm[DERIVED_KEY_LEN..].copy_from_slice(device_secret);
+    let hk = Hkdf::<Sha256>::new(Some(salt), ikm.as_slice());
+    let mut out = [0u8; DERIVED_KEY_LEN];
+    hk.expand(DEVICE_KEY_HKDF_INFO, &mut out)
+        .expect("32 bytes is a valid HKDF-SHA256 output length");
+    out
 }
 
 /// Derive a 32-byte AES-256 key from a PIN and a salt using Argon2id.
@@ -427,6 +549,110 @@ mod tests {
         assert!(matches!(
             validate_new_pin("١٢٣٤٥٦"),
             Err(KeyDerivationError::WeakPin)
+        ));
+    }
+
+    const DEVICE_A: [u8; DEVICE_SECRET_LEN] = [0xa5; DEVICE_SECRET_LEN];
+    const DEVICE_B: [u8; DEVICE_SECRET_LEN] = [0x5a; DEVICE_SECRET_LEN];
+
+    #[test]
+    fn device_bound_key_differs_from_pin_only_key() {
+        let pin_key = derive_key_from_pin("123456", &TEST_SALT).unwrap();
+        let bound = combine_with_device_secret(&pin_key, &DEVICE_A, &TEST_SALT);
+        assert_ne!(bound, pin_key);
+        assert_ne!(bound, DEVICE_A);
+    }
+
+    #[test]
+    fn device_bound_key_is_deterministic() {
+        let pin_key = derive_key_from_pin("123456", &TEST_SALT).unwrap();
+        assert_eq!(
+            combine_with_device_secret(&pin_key, &DEVICE_A, &TEST_SALT),
+            combine_with_device_secret(&pin_key, &DEVICE_A, &TEST_SALT)
+        );
+    }
+
+    #[test]
+    fn device_bound_key_depends_on_every_input() {
+        let k1 = derive_key_from_pin("123456", &TEST_SALT).unwrap();
+        let k2 = derive_key_from_pin("123457", &TEST_SALT).unwrap();
+        let base = combine_with_device_secret(&k1, &DEVICE_A, &TEST_SALT);
+        // Same PIN, different device secret (keystore lost / other machine).
+        assert_ne!(base, combine_with_device_secret(&k1, &DEVICE_B, &TEST_SALT));
+        // Different PIN, same device secret.
+        assert_ne!(base, combine_with_device_secret(&k2, &DEVICE_A, &TEST_SALT));
+        // Different salt.
+        assert_ne!(
+            base,
+            combine_with_device_secret(&k1, &DEVICE_A, &[0xff; SALT_LEN])
+        );
+    }
+
+    #[test]
+    fn device_bound_key_matches_rfc5869_construction() {
+        // Pin the construction (ikm order, salt, info) so a refactor
+        // cannot silently change every device-bound key on disk.
+        let pin_key = [0x11u8; DERIVED_KEY_LEN];
+        let mut ikm = [0u8; 64];
+        ikm[..32].copy_from_slice(&pin_key);
+        ikm[32..].copy_from_slice(&DEVICE_A);
+        let mut expected = [0u8; 32];
+        Hkdf::<Sha256>::new(Some(&TEST_SALT), &ikm)
+            .expand(
+                b"bhodl/sqlcipher-key/v1 argon2id+device-secret",
+                &mut expected,
+            )
+            .unwrap();
+        assert_eq!(
+            combine_with_device_secret(&pin_key, &DEVICE_A, &TEST_SALT),
+            expected
+        );
+    }
+
+    #[test]
+    fn new_secret_policy_with_device_binding() {
+        validate_new_secret("123456", true).unwrap();
+        validate_new_secret("correcthorsebattery", true).unwrap();
+        validate_new_secret("abcdefghijk1", true).unwrap();
+        assert!(matches!(
+            validate_new_secret("", true),
+            Err(KeyDerivationError::EmptyPin)
+        ));
+        assert!(matches!(
+            validate_new_secret("12345", true),
+            Err(KeyDerivationError::WeakPin)
+        ));
+        assert!(matches!(
+            validate_new_secret("abc123", true),
+            Err(KeyDerivationError::WeakPassphrase)
+        ));
+        assert!(matches!(
+            validate_new_secret("            ", true),
+            Err(KeyDerivationError::WeakPassphrase)
+        ));
+    }
+
+    #[test]
+    fn new_secret_policy_without_keystore_requires_passphrase() {
+        assert!(matches!(
+            validate_new_secret("123456", false),
+            Err(KeyDerivationError::PassphraseRequired)
+        ));
+        assert!(matches!(
+            validate_new_secret("12345678901", false),
+            Err(KeyDerivationError::PassphraseRequired)
+        ));
+        assert!(matches!(
+            validate_new_secret("short-pass", false),
+            Err(KeyDerivationError::WeakPassphrase)
+        ));
+        validate_new_secret("123456789012", false).unwrap();
+        validate_new_secret("Tr3s-Securise", false).unwrap();
+        // Length is counted in characters, not bytes.
+        validate_new_secret("ééééééééééé1", false).unwrap();
+        assert!(matches!(
+            validate_new_secret("éééééééééé1", false),
+            Err(KeyDerivationError::WeakPassphrase)
         ));
     }
 
