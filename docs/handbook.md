@@ -490,7 +490,7 @@ coprire al 100% con E2E" in the testing pyramid notes.
   Blanks `ANDROID_HOME` / `ANDROID_SDK_ROOT` to avoid AGP+uniffi conflict
   (integration tests are JVM-only, not Android). See commit `a3ddea6` (gradlew exec bit) and `8765b32` (gradle.properties commonize fix).
 
-`.github/workflows/tor.yml` (**Tor (live)**, nightly + `workflow_dispatch`, never on PRs):
+`.github/workflows/tor.yml` (**Tor (live)**, `workflow_dispatch` only — no schedule, never on PRs):
 installs `tor` on the runner, waits until `check.torproject.org` reports `IsTor`, then runs
 `cargo test -p bhodl-wallet-onchain --features tor-tests tor_live` and
 `./gradlew :apps:desktop:torTest` with `BHODL_TOR_REQUIRED=1`. Locally:
