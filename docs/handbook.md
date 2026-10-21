@@ -479,6 +479,22 @@ coprire al 100% con E2E" in the testing pyramid notes.
   Pre-pulls container images to stay within GitHub Action timeouts.
   Blanks `ANDROID_HOME` / `ANDROID_SDK_ROOT` to avoid AGP+uniffi conflict
   (integration tests are JVM-only, not Android). See commit `a3ddea6` (gradlew exec bit) and `8765b32` (gradle.properties commonize fix).
+  The two images are pinned by digest (`name:tag@sha256:...`) in ci.yml and in the
+  `IMAGE` constants of `BitcoindRegtestContainer` / `ElectrsContainer`. To bump one, resolve the
+  new digest (`docker buildx imagetools inspect <name>:<tag>`) and update the tag and digest in
+  all places together.
+
+`.github/workflows/osv-scan.yml` (**OSV scan**, push/PR + weekly): runs `osv-scanner` over
+`gradle/verification-metadata.xml` and fails on known vulnerabilities (the Gradle counterpart of
+`cargo-deny` / `cargo-audit`). The file lists build tooling too, so findings that only affect the
+Android/Kotlin Gradle plugin classpath are reviewed exceptions in `osv-scanner.toml`, pinned to
+exact versions. When a dependency bump makes the job fail: if the vulnerable package ships in the
+app, bump it; if it is build-tooling only, add a pinned override with a reason. Local run:
+`osv-scanner scan --config=osv-scanner.toml -L gradle/verification-metadata.xml`.
+
+Gradle dependency verification stays checksum-only (`verify-signatures=false`): enabling PGP
+verification was tried and 418 signing keys could not be fetched from any key server, so the
+result would have been mostly `ignored-key` entries. Revisit if the ecosystem's key coverage improves.
 
 `.github/workflows/tor.yml` (**Tor (live)**, `workflow_dispatch` only — no schedule, never on PRs):
 installs `tor` on the runner, waits until `check.torproject.org` reports `IsTor`, then runs

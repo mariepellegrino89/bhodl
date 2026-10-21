@@ -1,0 +1,40 @@
+name: OSV scan
+
+# JVM dependency-vulnerability gate (the Gradle counterpart of cargo-deny /
+# cargo-audit in ci.yml). Scans gradle/verification-metadata.xml, which lists
+# every artifact Gradle resolves, against osv.dev and fails on known
+# vulnerabilities. Build-tooling-only findings are reviewed exceptions in
+# osv-scanner.toml. A weekly run catches advisories published after merge.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '17 5 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: osv-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  osv-scan:
+    name: osv-scanner (gradle)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Pinned to a full commit SHA like every other action (v2.7.0, resolved
+      # 2026-10-21). Bump SHA and comment together. The action exits non-zero
+      # when a vulnerability is found.
+      - uses: google/osv-scanner-action/osv-scanner-action@b1d267aea5211fa648d9d442fa64b90dbdcbdd36 # v2.7.0
+        with:
+          scan-args: |-
+            --config=osv-scanner.toml
+            --lockfile=gradle/verification-metadata.xml
