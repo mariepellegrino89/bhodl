@@ -65,6 +65,8 @@ import io.bhodl.shared.resources.onb_hide_advanced
 import io.bhodl.shared.resources.onb_i_understand
 import io.bhodl.shared.resources.onb_passphrase_label
 import io.bhodl.shared.resources.onb_pin_invalid
+import io.bhodl.shared.resources.onb_keystore_unavailable
+import io.bhodl.shared.resources.onb_passphrase_body
 import io.bhodl.shared.resources.onb_pin_label
 import io.bhodl.shared.resources.onb_pins_mismatch
 import io.bhodl.shared.resources.onb_promote_address
@@ -175,6 +177,15 @@ public fun PromoteWatchScreen(
 
     var walletPin by remember { mutableStateOf("") }
     var walletPinConfirm by remember { mutableStateOf("") }
+    // Audit 2026-10 — without an OS keystore the new signing wallet
+    // needs a passphrase (12+ chars) instead of a 6-digit PIN.
+    var keystoreAvailable: Boolean? by remember { mutableStateOf(null) }
+    LaunchedEffect(Unit) {
+        keystoreAvailable = withContext(Dispatchers.IO) {
+            io.bhodl.desktop.wizard.DeviceKeystoreInfo.status().available
+        }
+    }
+    val walletSecretMode = PinValidator.inferMode(walletPin, keystoreAvailable != false)
     var promoteError: String? by remember { mutableStateOf(null) }
     var promoteWorking by remember { mutableStateOf(false) }
     var pendingSamePinWarning by remember { mutableStateOf(false) }
@@ -329,10 +340,13 @@ public fun PromoteWatchScreen(
                     confirm = walletPinConfirm,
                     onConfirmChange = { walletPinConfirm = it.filter { c -> !c.isWhitespace() } },
                     error = promoteError,
-                    working = promoteWorking,
+                    working = promoteWorking || keystoreAvailable == null,
+                    mode = walletSecretMode,
+                    keystoreAvailable = keystoreAvailable != false,
                     onSubmit = {
-                        if (promoteWorking) return@WalletPinStep
-                        val validation = PinValidator.validatePair(walletPin, walletPinConfirm)
+                        if (promoteWorking || keystoreAvailable == null) return@WalletPinStep
+                        val validation =
+                            PinValidator.validatePair(walletPin, walletPinConfirm, walletSecretMode)
                         if (validation !is PinPairValidation.Valid) return@WalletPinStep
                         promoteWorking = true
                         promoteError = null
@@ -595,14 +609,28 @@ private fun WalletPinStep(
     onConfirmChange: (String) -> Unit,
     error: String?,
     working: Boolean,
+    mode: io.bhodl.desktop.wizard.SecretMode,
+    keystoreAvailable: Boolean,
     onSubmit: () -> Unit,
 ) {
-    val validation = PinValidator.validatePair(pin, confirm)
+    val validation = PinValidator.validatePair(pin, confirm, mode)
     val helper = when {
         confirm.isEmpty() -> null
         validation == PinPairValidation.Valid -> null
         validation == PinPairValidation.Mismatch -> stringResource(Res.string.onb_pins_mismatch)
+        mode == io.bhodl.desktop.wizard.SecretMode.PASSPHRASE -> stringResource(
+            Res.string.onb_passphrase_body,
+            PinValidator.MIN_PASSPHRASE_LENGTH,
+        )
         else -> stringResource(Res.string.onb_pin_invalid)
+    }
+    if (!keystoreAvailable) {
+        Text(
+            text = stringResource(Res.string.onb_keystore_unavailable, PinValidator.MIN_PASSPHRASE_LENGTH),
+            style = BhodlTheme.typography.bodyMedium,
+            color = BhodlTheme.colors.error,
+            textAlign = TextAlign.Center,
+        )
     }
     Text(
         text = stringResource(Res.string.onb_promote_wallet_pin_title),
@@ -622,7 +650,7 @@ private fun WalletPinStep(
         singleLine = true,
         visualTransformation = PasswordVisualTransformation(),
         keyboardOptions = KeyboardOptions(
-            keyboardType = KeyboardType.NumberPassword,
+            keyboardType = KeyboardType.Password,
             imeAction = ImeAction.Next,
         ),
         modifier = Modifier
@@ -636,7 +664,7 @@ private fun WalletPinStep(
         singleLine = true,
         visualTransformation = PasswordVisualTransformation(),
         keyboardOptions = KeyboardOptions(
-            keyboardType = KeyboardType.NumberPassword,
+            keyboardType = KeyboardType.Password,
             imeAction = ImeAction.Done,
         ),
         modifier = Modifier

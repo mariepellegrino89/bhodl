@@ -43,8 +43,11 @@ import io.bhodl.desktop.wizard.PinPairValidation
 import io.bhodl.desktop.wizard.PinStrength
 import io.bhodl.desktop.wizard.PinValidation
 import io.bhodl.desktop.wizard.PinValidator
+import io.bhodl.desktop.wizard.DeviceKeystoreInfo
 import io.bhodl.desktop.wizard.DevicePinSession
+import io.bhodl.desktop.wizard.KeystoreAvailability
 import io.bhodl.desktop.wizard.PinAttemptTracker
+import io.bhodl.desktop.wizard.SecretMode
 import io.bhodl.desktop.wizard.PinErrors
 import io.bhodl.desktop.wizard.PinFailureKind
 import io.bhodl.desktop.wizard.PinScopes
@@ -102,6 +105,18 @@ import io.bhodl.shared.resources.onb_same_pin_title
 import io.bhodl.shared.resources.onb_wallet_create_failed
 import io.bhodl.shared.resources.onb_wallet_name
 import io.bhodl.shared.resources.onb_wallet_name_taken
+import io.bhodl.shared.resources.onb_keystore_bound_hint
+import io.bhodl.shared.resources.onb_keystore_unavailable
+import io.bhodl.shared.resources.onb_passphrase_body
+import io.bhodl.shared.resources.onb_passphrase_title
+import io.bhodl.shared.resources.onb_secret_passphrase_confirm
+import io.bhodl.shared.resources.onb_secret_passphrase_empty
+import io.bhodl.shared.resources.onb_secret_passphrase_label
+import io.bhodl.shared.resources.onb_secret_passphrase_too_long
+import io.bhodl.shared.resources.onb_secret_passphrase_too_short
+import io.bhodl.shared.resources.onb_secret_passphrase_whitespace
+import io.bhodl.shared.resources.onb_use_passphrase
+import io.bhodl.shared.resources.onb_use_pin
 import org.jetbrains.compose.resources.stringResource
 
 /**
@@ -121,6 +136,10 @@ public fun PinSetupScreen(
     initialPassphrase: String = "",
     isRestore: Boolean = false,
     network: Network = Network.SIGNET,
+    /** OS-keystore probe; tests inject a fixed answer. */
+    keystoreProbe: suspend () -> KeystoreAvailability = {
+        withContext(Dispatchers.IO) { DeviceKeystoreInfo.status() }
+    },
 ) {
     val scope = rememberCoroutineScope()
 
@@ -184,13 +203,29 @@ public fun PinSetupScreen(
     // unless a mainnet-without-Tor warning intercepts.
     var addToTracker by remember { mutableStateOf(true) }
 
+    // Security audit 2026-10 — OS-keystore device binding. `null` while
+    // the (off-thread) probe runs; Finish stays disabled until it is
+    // known, so a PIN is never submitted to a device without a keystore.
+    var keystore: KeystoreAvailability? by remember { mutableStateOf(null) }
+    // Opt-in alphanumeric passphrase instead of the 6-digit PIN. Forced
+    // (and the toggle hidden) when no keystore is available.
+    var preferPassphrase by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        keystore = keystoreProbe()
+    }
+    val secretMode = PinValidator.modeFor(
+        keystoreAvailable = keystore?.available != false,
+        preferPassphrase = preferPassphrase,
+    )
+    val isPassphrase = secretMode == SecretMode.PASSPHRASE
+
     // Auto-focus the first PIN field on screen entry — finding #12.
     val pinFocus = remember { FocusRequester() }
     LaunchedEffect(Unit) {
         runCatching { pinFocus.requestFocus() }
     }
 
-    val pairValidation = PinValidator.validatePair(pin, confirm)
+    val pairValidation = PinValidator.validatePair(pin, confirm, secretMode)
     val pairValidationVisible = confirm.isNotEmpty()
 
     Box(
@@ -217,16 +252,45 @@ public fun PinSetupScreen(
                 color = BhodlTheme.colors.brandPrimary,
             )
             Text(
-                text = stringResource(Res.string.onb_pin_title),
+                text = if (isPassphrase) stringResource(Res.string.onb_passphrase_title)
+                else stringResource(Res.string.onb_pin_title),
                 style = BhodlTheme.typography.titleMedium,
                 color = BhodlTheme.colors.textPrimary,
             )
             Text(
-                text = stringResource(Res.string.onb_pin_body, PinValidator.MIN_LENGTH),
+                text = if (isPassphrase) {
+                    stringResource(Res.string.onb_passphrase_body, PinValidator.MIN_PASSPHRASE_LENGTH)
+                } else {
+                    stringResource(Res.string.onb_pin_body, PinValidator.MIN_LENGTH)
+                },
                 style = BhodlTheme.typography.bodyMedium,
                 color = BhodlTheme.colors.textSecondary,
                 textAlign = TextAlign.Center,
             )
+            // Why a passphrase is mandatory here / what the PIN relies on.
+            when (val ks = keystore) {
+                null -> {}
+                else -> if (!ks.available) {
+                    Text(
+                        text = stringResource(
+                            Res.string.onb_keystore_unavailable,
+                            PinValidator.MIN_PASSPHRASE_LENGTH,
+                        ),
+                        style = BhodlTheme.typography.bodyMedium,
+                        color = BhodlTheme.colors.error,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.testTag(PinSetupTags.KEYSTORE_UNAVAILABLE),
+                    )
+                } else {
+                    Text(
+                        text = stringResource(Res.string.onb_keystore_bound_hint, ks.backend),
+                        style = BhodlTheme.typography.labelMedium,
+                        color = BhodlTheme.colors.textTertiary,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.testTag(PinSetupTags.KEYSTORE_HINT),
+                    )
+                }
+            }
 
             OutlinedTextField(
                 value = walletName,
@@ -270,18 +334,23 @@ public fun PinSetupScreen(
             OutlinedTextField(
                 value = pin,
                 onValueChange = { pin = it.filter { c -> !c.isWhitespace() } },
-                label = { Text(stringResource(Res.string.onb_pin_label)) },
+                label = {
+                    Text(
+                        if (isPassphrase) stringResource(Res.string.onb_secret_passphrase_label)
+                        else stringResource(Res.string.onb_pin_label),
+                    )
+                },
                 singleLine = true,
                 visualTransformation = PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.NumberPassword,
+                    keyboardType = if (isPassphrase) KeyboardType.Password else KeyboardType.NumberPassword,
                     imeAction = ImeAction.Next,
                 ),
-                // Security review — graded, non-blocking strength hint.
-                // 6 digits stays accepted (existing wallets), but with a
-                // copy of the wallet file an offline Argon2id sweep of
-                // 10^6 PINs is tractable, so nudge toward 8+.
-                supportingText = when (PinValidator.strength(pin)) {
+                // Security review — graded, non-blocking strength hint
+                // (PIN mode only). The keystore binding already defeats
+                // an attacker holding only the files; 8+ digits also hold
+                // up against one who has the OS account too.
+                supportingText = when (PinValidator.strength(pin, secretMode).takeIf { !isPassphrase }) {
                     PinStrength.Moderate -> {
                         {
                             Text(
@@ -302,17 +371,39 @@ public fun PinSetupScreen(
             OutlinedTextField(
                 value = confirm,
                 onValueChange = { confirm = it.filter { c -> !c.isWhitespace() } },
-                label = { Text(stringResource(Res.string.onb_confirm_pin)) },
+                label = {
+                    Text(
+                        if (isPassphrase) stringResource(Res.string.onb_secret_passphrase_confirm)
+                        else stringResource(Res.string.onb_confirm_pin),
+                    )
+                },
                 singleLine = true,
                 visualTransformation = PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.NumberPassword,
+                    keyboardType = if (isPassphrase) KeyboardType.Password else KeyboardType.NumberPassword,
                     imeAction = ImeAction.Done,
                 ),
                 modifier = Modifier
                     .fillMaxWidth()
                     .testTag(PinSetupTags.CONFIRM_PIN),
             )
+            // PIN ⇄ passphrase switch. Hidden when no keystore exists:
+            // then the passphrase is mandatory.
+            if (keystore?.available == true) {
+                TextButton(
+                    onClick = {
+                        preferPassphrase = !preferPassphrase
+                        pin = ""
+                        confirm = ""
+                    },
+                    modifier = Modifier.testTag(PinSetupTags.SECRET_MODE_TOGGLE),
+                ) {
+                    Text(
+                        if (preferPassphrase) stringResource(Res.string.onb_use_pin)
+                        else stringResource(Res.string.onb_use_passphrase),
+                    )
+                }
+            }
 
             // Advanced section: BIP-39 passphrase ("13th word"). Hidden
             // behind a toggle so the typical user is not confronted with
@@ -375,15 +466,29 @@ public fun PinSetupScreen(
                 lastError != null -> lastError
                 pairValidationVisible -> when (pairValidation) {
                     PinPairValidation.Valid -> null
-                    PinPairValidation.Mismatch -> stringResource(Res.string.onb_pins_mismatch)
+                    PinPairValidation.Mismatch ->
+                        if (isPassphrase) stringResource(Res.string.onb_passphrases_mismatch)
+                        else stringResource(Res.string.onb_pins_mismatch)
                     is PinPairValidation.PinInvalid -> when (val r = pairValidation.reason) {
                         PinValidation.Valid -> null
-                        PinValidation.Empty -> stringResource(Res.string.onb_pin_empty)
+                        PinValidation.Empty ->
+                            if (isPassphrase) stringResource(Res.string.onb_secret_passphrase_empty)
+                            else stringResource(Res.string.onb_pin_empty)
                         is PinValidation.TooShort ->
-                            stringResource(Res.string.onb_pin_too_short, r.actual, r.minimum)
+                            if (isPassphrase) {
+                                stringResource(Res.string.onb_secret_passphrase_too_short, r.actual, r.minimum)
+                            } else {
+                                stringResource(Res.string.onb_pin_too_short, r.actual, r.minimum)
+                            }
                         is PinValidation.TooLong ->
-                            stringResource(Res.string.onb_pin_too_long, r.actual, r.maximum)
+                            if (isPassphrase) {
+                                stringResource(Res.string.onb_secret_passphrase_too_long, r.actual, r.maximum)
+                            } else {
+                                stringResource(Res.string.onb_pin_too_long, r.actual, r.maximum)
+                            }
                         PinValidation.NonNumeric -> stringResource(Res.string.onb_pin_non_numeric)
+                        PinValidation.ContainsWhitespace ->
+                            stringResource(Res.string.onb_secret_passphrase_whitespace)
                     }
                 }
                 else -> null
@@ -493,8 +598,8 @@ public fun PinSetupScreen(
 
             Button(
                 onClick = {
-                    if (working) return@Button
-                    val validation = PinValidator.validatePair(pin, confirm)
+                    if (working || keystore == null) return@Button
+                    val validation = PinValidator.validatePair(pin, confirm, secretMode)
                     if (validation !is PinPairValidation.Valid) return@Button
                     if (passphrase != passphraseConfirm) return@Button
                     val dataDirView = WalletPaths.from(WalletPaths.defaultDataDir())
@@ -599,6 +704,7 @@ public fun PinSetupScreen(
                     }
                 },
                 enabled = pairValidation == PinPairValidation.Valid &&
+                    keystore != null &&
                     passphrase == passphraseConfirm &&
                     walletName.isNotBlank() &&
                     !working,
@@ -788,6 +894,12 @@ public object PinSetupTags {
     public const val ADD_TO_TRACKER: String = "pin-setup.add-to-tracker"
     /** Security review — caution hint under a 6–7 digit PIN. */
     public const val PIN_STRENGTH_HINT: String = "pin-setup.pin-strength-hint"
+    /** Audit 2026-10 — PIN ⇄ passphrase switch (keystore available only). */
+    public const val SECRET_MODE_TOGGLE: String = "pin-setup.secret-mode-toggle"
+    /** Audit 2026-10 — "no keystore, passphrase required" explanation. */
+    public const val KEYSTORE_UNAVAILABLE: String = "pin-setup.keystore-unavailable"
+    /** Audit 2026-10 — "PIN bound to <backend>" hint. */
+    public const val KEYSTORE_HINT: String = "pin-setup.keystore-hint"
 }
 
 /**

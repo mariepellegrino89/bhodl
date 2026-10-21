@@ -14,6 +14,8 @@
     <string name="onb_pin_err_storage">Impossibile leggere i file del wallet (mancanti, bloccati da un altro processo o danneggiati). Il PIN non è stato conteggiato come tentativo fallito.</string>
     <string name="onb_pin_err_newer">Questi dati sono stati scritti da una versione più recente di BHODL, che questa versione non può aprire (il downgrade non è supportato). Aggiorna BHODL all’ultima versione per aprirli. Il PIN non è stato conteggiato come tentativo fallito.</string>
     <string name="onb_pin_err_unlock_failed">Sblocco non riuscito.</string>
+    <string name="onb_pin_err_device_key_missing">Questo dispositivo non può più aprire questi dati: il segreto che BHODL ha salvato nel portachiavi di sistema non c’è più (sistema operativo reinstallato, un altro account utente, portachiavi azzerato o file copiati da un altro computer). Non è un PIN sbagliato e riprovare non serve. Ripristina il wallet dalla frase di recupero o da un backup cifrato. Il PIN non è stato conteggiato come tentativo fallito.</string>
+    <string name="onb_pin_err_keystore_unavailable">Impossibile raggiungere il portachiavi di sistema (potrebbe essere bloccato, oppure la richiesta di sblocco è stata chiusa). Sblocca il portachiavi e riprova. Il PIN non è stato verificato né conteggiato.</string>
     <string name="onb_pin_lockout">Troppi PIN errati. Attendi %1$d s prima di riprovare.</string>
     <string name="onb_device_pin_verify_failed">Impossibile verificare il PIN del dispositivo: %1$s. Il PIN non è stato conteggiato come tentativo fallito.</string>
     <string name="onb_unknown_error">errore sconosciuto</string>
@@ -161,6 +163,18 @@
     <string name="onb_pin_too_short">PIN troppo corto (%1$d / minimo %2$d).</string>
     <string name="onb_pin_too_long">PIN troppo lungo (%1$d / massimo %2$d).</string>
     <string name="onb_pin_non_numeric">Il PIN deve contenere solo cifre.</string>
+    <string name="onb_passphrase_title">Imposta una passphrase</string>
+    <string name="onb_passphrase_body">La passphrase sblocca il wallet su questo dispositivo. Usa almeno %1$d caratteri: lettere, cifre e simboli sono ammessi, gli spazi no. Non lascia mai questo dispositivo.</string>
+    <string name="onb_secret_passphrase_label">Passphrase</string>
+    <string name="onb_secret_passphrase_confirm">Conferma la passphrase</string>
+    <string name="onb_secret_passphrase_empty">Inserisci una passphrase.</string>
+    <string name="onb_secret_passphrase_too_short">Passphrase troppo corta (%1$d / minimo %2$d caratteri).</string>
+    <string name="onb_secret_passphrase_too_long">Passphrase troppo lunga (%1$d / massimo %2$d caratteri).</string>
+    <string name="onb_secret_passphrase_whitespace">Gli spazi non sono ammessi nella passphrase.</string>
+    <string name="onb_use_passphrase">Usa una passphrase invece del PIN</string>
+    <string name="onb_use_pin">Usa un PIN numerico</string>
+    <string name="onb_keystore_bound_hint">Il PIN viene combinato con un segreto custodito da %1$s: una copia dei file del wallet da sola non basta per indovinarlo. Quel segreto resta su questo computer e su questo account utente: dopo una reinstallazione del sistema o su un altro computer, ripristina dalla frase di recupero.</string>
+    <string name="onb_keystore_unavailable">Su questo dispositivo non è disponibile un portachiavi di sistema (per esempio un sistema Linux senza GNOME Keyring o KWallet). Senza portachiavi un PIN corto potrebbe essere indovinato offline da una copia dei file del wallet, quindi serve una passphrase di almeno %1$d caratteri.</string>
     <string name="onb_registry_locked">Il registro dei wallet è bloccato. Inserisci il PIN del dispositivo per aprirlo prima di creare questo wallet.</string>
     <string name="onb_open_registry_first">Apri prima il registro dei wallet con il PIN del dispositivo.</string>
     <string name="onb_wallet_name_taken">Esiste già un wallet con questo nome. Scegline un altro.</string>
