@@ -59,7 +59,8 @@ mod watch;
 
 pub use account::{
     DerivedAddress, DescriptorBackup, ENCRYPTION_KEY_LEN, EsploraScanUpdate, FeeEstimateBuckets,
-    OnchainAccount, PendingEsploraScan, ReceiveLabelCopy, TxRecord, UtxoInfo,
+    OnchainAccount, PendingEsploraScan, ReceiveLabelCopy, RekeyOutcome, TxRecord, UtxoInfo,
+    rekey_encrypted_db_if_needed,
 };
 pub use backup::{BackupBundle, decrypt_bundle, encrypt_bundle};
 pub use btc_at_time_backfill::{

@@ -1,0 +1,53 @@
+[package]
+name = "bhodl-keystore"
+description = "OS-protected device secret for BHODL: Windows DPAPI, macOS Keychain, Linux Secret Service."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+readme = "README.md"
+publish = false
+
+[dependencies]
+thiserror = { workspace = true }
+serde = { workspace = true }
+rand = { workspace = true }
+zeroize = { workspace = true }
+hex = "0.4"
+
+# Windows: DPAPI (CryptProtectData, CurrentUser scope). windows-sys is
+# already in the dependency graph (std / tempfile / ring); only the two
+# feature modules below are switched on.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security_Cryptography"] }
+
+# macOS: login Keychain generic-password items (MIT OR Apache-2.0).
+[target.'cfg(target_os = "macos")'.dependencies]
+security-framework = { version = "3", default-features = false }
+
+# Linux: freedesktop Secret Service (GNOME Keyring, KWallet, KeePassXC)
+# over the session D-Bus (MIT OR Apache-2.0). Links the system libdbus-1
+# dynamically: build hosts need `libdbus-1-dev` + `pkg-config`. No
+# crypto feature: the "plain" Secret Service session is used — see
+# `secret_service.rs` for why DH session encryption adds nothing here.
+[target.'cfg(target_os = "linux")'.dependencies]
+dbus-secret-service = { version = "4.1", default-features = false }
+
+# DPAPI needs raw FFI. `unsafe` is denied crate-wide and allowed only in
+# the `dpapi` module (the workspace table `forbid`s it, which cannot be
+# relaxed per module, so the workspace lints are restated here).
+[lints.rust]
+unsafe_code = "deny"
+missing_debug_implementations = "warn"
+unreachable_pub = "warn"
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+missing_errors_doc = "allow"
+must_use_candidate = "allow"
+
+[dev-dependencies]
+serde_json = { workspace = true }

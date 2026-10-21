@@ -30,7 +30,7 @@ use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::account::{ENCRYPTION_KEY_LEN, open_encrypted_connection};
+use crate::account::{ENCRYPTION_KEY_LEN, key_pragma_literal, open_encrypted_connection};
 use crate::error::OnchainError;
 use crate::watch::{
     WatchBip, hd_watch_descriptors, validate_watch_address, xpub_watch_descriptors,
@@ -936,6 +936,22 @@ pub struct Registry {
 }
 
 impl Registry {
+    /// Re-encrypt the registry database under `new_key` (`PRAGMA rekey`).
+    ///
+    /// Used by the FFI layer when the device-key binding of the registry
+    /// changes. Atomic per file: afterwards the DB opens with `new_key`
+    /// only; on error it still opens with the old key.
+    ///
+    /// # Errors
+    ///
+    /// [`OnchainError::Storage`] when the PRAGMA fails.
+    pub fn rekey(&self, new_key: &[u8; ENCRYPTION_KEY_LEN]) -> Result<(), OnchainError> {
+        let key_literal = key_pragma_literal(new_key);
+        self.conn
+            .pragma_update(None, "rekey", key_literal.as_str())
+            .map_err(|e| OnchainError::Storage(e.to_string()))
+    }
+
     /// Insert a new wallet row. Returns `Err` if a row with the
     /// same `id` already exists (UUID collisions are
     /// statistically impossible from CSPRNG; an error here means

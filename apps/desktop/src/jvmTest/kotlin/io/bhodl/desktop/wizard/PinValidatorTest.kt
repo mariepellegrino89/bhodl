@@ -61,17 +61,70 @@ class PinValidatorTest {
     }
 
     @Test
-    fun pin_with_unicode_digit_is_NonNumeric_or_valid_consistently() {
-        // Char.isDigit() treats e.g. arabic-indic digits as digits. The
-        // contract is only "every char must be Char.isDigit()" — we
-        // surface that consistency here so a future tightening to
-        // ASCII-only is a deliberate change.
-        val arabicIndic = "١٢٣٤٥٦"
-        val result = PinValidator.validate(arabicIndic)
-        // Currently valid because Char.isDigit accepts unicode digits.
-        // If we restrict to ASCII later, this assertion flips and the
-        // change is captured by the failing test.
-        assertEquals(PinValidation.Valid, result)
+    fun pin_with_unicode_digit_is_NonNumeric() {
+        // Deliberately tightened to ASCII-only (2026-10, device-key
+        // binding): the Rust core (`validate_new_secret`) classifies
+        // non-ASCII digits as a passphrase and would reject a 6-char one
+        // at creation, so the UI must not accept it as a PIN.
+        assertEquals(PinValidation.NonNumeric, PinValidator.validate("١٢٣٤٥٦"))
+    }
+
+    // ─── passphrase mode ───────────────────────────────────────────────
+
+    @Test
+    fun passphrase_mode_requires_twelve_code_points() {
+        val p = SecretMode.PASSPHRASE
+        assertEquals(PinValidation.Empty, PinValidator.validate("", p))
+        assertEquals(
+            PinValidation.TooShort(actual = 11, minimum = PinValidator.MIN_PASSPHRASE_LENGTH),
+            PinValidator.validate("abcdefghij1", p),
+        )
+        assertEquals(PinValidation.Valid, PinValidator.validate("abcdefghij12", p))
+        // Digits only is fine as long as it is long enough (mirrors Rust).
+        assertEquals(PinValidation.Valid, PinValidator.validate("123456789012", p))
+        // A 6-digit PIN is NOT a valid passphrase.
+        assertTrue(PinValidator.validate("123456", p) is PinValidation.TooShort)
+    }
+
+    @Test
+    fun passphrase_length_counts_code_points_not_utf16_units() {
+        // 11 emoji = 22 UTF-16 units but 11 code points: too short, as in
+        // Rust's `chars().count()`.
+        val elevenEmoji = "😎".repeat(11)
+        assertEquals(
+            PinValidation.TooShort(actual = 11, minimum = PinValidator.MIN_PASSPHRASE_LENGTH),
+            PinValidator.validate(elevenEmoji, SecretMode.PASSPHRASE),
+        )
+        assertEquals(
+            PinValidation.Valid,
+            PinValidator.validate("😎".repeat(12), SecretMode.PASSPHRASE),
+        )
+    }
+
+    @Test
+    fun passphrase_mode_rejects_whitespace_and_overlong_input() {
+        val p = SecretMode.PASSPHRASE
+        assertEquals(PinValidation.ContainsWhitespace, PinValidator.validate("correct horse battery", p))
+        val tooLong = "a".repeat(PinValidator.MAX_PASSPHRASE_LENGTH + 1)
+        assertTrue(PinValidator.validate(tooLong, p) is PinValidation.TooLong)
+    }
+
+    @Test
+    fun passphrase_pair_and_strength() {
+        val p = SecretMode.PASSPHRASE
+        assertEquals(PinPairValidation.Valid, PinValidator.validatePair("Tr3s-Securise", "Tr3s-Securise", p))
+        assertEquals(PinPairValidation.Mismatch, PinValidator.validatePair("Tr3s-Securise", "Tr3s-Securisf", p))
+        assertEquals(PinStrength.Strong, PinValidator.strength("Tr3s-Securise", p))
+        assertEquals(PinStrength.NotRated, PinValidator.strength("short", p))
+    }
+
+    @Test
+    fun mode_is_forced_to_passphrase_without_a_keystore() {
+        assertEquals(SecretMode.PIN, PinValidator.modeFor(keystoreAvailable = true, preferPassphrase = false))
+        assertEquals(SecretMode.PASSPHRASE, PinValidator.modeFor(keystoreAvailable = true, preferPassphrase = true))
+        // No keystore: a PIN is never offered, whatever the preference.
+        assertEquals(SecretMode.PASSPHRASE, PinValidator.modeFor(keystoreAvailable = false, preferPassphrase = false))
+        assertEquals(SecretMode.PASSPHRASE, PinValidator.modeFor(keystoreAvailable = false, preferPassphrase = true))
     }
 
     // ─── validatePair ──────────────────────────────────────────────────

@@ -42,7 +42,8 @@ jobs:
       - name: Install Tor
         run: |
           sudo apt-get update
-          sudo apt-get install -y tor
+          # libdbus-1-dev + pkg-config: bhodl-keystore (Secret Service).
+          sudo apt-get install -y tor libdbus-1-dev pkg-config
           sudo systemctl start tor
           tor --version
       - name: Install pinned Rust toolchain (rust-toolchain.toml)

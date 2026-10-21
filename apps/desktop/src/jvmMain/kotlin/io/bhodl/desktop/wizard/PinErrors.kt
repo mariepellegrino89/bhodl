@@ -2,6 +2,8 @@ package io.bhodl.desktop.wizard
 
 import io.bhodl.ffi.WalletException
 import io.bhodl.shared.resources.Res
+import io.bhodl.shared.resources.onb_pin_err_device_key_missing
+import io.bhodl.shared.resources.onb_pin_err_keystore_unavailable
 import io.bhodl.shared.resources.onb_pin_err_network
 import io.bhodl.shared.resources.onb_pin_err_newer
 import io.bhodl.shared.resources.onb_pin_err_storage
@@ -37,6 +39,22 @@ public enum class PinFailureKind {
      * know). Downgrades are refused on purpose; the user must update.
      */
     NewerVersion,
+
+    /**
+     * The store is bound to an OS-keystore device secret that is gone or
+     * cannot be decrypted by this OS account (OS reinstall, other user,
+     * keyring reset, data dir copied from another machine). The PIN can
+     * no longer open it here: restore from the recovery phrase or an
+     * encrypted backup. Never counted against the lockout.
+     */
+    DeviceKeyMissing,
+
+    /**
+     * The OS keystore could not be reached (keyring locked / prompt
+     * dismissed / Secret Service not running). The PIN was not checked.
+     * Never counted.
+     */
+    KeystoreUnavailable,
 
     /** Anything else (non-FFI exception, programming error, …). */
     Other,
@@ -79,6 +97,9 @@ public object PinErrors {
 
     public fun classify(e: Throwable): PinFailureKind {
         val detail = when (e) {
+            // Typed by the core — checked first, never a PIN verdict.
+            is WalletException.DeviceKeyMissing -> return PinFailureKind.DeviceKeyMissing
+            is WalletException.DeviceKeystoreUnavailable -> return PinFailureKind.KeystoreUnavailable
             is WalletException.Storage -> e.detail
             is WalletException.KeyDerivation -> e.detail
             is WalletException.Io -> return PinFailureKind.Storage
@@ -100,6 +121,8 @@ public object PinErrors {
         PinFailureKind.NetworkMismatch -> localizedText(Res.string.onb_pin_err_network)
         PinFailureKind.Storage -> localizedText(Res.string.onb_pin_err_storage)
         PinFailureKind.NewerVersion -> localizedText(Res.string.onb_pin_err_newer)
+        PinFailureKind.DeviceKeyMissing -> localizedText(Res.string.onb_pin_err_device_key_missing)
+        PinFailureKind.KeystoreUnavailable -> localizedText(Res.string.onb_pin_err_keystore_unavailable)
         PinFailureKind.Other -> localizedText(Res.string.onb_pin_err_unlock_failed)
     }
 }

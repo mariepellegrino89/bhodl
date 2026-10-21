@@ -119,6 +119,37 @@ class SecurityAuditPinTest {
     }
 
     @Test
+    fun `lost or unreachable OS keystore is never classified as a wrong PIN`() {
+        // Typed errors from kdf.rs (keystore_error). Even a detail that
+        // would otherwise read as a MAC mismatch must not count.
+        val missing = WalletException.DeviceKeyMissing(
+            "this Windows account cannot decrypt the device key (Win32 error 13)",
+        )
+        val unavailable = WalletException.DeviceKeystoreUnavailable(
+            "OS keystore unavailable: Secret Service: unlock prompt was dismissed",
+        )
+        assertEquals(PinFailureKind.DeviceKeyMissing, PinErrors.classify(missing))
+        assertEquals(PinFailureKind.KeystoreUnavailable, PinErrors.classify(unavailable))
+
+        // Neither feeds the lockout: callers only count WrongPin.
+        repeat(10) {
+            if (PinErrors.classify(missing) == PinFailureKind.WrongPin) {
+                PinAttemptTracker.recordFailure("device-pin", t0)
+            }
+        }
+        assertEquals(0L, PinAttemptTracker.cooldownRemainingSeconds("device-pin", t0))
+
+        // Distinct, actionable messages: recovery for a lost key, retry
+        // for a locked keyring — and neither says "wrong PIN".
+        val lost = PinErrors.messageFor(PinFailureKind.DeviceKeyMissing)
+        assertTrue("recovery phrase" in lost, lost)
+        assertTrue("not a wrong PIN" in lost, lost)
+        val locked = PinErrors.messageFor(PinFailureKind.KeystoreUnavailable)
+        assertTrue("keyring" in locked, locked)
+        assertFalse(locked == PinErrors.messageFor(PinFailureKind.WrongPin))
+    }
+
+    @Test
     fun `setup secrets are wiped`() {
         val id = SetupSecrets.put("abandon about", "pw")
         assertEquals("abandon about", SetupSecrets.mnemonic(id))

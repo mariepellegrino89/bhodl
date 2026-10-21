@@ -21,6 +21,11 @@ rand = { workspace = true }
 # inside `wallet.kdf.json` alongside the salt — that file is what
 # unlocks an older wallet after a parameter bump.
 serde = { workspace = true }
+# HKDF-SHA256 binds the Argon2id output to the OS-held device secret
+# (key_derivation.rs). RustCrypto, MIT OR Apache-2.0; both already in the
+# graph (age, hmac/sha2 in bhodl-uniffi).
+hkdf = "0.12"
+sha2 = "0.10"
 # The derived AES key is returned as `Zeroizing<[u8; 32]>`.
 zeroize = { workspace = true }
 

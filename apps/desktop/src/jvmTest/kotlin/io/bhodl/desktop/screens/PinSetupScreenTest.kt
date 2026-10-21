@@ -9,9 +9,11 @@ import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.runDesktopComposeUiTest
 import androidx.compose.ui.test.waitUntilAtLeastOneExists
+import io.bhodl.desktop.wizard.KeystoreAvailability
 import io.bhodl.ui.theme.BhodlTheme
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -36,6 +38,78 @@ class PinSetupScreenTest {
         "abandon abandon abandon abandon abandon abandon " +
             "abandon abandon abandon abandon abandon about"
 
+    private val withKeystore = KeystoreAvailability(available = true, backend = "Test Keystore")
+    private val noKeystore = KeystoreAvailability(available = false, backend = "none")
+
+    @Test
+    fun `without a keystore a PIN is refused and a passphrase is required`() =
+        runDesktopComposeUiTest {
+            setContent {
+                BhodlTheme {
+                    PinSetupScreen(
+                        mnemonic = testMnemonic,
+                        onSetupComplete = {},
+                        keystoreProbe = { noKeystore },
+                        onBack = {},
+                    )
+                }
+            }
+            // Explanation shown, PIN/passphrase toggle hidden.
+            waitUntilAtLeastOneExists(hasTestTag(PinSetupTags.KEYSTORE_UNAVAILABLE))
+            assertEquals(
+                0,
+                onAllNodesWithTag(PinSetupTags.SECRET_MODE_TOGGLE).fetchSemanticsNodes().size,
+            )
+            onNodeWithTag(PinSetupTags.PIN).performTextInput("123456")
+            onNodeWithTag(PinSetupTags.CONFIRM_PIN).performTextInput("123456")
+            onNodeWithTag(PinSetupTags.FINISH).assertIsNotEnabled()
+            onNodeWithText("Passphrase is too short", substring = true).assertIsDisplayed()
+        }
+
+    @Test
+    fun `without a keystore a long passphrase enables Finish`() = runDesktopComposeUiTest {
+        setContent {
+            BhodlTheme {
+                PinSetupScreen(
+                    mnemonic = testMnemonic,
+                    onSetupComplete = {},
+                    keystoreProbe = { noKeystore },
+                    onBack = {},
+                )
+            }
+        }
+        waitUntilAtLeastOneExists(hasTestTag(PinSetupTags.KEYSTORE_UNAVAILABLE))
+        onNodeWithTag(PinSetupTags.PIN).performTextInput("Tr3s-Securise")
+        onNodeWithTag(PinSetupTags.CONFIRM_PIN).performTextInput("Tr3s-Securise")
+        onNodeWithTag(PinSetupTags.FINISH).assertIsEnabled()
+    }
+
+    @Test
+    fun `with a keystore the passphrase mode is opt-in`() = runDesktopComposeUiTest {
+        setContent {
+            BhodlTheme {
+                PinSetupScreen(
+                    mnemonic = testMnemonic,
+                    onSetupComplete = {},
+                    keystoreProbe = { withKeystore },
+                    onBack = {},
+                )
+            }
+        }
+        waitUntilAtLeastOneExists(hasTestTag(PinSetupTags.KEYSTORE_HINT))
+        onNodeWithText("Test Keystore", substring = true).assertIsDisplayed()
+        // Letters are refused in the default PIN mode…
+        onNodeWithTag(PinSetupTags.PIN).performTextInput("abcdefghijkl")
+        onNodeWithTag(PinSetupTags.CONFIRM_PIN).performTextInput("abcdefghijkl")
+        onNodeWithTag(PinSetupTags.FINISH).assertIsNotEnabled()
+        // …and accepted once the user switches to a passphrase (fields reset).
+        onNodeWithTag(PinSetupTags.SECRET_MODE_TOGGLE).performClick()
+        waitForIdle()
+        onNodeWithTag(PinSetupTags.PIN).performTextInput("abcdefghijkl")
+        onNodeWithTag(PinSetupTags.CONFIRM_PIN).performTextInput("abcdefghijkl")
+        onNodeWithTag(PinSetupTags.FINISH).assertIsEnabled()
+    }
+
     @Test
     fun `Finish disabled while PINs do not match`() = runDesktopComposeUiTest {
         setContent {
@@ -43,6 +117,7 @@ class PinSetupScreenTest {
                 PinSetupScreen(
                     mnemonic = testMnemonic,
                     onSetupComplete = {},
+                    keystoreProbe = { withKeystore },
                     onBack = {},
                 )
             }
@@ -61,6 +136,7 @@ class PinSetupScreenTest {
                 PinSetupScreen(
                     mnemonic = testMnemonic,
                     onSetupComplete = {},
+                    keystoreProbe = { withKeystore },
                     onBack = {},
                 )
             }
@@ -80,10 +156,12 @@ class PinSetupScreenTest {
                 PinSetupScreen(
                     mnemonic = testMnemonic,
                     onSetupComplete = {},
+                    keystoreProbe = { withKeystore },
                     onBack = {},
                 )
             }
         }
+        waitUntilAtLeastOneExists(hasTestTag(PinSetupTags.KEYSTORE_HINT))
         onNodeWithTag(PinSetupTags.PIN).performTextInput("123456")
         onNodeWithTag(PinSetupTags.CONFIRM_PIN).performTextInput("123456")
 
@@ -98,6 +176,7 @@ class PinSetupScreenTest {
                     PinSetupScreen(
                         mnemonic = testMnemonic,
                         onSetupComplete = {},
+                        keystoreProbe = { withKeystore },
                         onBack = {},
                     )
                 }
@@ -112,7 +191,9 @@ class PinSetupScreenTest {
             // Toggle reveal.
             onNodeWithTag(PinSetupTags.ADVANCED_TOGGLE).performClick()
             waitUntilAtLeastOneExists(hasTestTag(PinSetupTags.PASSPHRASE))
-            onNodeWithTag(PinSetupTags.PASSPHRASE).assertIsDisplayed()
+            // The keystore hint + PIN/passphrase switch make the column taller:
+            // scroll the revealed field into view before asserting.
+            onNodeWithTag(PinSetupTags.PASSPHRASE).performScrollTo().assertIsDisplayed()
             // Toggle hides again.
             onNodeWithTag(PinSetupTags.ADVANCED_TOGGLE).performClick()
             waitForIdle()
@@ -131,6 +212,7 @@ class PinSetupScreenTest {
                     PinSetupScreen(
                         mnemonic = testMnemonic,
                         onSetupComplete = {},
+                        keystoreProbe = { withKeystore },
                         onBack = { backCalled++ },
                     )
                 }

@@ -36,8 +36,11 @@ been audited.
 - Fee bumping: RBF on outgoing, CPFP on incoming and on your own change.
 - BIP-21 parsing and payment requests, address book, BIP-329 labels import / export.
 - Optional Tor (SOCKS5) for all Esplora traffic; custom Esplora endpoint.
-- Encryption at rest: SQLCipher, key derived with Argon2id from your PIN; age-encrypted
-  backup export and restore.
+- Encryption at rest: SQLCipher, key derived with Argon2id from your PIN and bound to a
+  secret kept by the OS keystore (Windows DPAPI, macOS Keychain, Linux Secret Service), so a
+  copy of the data folder alone cannot be brute-forced. Without a keystore a 12+ character
+  passphrase is required. age-encrypted backup export and restore. See
+  [SECURITY.md](SECURITY.md#encryption-and-key-derivation).
 
 **Tracker**
 
@@ -84,6 +87,11 @@ only needed for the integration tests. Gradle comes from the wrapper.
 
 The first build compiles OpenSSL and SQLCipher from source and takes around 10 minutes;
 later builds are incremental.
+
+On Linux the OS-keystore integration talks to the Secret Service over D-Bus: install
+`libdbus-1-dev` and `pkg-config` (Debian/Ubuntu; `dbus-devel` + `pkgconf-pkg-config` on
+Fedora) before building. At runtime `libdbus-1` is needed, and a Secret Service provider
+(GNOME Keyring, KWallet, KeePassXC) to use a numeric PIN.
 
 ### Windows notes
 
@@ -139,7 +147,8 @@ format; older builds cannot open that data. Keep your seed or backup and see
 ```
 .
 ├── crates/
-│   ├── bhodl-core/             # Amount, Network, Argon2id KDF
+│   ├── bhodl-core/             # Amount, Network, Argon2id KDF + device-key HKDF
+│   ├── bhodl-keystore/         # OS keystore: DPAPI, macOS Keychain, Secret Service
 │   ├── bhodl-wallet-onchain/   # BDK wallet, SQLCipher persistence, registry, PayJoin, Tor
 │   └── bhodl-uniffi/           # FFI surface for Kotlin (UniFFI)
 ├── shared/                     # Kotlin Multiplatform module: theme, generated bindings

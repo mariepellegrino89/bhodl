@@ -18,6 +18,18 @@ plugins {
     alias(libs.plugins.kover)
 }
 
+// Security audit 2026-10 — every JVM test task (jvmTest, integrationTest,
+// torTest, …) runs the native core against the in-memory test keystore
+// instead of the developer's real OS keyring (DPAPI / Keychain / Secret
+// Service). CI Linux runners have no Secret Service, so without this the
+// core would (correctly) refuse 6-digit test PINs. Stores created under
+// this keystore cannot be reopened by another process — test-only.
+subprojects {
+    tasks.withType<Test>().configureEach {
+        environment("BHODL_KEYSTORE", "ephemeral-test")
+    }
+}
+
 // Aggregate JVM coverage. Run:
 //   ./gradlew koverHtmlReport   -> build/reports/kover/html/index.html
 //   ./gradlew koverXmlReport    -> build/reports/kover/report.xml (CI-friendly)
