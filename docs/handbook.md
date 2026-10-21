@@ -599,6 +599,22 @@ This is a self-custodial wallet. The user's funds are protected by:
    With a proxy configured the Esplora client uses a 90 s request timeout
    (clearnet: 30 s) because Tor circuits can stall 20-35 s before the
    connection is up.
+   **Tor stream isolation.** Every SOCKS5 connection offers no-auth (`0x00`)
+   and username/password (RFC 1929, `0x02`); when the proxy picks `0x02`
+   (Tor does) BHODL authenticates with a random per-scope token, so Tor's
+   default `IsolateSOCKSAuth` puts each scope on its own circuit: one scope
+   per wallet (sync and broadcast; keyed in memory by the wallet's public
+   descriptor), one for fee estimates, one for rate / price fetches (Rust
+   `BtcRateRepo` and Kotlin `PriceFetcher`), and a fresh token per PayJoin
+   request. Without this, a single Esplora server could link all of a user's
+   wallets by circuit. Tokens are 128 random bits from the OS RNG, kept only in
+   memory, stable for the session and rotated on restart; nothing sent is
+   derived from a wallet id or key. A proxy that picks `0x00` is still used
+   (no isolation possible there, the connection proceeds). The Kotlin side
+   speaks SOCKS5 itself because the JDK client would answer with the OS
+   `user.name`. Stream isolation unlinks wallets per circuit, not per user:
+   the same exit IP can still be shared over time, and refreshing many wallets
+   back to back remains a timing correlation.
    Historical BTC rates: CoinGecko's keyless API only serves the last 365
    days (older requests answer HTTP 401), so dates older than that are
    resolved through blockchain.info + Frankfurter and CoinGecko is never

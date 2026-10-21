@@ -383,6 +383,8 @@ const ESPLORA_MAX_RETRIES: usize = 3;
 /// [`Self::fetch`] runs.
 pub struct PendingEsploraScan {
     request: bdk_chain::spk_client::FullScanRequest<KeychainKind>,
+    /// Tor stream-isolation scope (in-memory only; see [`crate::tor`]).
+    isolation_scope: String,
 }
 
 impl std::fmt::Debug for PendingEsploraScan {
@@ -403,7 +405,8 @@ impl PendingEsploraScan {
         esplora_url: &str,
         proxy_url: Option<&str>,
     ) -> Result<EsploraScanUpdate, OnchainError> {
-        let client = try_build_esplora_client(esplora_url, proxy_url)?;
+        let client =
+            try_build_esplora_client_scoped(esplora_url, proxy_url, &self.isolation_scope)?;
         let response = client
             .full_scan(self.request, 20, 4)
             .map_err(|e| OnchainError::EsploraSync(e.to_string()))?;
@@ -472,6 +475,29 @@ pub(crate) fn try_build_esplora_client(
     esplora_url: &str,
     proxy_url: Option<&str>,
 ) -> Result<EsploraClient, OnchainError> {
+    try_build_esplora_client_scoped(esplora_url, proxy_url, ESPLORA_MISC_SCOPE)
+}
+
+/// Isolation scope of Esplora traffic that is not tied to one wallet
+/// (fee estimates, connectivity checks).
+pub(crate) const ESPLORA_MISC_SCOPE: &str = "bhodl:esplora-misc";
+
+/// Isolation scope for one wallet's Esplora traffic: its public external
+/// descriptor. Used only as an in-memory map key (hashed) — the SOCKS
+/// credentials are an unrelated random token, see [`crate::tor`].
+pub(crate) fn wallet_isolation_scope(descriptor: &str) -> String {
+    format!("bhodl:wallet:{descriptor}")
+}
+
+/// [`try_build_esplora_client`] with an explicit Tor stream-isolation
+/// `scope`: with a proxy, every tunnel authenticates to SOCKS5 with the
+/// session token of that scope, so Tor puts different scopes (wallets)
+/// on different circuits and the Esplora server cannot link them.
+pub(crate) fn try_build_esplora_client_scoped(
+    esplora_url: &str,
+    proxy_url: Option<&str>,
+    isolation_scope: &str,
+) -> Result<EsploraClient, OnchainError> {
     let proxy_url = proxy_url.map(str::trim).filter(|p| !p.is_empty());
     let mut builder = bdk_esplora::esplora_client::Builder::new(esplora_url)
         .timeout(esplora_timeout_secs(proxy_url.is_some()))
@@ -487,7 +513,8 @@ pub(crate) fn try_build_esplora_client(
             let port = parsed
                 .port_or_known_default()
                 .ok_or_else(|| OnchainError::InvalidArgument("Esplora URL has no port".into()))?;
-            let bridge = crate::tor::ConnectBridge::start(socks, host, port)?;
+            let token = crate::tor::isolation_token(isolation_scope)?;
+            let bridge = crate::tor::ConnectBridge::start(socks, host, port, Some(token))?;
             builder = builder.proxy(&bridge.proxy_url());
             Some(bridge)
         }
@@ -504,14 +531,20 @@ pub(crate) fn try_build_esplora_client(
 /// client whose proxy URL is deliberately unparsable, so every request
 /// fails with `BadProxy` **before** any socket is opened — fail-closed,
 /// never a silent clearnet fallback.
-pub(crate) fn build_esplora_client(esplora_url: &str, proxy_url: Option<&str>) -> EsploraClient {
-    try_build_esplora_client(esplora_url, proxy_url).unwrap_or_else(|_| EsploraClient {
-        client: bdk_esplora::esplora_client::Builder::new(esplora_url)
-            .timeout(esplora_timeout_secs(true))
-            .max_retries(0)
-            .proxy("bhodl-tor-setup-failed://")
-            .build_blocking(),
-        bridge: None,
+pub(crate) fn build_esplora_client(
+    esplora_url: &str,
+    proxy_url: Option<&str>,
+    isolation_scope: &str,
+) -> EsploraClient {
+    try_build_esplora_client_scoped(esplora_url, proxy_url, isolation_scope).unwrap_or_else(|_| {
+        EsploraClient {
+            client: bdk_esplora::esplora_client::Builder::new(esplora_url)
+                .timeout(esplora_timeout_secs(true))
+                .max_retries(0)
+                .proxy("bhodl-tor-setup-failed://")
+                .build_blocking(),
+            bridge: None,
+        }
     })
 }
 
@@ -1048,7 +1081,18 @@ impl OnchainAccount {
     pub fn start_esplora_scan(&self) -> PendingEsploraScan {
         PendingEsploraScan {
             request: self.wallet.start_full_scan().build(),
+            isolation_scope: self.isolation_scope(),
         }
+    }
+
+    /// Tor stream-isolation scope of this wallet (see [`crate::tor`]).
+    fn isolation_scope(&self) -> String {
+        wallet_isolation_scope(
+            &self
+                .wallet
+                .public_descriptor(KeychainKind::External)
+                .to_string(),
+        )
     }
 
     /// Phase 3 of a lock-friendly sync: merge a fetched update into the
@@ -1355,7 +1399,7 @@ impl OnchainAccount {
         let tx = Self::extract_signed_tx(psbt_b64)?;
         let txid = tx.compute_txid();
 
-        let client = build_esplora_client(esplora_url, proxy_url);
+        let client = build_esplora_client(esplora_url, proxy_url, &self.isolation_scope());
         client
             .broadcast(&tx)
             .map_err(|e| OnchainError::Broadcast(e.to_string()))?;
