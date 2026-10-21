@@ -26,6 +26,7 @@ serde = { workspace = true }
 # graph (age, hmac/sha2 in bhodl-uniffi).
 hkdf = "0.12"
 sha2 = "0.10"
+# The derived AES key is returned as `Zeroizing<[u8; 32]>`.
 zeroize = { workspace = true }
 
 [lints]

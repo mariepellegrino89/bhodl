@@ -683,11 +683,7 @@ private fun KeyValueRow(label: String, value: String, tag: String? = null) {
 }
 
 private fun copyTextToDesktopClipboard(text: String) {
-    runCatching {
-        val toolkit = java.awt.Toolkit.getDefaultToolkit()
-        val selection = java.awt.datatransfer.StringSelection(text)
-        toolkit.systemClipboard.setContents(selection, selection)
-    }
+    io.bhodl.desktop.ui.SensitiveClipboard.copy(text)
 }
 
 /** Test tags exposed by [`TransactionDetailsScreen`] / [TransactionDetailsPane]. */

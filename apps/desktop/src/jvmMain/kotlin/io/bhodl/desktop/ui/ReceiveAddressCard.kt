@@ -22,9 +22,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.ClipboardManager
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import io.bhodl.ui.theme.BhodlTheme
@@ -51,16 +48,14 @@ private const val COPY_FEEDBACK_MS = 1_500L
  *   tap so the user has visual confirmation without a popup.
  *
  * Stateful only for the copy-confirmation flash; everything else flows in
- * via [address]. Clipboard wiring uses the standard
- * [LocalClipboardManager] so it works on JVM desktop, Android, and iOS
- * with no platform-specific code.
+ * via [address]. Copy goes through [SensitiveClipboard] (kept out of the
+ * Windows clipboard history / cloud clipboard).
  */
 @Composable
 public fun ReceiveAddressCard(
     address: String,
     modifier: Modifier = Modifier,
 ) {
-    val clipboard: ClipboardManager = LocalClipboardManager.current
     var justCopied by remember { mutableStateOf(false) }
 
     // Reset the "Copied" label after the flash window.
@@ -120,7 +115,7 @@ public fun ReceiveAddressCard(
             // Copy button.
             OutlinedButton(
                 onClick = {
-                    clipboard.setText(AnnotatedString(address))
+                    SensitiveClipboard.copy(address)
                     justCopied = true
                 },
                 modifier = Modifier.fillMaxWidth(),

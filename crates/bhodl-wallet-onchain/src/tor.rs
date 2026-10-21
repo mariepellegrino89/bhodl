@@ -36,6 +36,24 @@
 //! - the destination host name is passed to the SOCKS proxy unresolved
 //!   (no local DNS lookup — the classic Tor DNS leak);
 //! - handshake / idle timeouts and a concurrent-connection cap.
+//!
+//! # Stream isolation (privacy finding, low)
+//!
+//! Tor's default `IsolateSOCKSAuth` puts streams with different SOCKS5
+//! credentials on different circuits. With plain no-auth SOCKS every
+//! BHODL stream (all wallets, rate fetches, `PayJoin`) could share one
+//! circuit, so a single Esplora server could link all of a user's wallets.
+//! Every SOCKS5 connection now offers RFC 1929 username/password (method
+//! `0x02`) next to no-auth (`0x00`) and, when the proxy picks `0x02`,
+//! authenticates with a random **isolation token**:
+//!
+//! - one token per scope (a wallet, "rates", "fees", ...), drawn from the
+//!   OS RNG, kept only in process memory ([`isolation_token`]), stable for
+//!   the session and unrelated to any wallet secret or identifier;
+//! - the same token feeds the ureq proxy URL (`socks5://<token>:x@host:port`).
+//!
+//! A proxy that selects `0x00` is still used (no isolation is possible
+//! there); a proxy that selects anything else is an error.
 
 use std::io::{self, Read, Write};
 use std::net::{IpAddr, Shutdown, SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
@@ -132,6 +150,73 @@ pub(crate) fn ureq_socks_proxy(proxy_url: &str) -> Result<ureq::Proxy, OnchainEr
         .map_err(|e| OnchainError::InvalidArgument(format!("invalid proxy: {e}")))
 }
 
+/// Password sent with every isolation token (RFC 1929 requires a
+/// non-empty password; Tor isolates on the `(username, password)` pair).
+const ISOLATION_PASSWORD: &str = "x";
+
+/// `N` random bytes from the OS RNG as lowercase hex.
+fn random_hex<const N: usize>() -> Result<String, OnchainError> {
+    let mut raw = [0u8; N];
+    rand::TryRngCore::try_fill_bytes(&mut rand::rngs::OsRng, &mut raw)
+        .map_err(|e| OnchainError::Rng(e.to_string()))?;
+    Ok(raw.iter().fold(String::with_capacity(N * 2), |mut acc, b| {
+        use std::fmt::Write as _;
+        let _ = write!(acc, "{b:02x}");
+        acc
+    }))
+}
+
+/// A fresh random isolation token (32 hex chars), not tied to any scope.
+pub(crate) fn new_isolation_token() -> Result<String, OnchainError> {
+    random_hex::<16>()
+}
+
+/// Session-stable random isolation token for `scope`.
+///
+/// `scope` names *who* is talking: a wallet descriptor, `"rates"`,
+/// `"fees"`, ... The first call for a scope draws a fresh random token;
+/// later calls return the same one, so a wallet keeps one circuit family
+/// for the whole session. The scope is only hashed into an in-memory map
+/// key; the token itself is random, so nothing sent on the wire is
+/// derived from the scope. Tokens are never persisted: a restart rotates
+/// every circuit.
+pub(crate) fn isolation_token(scope: &str) -> Result<String, OnchainError> {
+    use bitcoin::hashes::{Hash, sha256};
+    type Registry = std::sync::Mutex<std::collections::HashMap<String, String>>;
+    static TOKENS: std::sync::OnceLock<Registry> = std::sync::OnceLock::new();
+    let key = sha256::Hash::hash(scope.as_bytes()).to_string();
+    let mut map = TOKENS
+        .get_or_init(Default::default)
+        .lock()
+        .map_err(|_| OnchainError::Rng("isolation token registry poisoned".into()))?;
+    if let Some(t) = map.get(&key) {
+        return Ok(t.clone());
+    }
+    let token = new_isolation_token()?;
+    map.insert(key, token.clone());
+    Ok(token)
+}
+
+/// Like [`ureq_socks_proxy_url`] but carrying RFC 1929 credentials
+/// (`socks5://<token>:x@host:port`) so Tor isolates the streams.
+pub(crate) fn ureq_socks_proxy_url_isolated(
+    proxy_url: &str,
+    token: &str,
+) -> Result<String, OnchainError> {
+    let plain = ureq_socks_proxy_url(proxy_url)?;
+    let rest = plain.trim_start_matches("socks5://");
+    Ok(format!("socks5://{token}:{ISOLATION_PASSWORD}@{rest}"))
+}
+
+/// Isolated `ureq::Proxy` using the session token of `scope`.
+pub(crate) fn ureq_socks_proxy_isolated(
+    proxy_url: &str,
+    scope: &str,
+) -> Result<ureq::Proxy, OnchainError> {
+    let url = ureq_socks_proxy_url_isolated(proxy_url, &isolation_token(scope)?)?;
+    ureq::Proxy::new(url).map_err(|e| OnchainError::InvalidArgument(format!("invalid proxy: {e}")))
+}
+
 // ---------------------------------------------------------------------------
 // HTTP-CONNECT → SOCKS5 bridge
 // ---------------------------------------------------------------------------
@@ -146,6 +231,9 @@ struct BridgeConfig {
     allowed_port: u16,
     /// Expected `Proxy-Authorization` header value (`Basic <b64>`).
     expected_auth: String,
+    /// SOCKS5 isolation token for every tunnel of this bridge (`None` =
+    /// plain no-auth SOCKS).
+    isolation: Option<String>,
     active: AtomicUsize,
 }
 
@@ -163,20 +251,15 @@ pub(crate) struct ConnectBridge {
 
 impl ConnectBridge {
     /// Start a bridge that tunnels only to `allowed_host:allowed_port`
-    /// through `socks`.
+    /// through `socks`, authenticating every tunnel to the proxy with
+    /// `isolation` (SOCKS5 username/password) when given.
     pub(crate) fn start(
         socks: SocksProxy,
         allowed_host: &str,
         allowed_port: u16,
+        isolation: Option<String>,
     ) -> Result<Self, OnchainError> {
-        let mut raw = [0u8; 16];
-        rand::TryRngCore::try_fill_bytes(&mut rand::rngs::OsRng, &mut raw)
-            .map_err(|e| OnchainError::Rng(e.to_string()))?;
-        let token: String = raw.iter().fold(String::with_capacity(32), |mut acc, b| {
-            use std::fmt::Write as _;
-            let _ = write!(acc, "{b:02x}");
-            acc
-        });
+        let token = random_hex::<16>()?;
         // minreq sends `Proxy-Authorization: Basic base64(user)` when the
         // proxy URL carries a user and no password.
         let expected_auth = format!("Basic {}", base64_encode(token.as_bytes()));
@@ -195,6 +278,7 @@ impl ConnectBridge {
                 .to_ascii_lowercase(),
             allowed_port,
             expected_auth,
+            isolation,
             active: AtomicUsize::new(0),
         });
         let shutdown = Arc::new(AtomicBool::new(false));
@@ -363,9 +447,13 @@ fn handle_connection(mut client: TcpStream, cfg: &BridgeConfig) -> io::Result<()
         }
     };
 
-    let Ok(mut upstream) =
-        socks5_connect(&cfg.socks, &target.host, target.port, SOCKS_CONNECT_TIMEOUT)
-    else {
+    let Ok(mut upstream) = socks5_connect(
+        &cfg.socks,
+        &target.host,
+        target.port,
+        SOCKS_CONNECT_TIMEOUT,
+        cfg.isolation.as_deref(),
+    ) else {
         // Fail closed: never fall back to a direct connection.
         let _ = client.write_all(b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n");
         return Ok(());
@@ -407,11 +495,17 @@ fn pipe(client: TcpStream, upstream: TcpStream) -> io::Result<()> {
 /// Domain names are sent as ATYP=0x03 (DOMAINNAME) so the *proxy*
 /// resolves them — no local DNS query for the destination. Only literal
 /// IP addresses are sent as ATYP 0x01/0x04.
+///
+/// With `isolation = Some(token)` the greeting offers no-auth **and**
+/// username/password; if the proxy picks `0x02` the token is sent as the
+/// RFC 1929 credentials (Tor then isolates this stream from streams with
+/// another token). If the proxy picks `0x00` we proceed without isolation.
 pub(crate) fn socks5_connect(
     proxy: &SocksProxy,
     host: &str,
     port: u16,
     timeout: Duration,
+    isolation: Option<&str>,
 ) -> io::Result<TcpStream> {
     // Resolving the *proxy's own* address locally is fine (it is
     // normally 127.0.0.1 / localhost).
@@ -431,12 +525,29 @@ pub(crate) fn socks5_connect(
     s.set_write_timeout(Some(timeout))?;
     s.set_nodelay(true)?;
 
-    // Greeting: version 5, one method, "no authentication".
-    s.write_all(&[0x05, 0x01, 0x00])?;
+    let token = isolation.filter(|t| !t.is_empty());
+    s.write_all(&socks5_greeting(token.is_some()))?;
     let mut reply = [0u8; 2];
     s.read_exact(&mut reply)?;
-    if reply != [0x05, 0x00] {
-        return Err(io::Error::other("SOCKS5 proxy refused no-auth method"));
+    if reply[0] != 0x05 {
+        return Err(io::Error::other("bad SOCKS5 greeting reply version"));
+    }
+    match (reply[1], token) {
+        // No auth: fine, just no stream isolation possible with this proxy.
+        (0x00, _) => {}
+        (0x02, Some(token)) => {
+            s.write_all(&socks5_userpass_request(token, ISOLATION_PASSWORD)?)?;
+            let mut status = [0u8; 2];
+            s.read_exact(&mut status)?;
+            if status != [0x01, 0x00] {
+                return Err(io::Error::other("SOCKS5 username/password rejected"));
+            }
+        }
+        _ => {
+            return Err(io::Error::other(
+                "SOCKS5 proxy selected an unsupported auth method",
+            ));
+        }
     }
 
     let mut req = vec![0x05, 0x01, 0x00];
@@ -490,6 +601,37 @@ pub(crate) fn socks5_connect(
     Ok(s)
 }
 
+/// SOCKS5 method-selection message: `[VER, NMETHODS, METHODS...]`.
+fn socks5_greeting(with_userpass: bool) -> Vec<u8> {
+    if with_userpass {
+        vec![0x05, 0x02, 0x00, 0x02]
+    } else {
+        vec![0x05, 0x01, 0x00]
+    }
+}
+
+/// RFC 1929 request: `[0x01, ULEN, UNAME, PLEN, PASSWD]`.
+fn socks5_userpass_request(user: &str, pass: &str) -> io::Result<Vec<u8>> {
+    let (u, p) = (user.as_bytes(), pass.as_bytes());
+    let (Ok(ulen), Ok(plen)) = (u8::try_from(u.len()), u8::try_from(p.len())) else {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "SOCKS5 credential too long",
+        ));
+    };
+    if ulen == 0 || plen == 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "SOCKS5 credential empty",
+        ));
+    }
+    let mut out = vec![0x01, ulen];
+    out.extend_from_slice(u);
+    out.push(plen);
+    out.extend_from_slice(p);
+    Ok(out)
+}
+
 /// Minimal standard base64 (with padding) — only used for the bridge's
 /// own `Proxy-Authorization` token, so no extra dependency.
 fn base64_encode(input: &[u8]) -> String {
@@ -528,6 +670,23 @@ pub(crate) mod tests {
         pub(crate) atyp: u8,
         pub(crate) host: String,
         pub(crate) port: u16,
+        /// Raw method-selection message the client sent.
+        pub(crate) greeting: Vec<u8>,
+        /// RFC 1929 `(username, password)` if the client authenticated.
+        pub(crate) creds: Option<(String, String)>,
+    }
+
+    /// How the fake proxy answers the method selection.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub(crate) enum FakeAuth {
+        /// Like Tor: pick username/password when offered, else no-auth.
+        Auto,
+        /// Always pick no-auth (a proxy without RFC 1929 support).
+        NoAuthOnly,
+        /// Pick username/password but reject the credentials.
+        RejectCreds,
+        /// Reply `0xFF` (no acceptable method).
+        RefuseAll,
     }
 
     /// One-shot fake SOCKS5 server. After the handshake it hands the
@@ -535,25 +694,57 @@ pub(crate) mod tests {
     pub(crate) fn fake_socks_server(
         after: impl FnOnce(TcpStream) + Send + 'static,
     ) -> (SocksProxy, mpsc::Receiver<SocksSeen>) {
+        fake_socks_server_with(FakeAuth::Auto, after)
+    }
+
+    fn read_lv(s: &mut TcpStream) -> String {
+        let mut l = [0u8; 1];
+        s.read_exact(&mut l).unwrap();
+        let mut v = vec![0u8; usize::from(l[0])];
+        s.read_exact(&mut v).unwrap();
+        String::from_utf8(v).unwrap()
+    }
+
+    pub(crate) fn fake_socks_server_with(
+        auth: FakeAuth,
+        after: impl FnOnce(TcpStream) + Send + 'static,
+    ) -> (SocksProxy, mpsc::Receiver<SocksSeen>) {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {
             let (mut s, _) = listener.accept().unwrap();
-            let mut greet = [0u8; 3];
+            let mut greet = [0u8; 2];
             s.read_exact(&mut greet).unwrap();
-            assert_eq!(greet, [5, 1, 0]);
-            s.write_all(&[5, 0]).unwrap();
+            let mut methods = vec![0u8; usize::from(greet[1])];
+            s.read_exact(&mut methods).unwrap();
+            let greeting: Vec<u8> = greet.iter().chain(methods.iter()).copied().collect();
+            if auth == FakeAuth::RefuseAll {
+                s.write_all(&[5, 0xff]).unwrap();
+                return;
+            }
+            let userpass = auth != FakeAuth::NoAuthOnly && methods.contains(&0x02);
+            let mut creds = None;
+            if userpass {
+                s.write_all(&[5, 2]).unwrap();
+                let mut ver = [0u8; 1];
+                s.read_exact(&mut ver).unwrap();
+                assert_eq!(ver, [1], "RFC 1929 sub-negotiation version");
+                let user = read_lv(&mut s);
+                let pass = read_lv(&mut s);
+                if auth == FakeAuth::RejectCreds {
+                    s.write_all(&[1, 1]).unwrap();
+                    return;
+                }
+                s.write_all(&[1, 0]).unwrap();
+                creds = Some((user, pass));
+            } else {
+                s.write_all(&[5, 0]).unwrap();
+            }
             let mut h = [0u8; 4];
             s.read_exact(&mut h).unwrap();
             let host = match h[3] {
-                3 => {
-                    let mut l = [0u8; 1];
-                    s.read_exact(&mut l).unwrap();
-                    let mut name = vec![0u8; usize::from(l[0])];
-                    s.read_exact(&mut name).unwrap();
-                    String::from_utf8(name).unwrap()
-                }
+                3 => read_lv(&mut s),
                 1 => {
                     let mut a = [0u8; 4];
                     s.read_exact(&mut a).unwrap();
@@ -567,6 +758,8 @@ pub(crate) mod tests {
                 atyp: h[3],
                 host,
                 port: u16::from_be_bytes(p),
+                greeting,
+                creds,
             })
             .unwrap();
             s.write_all(&[5, 0, 0, 1, 0, 0, 0, 0, 0, 0]).unwrap();
@@ -651,12 +844,138 @@ pub(crate) mod tests {
     #[test]
     fn socks5_connect_sends_domain_unresolved() {
         let (proxy, seen) = fake_socks_server(|_| {});
-        let _s =
-            socks5_connect(&proxy, "esplora.example.onion", 80, Duration::from_secs(5)).unwrap();
+        let _s = socks5_connect(
+            &proxy,
+            "esplora.example.onion",
+            80,
+            Duration::from_secs(5),
+            None,
+        )
+        .unwrap();
         let seen = seen.recv_timeout(Duration::from_secs(5)).unwrap();
         assert_eq!(seen.atyp, 0x03, "domain must be sent as ATYP=DOMAINNAME");
         assert_eq!(seen.host, "esplora.example.onion");
         assert_eq!(seen.port, 80);
+        assert_eq!(seen.greeting, [5, 1, 0], "no token: no-auth only");
+        assert_eq!(seen.creds, None);
+    }
+
+    #[test]
+    fn socks5_connect_offers_userpass_and_sends_rfc1929_token() {
+        let (proxy, seen) = fake_socks_server(|_| {});
+        let _s = socks5_connect(
+            &proxy,
+            "esplora.example",
+            443,
+            Duration::from_secs(5),
+            Some("tok123"),
+        )
+        .unwrap();
+        let seen = seen.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert_eq!(seen.greeting, [5, 2, 0, 2], "offer no-auth and user/pass");
+        assert_eq!(seen.creds, Some(("tok123".into(), "x".into())));
+        assert_eq!(seen.host, "esplora.example");
+    }
+
+    #[test]
+    fn socks5_connect_proceeds_without_isolation_if_proxy_picks_no_auth() {
+        let (proxy, seen) = fake_socks_server_with(FakeAuth::NoAuthOnly, |_| {});
+        let _s = socks5_connect(
+            &proxy,
+            "esplora.example",
+            443,
+            Duration::from_secs(5),
+            Some("tok123"),
+        )
+        .unwrap();
+        let seen = seen.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert_eq!(seen.greeting, [5, 2, 0, 2]);
+        assert_eq!(seen.creds, None);
+        assert_eq!(seen.host, "esplora.example");
+    }
+
+    #[test]
+    fn socks5_connect_fails_when_creds_rejected_or_no_method() {
+        for mode in [FakeAuth::RejectCreds, FakeAuth::RefuseAll] {
+            let (proxy, _seen) = fake_socks_server_with(mode, |_| {});
+            assert!(
+                socks5_connect(
+                    &proxy,
+                    "esplora.example",
+                    443,
+                    Duration::from_secs(5),
+                    Some("tok123")
+                )
+                .is_err(),
+                "{mode:?} must fail closed"
+            );
+        }
+    }
+
+    #[test]
+    fn userpass_request_bytes_match_rfc1929() {
+        assert_eq!(
+            socks5_userpass_request("ab", "xyz").unwrap(),
+            [1, 2, b'a', b'b', 3, b'x', b'y', b'z']
+        );
+        assert!(socks5_userpass_request("", "x").is_err());
+        assert!(socks5_userpass_request("a", "").is_err());
+        assert!(socks5_userpass_request(&"a".repeat(256), "x").is_err());
+    }
+
+    #[test]
+    fn isolation_tokens_are_stable_per_scope_random_and_distinct() {
+        let a1 = isolation_token("wallet-A").unwrap();
+        let a2 = isolation_token("wallet-A").unwrap();
+        let b = isolation_token("wallet-B").unwrap();
+        assert_eq!(a1, a2, "stable within the session");
+        assert_ne!(a1, b, "different scopes never share a token");
+        assert_eq!(a1.len(), 32);
+        assert!(a1.bytes().all(|c| c.is_ascii_hexdigit()));
+        assert!(
+            !a1.contains("wallet"),
+            "token must not embed the scope identifier"
+        );
+        assert_ne!(
+            new_isolation_token().unwrap(),
+            new_isolation_token().unwrap()
+        );
+    }
+
+    #[test]
+    fn ureq_isolated_proxy_url_carries_token_credentials() {
+        assert_eq!(
+            ureq_socks_proxy_url_isolated("socks5h://127.0.0.1:9050", "tok").unwrap(),
+            "socks5://tok:x@127.0.0.1:9050"
+        );
+        assert_eq!(
+            ureq_socks_proxy_url_isolated("socks5h://[::1]:9050", "tok").unwrap(),
+            "socks5://tok:x@[::1]:9050"
+        );
+        assert!(ureq_socks_proxy_url_isolated("http://127.0.0.1:9050", "tok").is_err());
+        assert!(ureq_socks_proxy_isolated("socks5h://127.0.0.1:9050", "rates").is_ok());
+    }
+
+    #[test]
+    fn bridge_forwards_its_isolation_token_to_socks() {
+        let (proxy, seen) = fake_socks_server(|mut s| {
+            let mut buf = [0u8; 4];
+            s.read_exact(&mut buf).unwrap();
+            s.write_all(&buf).unwrap();
+        });
+        let bridge =
+            ConnectBridge::start(proxy, "mempool.example", 443, Some("walletTok".into())).unwrap();
+        let mut c = TcpStream::connect(bridge.local_addr()).unwrap();
+        c.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        write!(
+            c,
+            "CONNECT mempool.example:443 HTTP/1.1\r\nProxy-Authorization: {}\r\n\r\n",
+            bridge.auth_header()
+        )
+        .unwrap();
+        assert!(read_until_blank_line(&mut c).starts_with("HTTP/1.1 200"));
+        let seen = seen.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert_eq!(seen.creds, Some(("walletTok".into(), "x".into())));
     }
 
     #[test]
@@ -667,7 +986,7 @@ pub(crate) mod tests {
             s.read_exact(&mut buf).unwrap();
             s.write_all(&buf).unwrap();
         });
-        let bridge = ConnectBridge::start(proxy, "mempool.example", 443).unwrap();
+        let bridge = ConnectBridge::start(proxy, "mempool.example", 443, None).unwrap();
         let mut c = TcpStream::connect(bridge.local_addr()).unwrap();
         c.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
         write!(
@@ -693,7 +1012,7 @@ pub(crate) mod tests {
     fn bridge_rejects_other_targets_and_missing_auth() {
         // The fake SOCKS server must never be contacted.
         let (proxy, seen) = fake_socks_server(|_| {});
-        let bridge = ConnectBridge::start(proxy, "mempool.example", 443).unwrap();
+        let bridge = ConnectBridge::start(proxy, "mempool.example", 443, None).unwrap();
 
         let mut c = TcpStream::connect(bridge.local_addr()).unwrap();
         c.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
@@ -735,7 +1054,7 @@ pub(crate) mod tests {
             host: "127.0.0.1".into(),
             port: dead_port,
         };
-        let bridge = ConnectBridge::start(proxy, "mempool.example", 443).unwrap();
+        let bridge = ConnectBridge::start(proxy, "mempool.example", 443, None).unwrap();
         let mut c = TcpStream::connect(bridge.local_addr()).unwrap();
         c.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
         write!(
@@ -777,6 +1096,37 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn esplora_clients_of_different_wallets_authenticate_with_different_tokens() {
+        let mut tokens = Vec::new();
+        for scope in [
+            "bhodl:wallet:desc-A",
+            "bhodl:wallet:desc-B",
+            "bhodl:wallet:desc-A",
+        ] {
+            let (proxy, seen) = fake_socks_server(|mut s| {
+                let _ = read_until_blank_line(&mut s);
+                s.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 1\r\n\r\n7")
+                    .unwrap();
+            });
+            let proxy_url = format!("socks5h://{}:{}", proxy.host, proxy.port);
+            let client = crate::account::try_build_esplora_client_scoped(
+                "http://esplora.example/api",
+                Some(&proxy_url),
+                scope,
+            )
+            .unwrap();
+            assert_eq!(client.get_height().unwrap(), 7);
+            let seen = seen.recv_timeout(Duration::from_secs(5)).unwrap();
+            tokens.push(seen.creds.expect("isolation creds").0);
+        }
+        assert_ne!(
+            tokens[0], tokens[1],
+            "wallets must not share a circuit token"
+        );
+        assert_eq!(tokens[0], tokens[2], "same wallet keeps its token");
+    }
+
+    #[test]
     fn esplora_client_fails_closed_without_reachable_proxy() {
         let dead_port = {
             let l = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -795,7 +1145,8 @@ pub(crate) mod tests {
         );
         // … and the infallible builder degrades to a client that cannot
         // reach anything (BadProxy), never to a direct connection.
-        let c = crate::account::build_esplora_client("https://x.example/api", Some("http://p:1"));
+        let c =
+            crate::account::build_esplora_client("https://x.example/api", Some("http://p:1"), "t");
         assert!(c.get_height().is_err());
     }
 }

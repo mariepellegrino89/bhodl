@@ -6,6 +6,7 @@ import io.bhodl.shared.resources.onb_wipe_aborted
 import io.bhodl.shared.resources.onb_wipe_done
 import io.bhodl.shared.resources.onb_wipe_incomplete
 import io.bhodl.shared.resources.onb_wipe_nothing
+import io.bhodl.shared.resources.onb_wipe_trashed
 
 /**
  * Security audit 2026-10 (M8) — the single "erase everything on this
@@ -32,14 +33,53 @@ public object LocalWipe {
     /** `true` iff [typed] matches [CONFIRM_PHRASE] (trimmed, case-sensitive). */
     public fun isConfirmed(typed: String): Boolean = typed.trim() == CONFIRM_PHRASE
 
-    public fun wipeAll(dataDir: File): WalletPathsView.ResetResult {
+    public fun wipeAll(dataDir: File): WalletPathsView.ResetResult =
+        dispose(dataDir) { WalletPaths.from(dataDir).resetChecked() }
+
+    /**
+     * Audit 2026-10 — pre-auth "forgot device PIN" reset (Welcome). Same
+     * sequence as [wipeAll], but the wallet files are MOVED into a fresh
+     * `<trashRoot>/<UTC timestamp>/` folder instead of being deleted, so
+     * an accidental or malicious reset from the locked screen is
+     * recoverable (move the files back into the data dir). The trash is
+     * never emptied by the app.
+     */
+    public fun moveAllToTrash(
+        dataDir: File,
+        trashRoot: File = defaultTrashRoot(dataDir),
+        now: java.time.Instant = java.time.Instant.now(),
+    ): WalletPathsView.ResetResult {
+        val stamp = TRASH_STAMP.format(now)
+        var target = File(trashRoot, stamp)
+        var n = 1
+        while (target.exists()) target = File(trashRoot, "$stamp-${n++}")
+        trashRoot.mkdirs()
+        WalletPaths.restrictToOwner(trashRoot)
+        return dispose(dataDir) { WalletPaths.from(dataDir).moveToTrashChecked(target) }
+    }
+
+    /** `~/.bhodl-trash` for the default `~/.bhodl` (sibling of [dataDir]). */
+    public fun defaultTrashRoot(dataDir: File): File {
+        val abs = dataDir.absoluteFile
+        return File(abs.parentFile ?: abs, abs.name + TRASH_SUFFIX)
+    }
+
+    private const val TRASH_SUFFIX: String = "-trash"
+
+    private val TRASH_STAMP: java.time.format.DateTimeFormatter =
+        java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss").withZone(java.time.ZoneOffset.UTC)
+
+    private fun dispose(
+        dataDir: File,
+        removeFiles: () -> WalletPathsView.ResetResult,
+    ): WalletPathsView.ResetResult {
         WalletStore.clear()
         WatchStore.clear()
         RegistryStore.clear()
         DevicePinSession.clear()
         SetupSecrets.wipeAll()
 
-        val result = WalletPaths.from(dataDir).resetChecked()
+        val result = removeFiles()
         if (!result.aborted) {
             val failures = File(dataDir, PinAttemptTracker.PIN_FAILURES_FILE_NAME)
             if (failures.exists() && !failures.delete()) {
@@ -66,6 +106,11 @@ public object LocalWipe {
             result.failed.joinToString { it.name },
         )
         result.deleted.isEmpty() -> localizedText(Res.string.onb_wipe_nothing)
+        result.movedTo != null -> localizedText(
+            Res.string.onb_wipe_trashed,
+            result.deleted.size,
+            result.movedTo.absolutePath,
+        )
         else -> localizedText(Res.string.onb_wipe_done, result.deleted.size)
     }
 }

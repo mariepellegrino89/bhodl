@@ -611,11 +611,8 @@ fn derive_candidate_keys(
         Some(wrap) => Some(keystore.load(wrap).map_err(keystore_error)?),
         None => None,
     };
-    let pin_key: SecretKey = Zeroizing::new(bhodl_core::derive_key_from_pin_with_params(
-        pin,
-        &cand.salt,
-        &cand.params,
-    )?);
+    let pin_key: SecretKey =
+        bhodl_core::derive_key_from_pin_with_params(pin, &cand.salt, &cand.params)?;
     let db_key = match device {
         Some(d) => bhodl_core::combine_with_device_secret(&pin_key, &d, &cand.salt),
         None => pin_key.clone(),
@@ -904,11 +901,8 @@ pub(crate) fn migrate_if_stale(
 
     let (new_salt, new_params, new_pin_key) = if params_stale {
         let salt = generate_salt()?;
-        let pin_key: SecretKey = Zeroizing::new(bhodl_core::derive_key_from_pin_with_params(
-            pin,
-            &salt,
-            &KdfParams::CURRENT,
-        )?);
+        let pin_key: SecretKey =
+            bhodl_core::derive_key_from_pin_with_params(pin, &salt, &KdfParams::CURRENT)?;
         (salt, KdfParams::CURRENT, pin_key)
     } else {
         (unlocked.salt, unlocked.params, unlocked.pin_key.clone())

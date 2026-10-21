@@ -5,6 +5,7 @@ members = [
     "crates/bhodl-keystore",
     "crates/bhodl-uniffi",
     "crates/bhodl-wallet-onchain",
+    "crates/uniffi-bindgen-kmp",
 ]
 
 [workspace.package]

@@ -79,7 +79,7 @@ fn install_pin_only_wallet(dir: &Path, pin: &str) -> [u8; ENCRYPTION_KEY_LEN] {
         &key,
     )
     .unwrap();
-    key
+    *key
 }
 
 fn db_opens_with(dir: &Path, key: &[u8; ENCRYPTION_KEY_LEN]) -> bool {
@@ -635,7 +635,7 @@ fn fresh_registry_is_device_bound_and_new_watch_files_use_its_key() {
 /// Secret Service): create, unlock, migrate a PIN-only wallet, and check
 /// that a damaged device-key record is reported as missing. Ignored in
 /// CI (no keyring on Linux runners, no unlocked keychain on macOS ones);
-/// see test-book §54.
+/// see test-book §55.
 #[test]
 #[ignore = "touches the real OS keystore"]
 fn real_os_keystore_end_to_end() {

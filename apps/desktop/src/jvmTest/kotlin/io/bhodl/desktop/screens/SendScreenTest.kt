@@ -805,6 +805,64 @@ class SendScreenTest {
             )
         }
 
+    @Test
+    fun `PayJoin FeeTooHigh asks for confirmation and renegotiates with allowHighFee`() =
+        runDesktopComposeUiTest {
+            val fake = FakeWalletPort().apply {
+                failBuildUnlessHighFeeAllowed =
+                    WalletException.FeeTooHigh(feeSat = 90_000uL, limitSat = 50_000uL)
+            }
+            WalletStore.set(fake)
+            setContent {
+                BhodlTheme {
+                    SendScreen(onReady = { _, _, _, _ -> }, onBack = {})
+                }
+            }
+            waitUntilAtLeastOneExists(hasTestTag(SendTags.REVIEW))
+            onNodeWithTag(SendTags.ADDRESS).performTextInput(
+                "bitcoin:$TARGET_ADDRESS?amount=0.001&pj=https://x.example/y",
+            )
+            waitUntilAtLeastOneExists(hasTestTag(SendTags.PAYJOIN_BADGE))
+            onNodeWithTag(SendTags.REVIEW).performScrollTo().performClick()
+
+            waitUntilAtLeastOneExists(hasTestTag(PsbtReviewTags.HIGH_FEE_DIALOG))
+            assertEquals(
+                listOf(false),
+                fake.payjoinNegotiateCalls.map { it.allowHighFee },
+                "first attempt never pre-confirms the fee",
+            )
+            assertTrue(fake.payjoinSignCalls.isEmpty())
+            onNodeWithTag(PsbtReviewTags.HIGH_FEE_DIALOG_CONFIRM).performClick()
+            waitUntilAtLeastOneExists(hasTestTag(SendTags.PAYJOIN_REVIEW_DIALOG))
+            assertEquals(listOf(false, true), fake.payjoinNegotiateCalls.map { it.allowHighFee })
+        }
+
+    @Test
+    fun `cancelling the PayJoin FeeTooHigh dialog negotiates nothing further`() =
+        runDesktopComposeUiTest {
+            val fake = FakeWalletPort().apply {
+                failBuildUnlessHighFeeAllowed =
+                    WalletException.FeeTooHigh(feeSat = 90_000uL, limitSat = 50_000uL)
+            }
+            WalletStore.set(fake)
+            setContent {
+                BhodlTheme {
+                    SendScreen(onReady = { _, _, _, _ -> }, onBack = {})
+                }
+            }
+            waitUntilAtLeastOneExists(hasTestTag(SendTags.REVIEW))
+            onNodeWithTag(SendTags.ADDRESS).performTextInput(
+                "bitcoin:$TARGET_ADDRESS?amount=0.001&pj=https://x.example/y",
+            )
+            waitUntilAtLeastOneExists(hasTestTag(SendTags.PAYJOIN_BADGE))
+            onNodeWithTag(SendTags.REVIEW).performScrollTo().performClick()
+            waitUntilAtLeastOneExists(hasTestTag(PsbtReviewTags.HIGH_FEE_DIALOG))
+            onNodeWithTag(PsbtReviewTags.HIGH_FEE_DIALOG_CANCEL).performClick()
+            waitForIdle()
+            assertEquals(listOf(false), fake.payjoinNegotiateCalls.map { it.allowHighFee })
+            assertTrue(onAllNodesWithTag(SendTags.PAYJOIN_REVIEW_DIALOG).fetchSemanticsNodes().isEmpty())
+        }
+
     // H7 — the form must never show one payment while PayJoin pays another.
 
     @Test

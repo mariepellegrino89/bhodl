@@ -1,11 +1,10 @@
 // Root build file. Plugins are declared here with apply false so each
 // subproject can opt-in via the version catalog without redeclaring versions.
 //
-// TODO(security review): wire a JVM dependency-vulnerability scanner into
-// CI — org.owasp.dependencycheck (or Snyk) on :apps:desktop and :shared.
-// The Rust side already has cargo-deny (deny.toml); the Gradle side has
-// no equivalent advisory gate today. Deliberately not applied here yet:
-// the plugin needs network access to the NVD feed at build time.
+// JVM dependency-vulnerability gate: .github/workflows/osv-scan.yml runs
+// osv-scanner over gradle/verification-metadata.xml (reviewed exceptions in
+// osv-scanner.toml). It is a CI job, not a Gradle plugin, so no network
+// access is needed at build time.
 plugins {
     alias(libs.plugins.kotlin.multiplatform) apply false
     alias(libs.plugins.kotlin.android) apply false

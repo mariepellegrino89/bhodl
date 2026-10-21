@@ -60,7 +60,7 @@ class PayjoinIntegrationTest : RegtestFixture() {
         )) {
             val uri = "bitcoin:$recipient?amount=0.001&pj=$pjUrl"
             val ex = runCatching {
-                wallet.payjoinNegotiate(uri, recipient, 100_000UL, 2UL, null)
+                wallet.payjoinNegotiate(uri, recipient, 100_000UL, 2UL, null, false)
             }.exceptionOrNull()
             assertNotNull(ex, "expected $pjUrl to be refused")
         }
@@ -73,7 +73,7 @@ class PayjoinIntegrationTest : RegtestFixture() {
         val recipient = wallet.peekAddressAt(6u)
         val uri = "bitcoin:$recipient?amount=1&pj=https://pj.example.com/btc"
         val ex = runCatching {
-            wallet.payjoinNegotiate(uri, recipient, 1_000UL, 2UL, null)
+            wallet.payjoinNegotiate(uri, recipient, 1_000UL, 2UL, null, false)
         }.exceptionOrNull()
         assertNotNull(ex)
         assertTrue(
@@ -88,7 +88,7 @@ class PayjoinIntegrationTest : RegtestFixture() {
         val recipient = wallet.peekAddressAt(7u)
         val uri = "bitcoin:$recipient?amount=0.001&pj=http://abcdefghij.onion/pj"
         val ex = runCatching {
-            wallet.payjoinNegotiate(uri, recipient, 100_000UL, 2UL, null)
+            wallet.payjoinNegotiate(uri, recipient, 100_000UL, 2UL, null, false)
         }.exceptionOrNull()
         assertNotNull(ex)
         assertTrue((ex!!.message ?: "").contains("Tor"), "got: ${ex.message}")

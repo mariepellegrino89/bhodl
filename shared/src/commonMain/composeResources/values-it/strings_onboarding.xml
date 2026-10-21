@@ -25,6 +25,14 @@
     <string name="onb_wipe_incomplete">Cancellazione incompleta: impossibile eliminare %1$d elementi (%2$s).</string>
     <string name="onb_wipe_nothing">Niente da cancellare.</string>
     <string name="onb_wipe_done">Eliminati %1$d elementi.</string>
+    <string name="onb_wipe_pin_body">I wallet su questo dispositivo sono protetti da un PIN del dispositivo. Inseriscilo per cancellare definitivamente tutti i wallet.</string>
+    <string name="onb_wipe_forgot_pin">Ho dimenticato il PIN del dispositivo</string>
+    <string name="onb_wipe_trash_body">Senza il PIN del dispositivo non viene eliminato nulla: tutti i file dei wallet vengono spostati in una cartella di recupero (%1$s) e spariscono da BHODL. Se in seguito ricordi il PIN, riporta i file nella cartella dati di BHODL; altrimenti elimina tu quella cartella.
+
+Scrivi %2$s per confermare.</string>
+    <string name="onb_wipe_seed_ack">Ho la frase di recupero (o il backup cifrato) di ogni wallet su questo dispositivo</string>
+    <string name="onb_wipe_move_confirm">Sposta i wallet nella cartella di recupero</string>
+    <string name="onb_wipe_trashed">Spostati %1$d elementi in %2$s. Per ripristinarli, riportali nella cartella dati di BHODL.</string>
 
     <!-- WalletPinReauthDialog -->
     <string name="onb_pin_check_failed">Verifica del PIN non riuscita.</string>

@@ -24,8 +24,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -58,7 +56,6 @@ public fun SendSuccessScreen(
     explorerBaseUrl: String? = ExplorerLinks.txBaseUrl(io.bhodl.desktop.wizard.WalletStore.network()),
     openExplorer: (String) -> Unit = ::openInSystemBrowser,
 ) {
-    val clipboard = LocalClipboardManager.current
 
     Box(
         modifier = Modifier
@@ -123,7 +120,7 @@ public fun SendSuccessScreen(
             }
 
             OutlinedButton(
-                onClick = { clipboard.setText(AnnotatedString(txid)) },
+                onClick = { io.bhodl.desktop.ui.SensitiveClipboard.copy(txid) },
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text(stringResource(Res.string.wsend_success_copy_txid))
@@ -134,7 +131,7 @@ public fun SendSuccessScreen(
                 txid = txid,
                 explorerBaseUrl = explorerBaseUrl,
                 openExplorer = openExplorer,
-                onCopyTxid = { clipboard.setText(AnnotatedString(txid)) },
+                onCopyTxid = { io.bhodl.desktop.ui.SensitiveClipboard.copy(txid) },
                 modifier = Modifier.fillMaxWidth(),
             )
 

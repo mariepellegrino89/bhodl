@@ -185,10 +185,13 @@ jobs:
             ~/.gradle/wrapper
           key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle.kts', 'gradle/libs.versions.toml', 'gradle/verification-metadata.xml') }}
           restore-keys: gradle-${{ runner.os }}-
+      # Images are pinned by digest (tag kept for readability, digests
+      # resolved 2026-10-21). Bump tag and digest together, deliberately, here
+      # and in the Testcontainers IMAGE constants.
       - name: Pre-pull container images
         run: |
-          docker pull polarlightning/bitcoind:28.0
-          docker pull mempool/electrs:v3.2.0
+          docker pull polarlightning/bitcoind:28.0@sha256:ff435d758c89f01823924e057d5d5e4206d350ae69dff5e0dc1bbc9c6a36d010
+          docker pull mempool/electrs:v3.2.0@sha256:1d8a505bb53005cf06b751190b0570a5a66ee1c185cef621e6737f0c18f6643e
       - name: Run integration tests
         run: ./gradlew :apps:desktop:integrationTest --stacktrace
       - name: Upload test report on failure
