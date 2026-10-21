@@ -45,10 +45,29 @@ public object IdleLock {
     }
 
     /**
+     * Audit 2026-10 (idle lock during setup) — whether the idle watcher is
+     * armed at all. Besides an open signing wallet / registry, an
+     * in-progress setup wizard counts: seed material parked in
+     * [io.bhodl.desktop.wizard.SetupSecrets] ([setupSecretsParked] > 0),
+     * or a wizard screen on top ([onSetupRoute]) — GenerateMnemonic shows
+     * the fresh seed BEFORE it is parked. Without this, on a first
+     * install (no registry, no wallet) the seed could stay on screen
+     * indefinitely. On expiry the caller wipes [SetupSecrets] and routes
+     * to the boot guard (Welcome on a fresh install).
+     */
+    public fun sessionArmed(
+        registryOpen: Boolean,
+        walletOpen: Boolean,
+        setupSecretsParked: Int,
+        onSetupRoute: Boolean,
+    ): Boolean = registryOpen || walletOpen || setupSecretsParked > 0 || onSetupRoute
+
+    /**
      * Pure decision function.
      *
-     * @param sessionOpen a signing wallet ([io.bhodl.desktop.wizard.WalletStore])
-     *   or the registry ([io.bhodl.desktop.wizard.RegistryStore]) is open.
+     * @param sessionOpen [sessionArmed]: a signing wallet
+     *   ([io.bhodl.desktop.wizard.WalletStore]), the registry
+     *   ([io.bhodl.desktop.wizard.RegistryStore]) or the setup wizard is open.
      * @param registryOpen the registry specifically is open; then a missing
      *   / expired [DevicePinSession] also forces the lock.
      * @param devicePinExpired `DevicePinSession.isExpired()`.

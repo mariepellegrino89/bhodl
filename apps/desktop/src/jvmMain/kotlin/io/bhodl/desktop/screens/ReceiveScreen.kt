@@ -33,10 +33,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.ClipboardManager
-import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -116,7 +113,6 @@ public fun ReceiveScreen(
     onPresetConsumed: () -> Unit = {},
 ) {
     val wallet: WalletPort? = remember { WalletStore.current() }
-    val clipboard: ClipboardManager = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
     val knownCategories by TrackerCache.categories
 
@@ -257,11 +253,11 @@ public fun ReceiveScreen(
                 copiedKind = copiedKind,
                 working = working,
                 onCopyAddress = {
-                    clipboard.setText(AnnotatedString(shown))
+                    io.bhodl.desktop.ui.SensitiveClipboard.copy(shown)
                     copiedKind = CopyKind.Address
                 },
                 onCopyUri = {
-                    clipboard.setText(AnnotatedString(uri))
+                    io.bhodl.desktop.ui.SensitiveClipboard.copy(uri)
                     copiedKind = CopyKind.Uri
                 },
                 onNewAddress = { resolve(fresh = true) },

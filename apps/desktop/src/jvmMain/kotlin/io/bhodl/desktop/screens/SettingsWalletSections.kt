@@ -1026,7 +1026,6 @@ internal fun ShowWatchOnlyDescriptorSection() {
     var working by remember { mutableStateOf(false) }
     var lastError: String? by remember { mutableStateOf(null) }
     var reauthOpen by remember { mutableStateOf(false) }
-    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
     val msgNotUnlocked = stringResource(Res.string.set_wallet_not_unlocked)
 
     // Security review 2026-10 — the xpub exposes the whole wallet
@@ -1120,7 +1119,7 @@ internal fun ShowWatchOnlyDescriptorSection() {
             )
             OutlinedButton(
                 onClick = {
-                    copyToClipboardWithAutoClear(scope, clipboard, current.accountXpub)
+                    copyToClipboardWithAutoClear(current.accountXpub)
                 },
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1138,7 +1137,7 @@ internal fun ShowWatchOnlyDescriptorSection() {
             )
             OutlinedButton(
                 onClick = {
-                    copyToClipboardWithAutoClear(scope, clipboard, current.externalDescriptor)
+                    copyToClipboardWithAutoClear(current.externalDescriptor)
                 },
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1156,37 +1155,23 @@ internal fun ShowWatchOnlyDescriptorSection() {
 
 /**
  * Security review — copy [value] to the clipboard, then clear it after
- * [CLIPBOARD_CLEAR_DELAY_MS] **only if** the clipboard still holds that
- * exact value (so unrelated content the user copied in the meantime is
- * never clobbered). An xpub left in the clipboard indefinitely is a
- * privacy leak — any later paste (chat, search bar) exposes the whole
- * wallet history.
+ * [io.bhodl.desktop.ui.SensitiveClipboard.AUTO_CLEAR_DELAY_MS] **only if**
+ * the clipboard still holds that exact value (so unrelated content the
+ * user copied in the meantime is never clobbered). An xpub left in the
+ * clipboard indefinitely is a privacy leak — any later paste (chat,
+ * search bar) exposes the whole wallet history.
  *
- * Audit 2026-10 — the timer runs on the app-lifetime [io.bhodl.desktop.AppScope]
- * (it used to die with the Settings screen scope, so navigating away
- * within the minute left the xpub on the clipboard forever). The
- * compare-and-clear hops back to the UI thread.
+ * Audit 2026-10 — the timer runs on the app-lifetime
+ * [io.bhodl.desktop.AppScope]; on Windows the value is also excluded
+ * from clipboard history / cloud clipboard (see
+ * [io.bhodl.desktop.ui.SensitiveClipboard]).
  */
-@Suppress("UNUSED_PARAMETER")
-private fun copyToClipboardWithAutoClear(
-    scope: kotlinx.coroutines.CoroutineScope,
-    clipboard: androidx.compose.ui.platform.ClipboardManager,
-    value: String,
-) {
-    clipboard.setText(androidx.compose.ui.text.AnnotatedString(value))
-    io.bhodl.desktop.AppScope.io.launch {
-        kotlinx.coroutines.delay(CLIPBOARD_CLEAR_DELAY_MS)
-        withContext(Dispatchers.Main) {
-            runCatching {
-                if (clipboard.getText()?.text == value) {
-                    clipboard.setText(androidx.compose.ui.text.AnnotatedString(""))
-                }
-            }
-        }
-    }
+private fun copyToClipboardWithAutoClear(value: String) {
+    io.bhodl.desktop.ui.SensitiveClipboard.copy(
+        value,
+        autoClearMs = io.bhodl.desktop.ui.SensitiveClipboard.AUTO_CLEAR_DELAY_MS,
+    )
 }
-
-private const val CLIPBOARD_CLEAR_DELAY_MS: Long = 60_000L
 
 /**
  * Delete the active signing wallet — registry row + `wallets/<uuid>/`

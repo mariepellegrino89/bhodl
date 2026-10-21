@@ -65,6 +65,7 @@ class SecretActionsUiTest {
         PinAttemptTracker.reset()
         WalletStore.clear()
         SetupSecrets.wipeAll()
+        io.bhodl.desktop.wizard.LocalWipe.defaultTrashRoot(tmp).deleteRecursively()
         tmp.deleteRecursively()
     }
 
@@ -394,30 +395,105 @@ class SecretActionsUiTest {
         }
 
     @Test
-    fun `Welcome reset needs DELETE and then reports the wipe`() = runDesktopComposeUiTest {
-        val files = seedDataDir()
-        var resetComplete = 0
+    fun `Welcome reset without a registry moves the files to trash after the seed acknowledgement`() =
+        runDesktopComposeUiTest {
+            val files = seedDataDir()
+            var resetComplete = 0
+            setContent {
+                BhodlTheme {
+                    WelcomeScreen(
+                        onCreateWallet = {},
+                        onUnlock = {},
+                        onRestore = {},
+                        onResetComplete = { resetComplete++ },
+                        dataDir = tmp,
+                    )
+                }
+            }
+            waitUntilAtLeastOneExists(hasTestTag(WelcomeTags.RESET))
+            onNodeWithTag(WelcomeTags.RESET).performScrollTo().performClick()
+            waitUntilAtLeastOneExists(hasTestTag(ConfirmWipeTags.TRASH_BODY))
+            // No registry → no PIN field and no "forgot PIN" toggle.
+            assertEquals(0, onAllNodesWithTag(ConfirmWipeTags.PIN).fetchSemanticsNodes().size)
+            assertEquals(0, onAllNodesWithTag(ConfirmWipeTags.FORGOT_PIN).fetchSemanticsNodes().size)
+            onNodeWithTag(ConfirmWipeTags.FIELD).performTextInput("DELETE")
+            // The typed phrase alone is not enough: the seed acknowledgement is required.
+            onNodeWithTag(ConfirmWipeTags.CONFIRM).assertIsNotEnabled()
+            onNodeWithTag(ConfirmWipeTags.SEED_ACK).performClick()
+            onNodeWithTag(ConfirmWipeTags.CONFIRM).assertIsEnabled().performClick()
+            waitUntil(timeoutMillis = 3_000) { resetComplete == 1 }
+            waitUntilAtLeastOneExists(hasText("Moved", substring = true))
+            files.forEach { assertFalse(it.exists(), "${it.name} must leave the data dir") }
+            // …but it is recoverable: same names under <trashRoot>/<stamp>/.
+            val stamps = trashRoot().listFiles()!!.toList()
+            assertEquals(1, stamps.size)
+            files.forEach { assertTrue(File(stamps[0], it.name).isFile, "${it.name} must be in the trash") }
+        }
+
+    @Test
+    fun `Welcome reset with a registry requires the device PIN and counts wrong attempts`() =
+        runDesktopComposeUiTest {
+            val files = seedRegistryDataDir()
+            val check = FakeDevicePinCheck()
+            var finished: WalletPathsView.ResetResult? = null
+            setContent {
+                CompositionLocalProvider(LocalDevicePinCheck provides check) {
+                    BhodlTheme {
+                        ConfirmWipeDialog(dataDir = tmp, preAuth = true, onDismiss = {}, onFinished = { finished = it })
+                    }
+                }
+            }
+            waitUntilAtLeastOneExists(hasTestTag(ConfirmWipeTags.PIN))
+            onNodeWithTag(ConfirmWipeTags.FIELD).performTextInput("DELETE")
+            // DELETE without a PIN is not enough.
+            onNodeWithTag(ConfirmWipeTags.CONFIRM).assertIsNotEnabled()
+            onNodeWithTag(ConfirmWipeTags.PIN).performTextInput("000000")
+            onNodeWithTag(ConfirmWipeTags.CONFIRM).performClick()
+            waitUntilAtLeastOneExists(hasTestTag(ConfirmWipeTags.ERROR))
+            assertNull(finished)
+            assertEquals(listOf("000000"), check.checks)
+            assertEquals(1, PinAttemptTracker.failureCount(io.bhodl.desktop.wizard.PinScopes.DEVICE))
+            files.forEach { assertTrue(it.exists(), "${it.name} must survive a wrong PIN") }
+
+            onNodeWithTag(ConfirmWipeTags.PIN).performTextInput("123456")
+            onNodeWithTag(ConfirmWipeTags.CONFIRM).performClick()
+            waitUntil(timeoutMillis = 3_000) { finished != null }
+            val result = finished!!
+            assertTrue(result.ok, "failed: ${result.failed}")
+            assertNull(result.movedTo, "a PIN-verified wipe deletes, it does not move")
+            files.forEach { assertFalse(it.exists(), "${it.name} must be wiped") }
+            assertFalse(trashRoot().exists())
+        }
+
+    @Test
+    fun `forgot device PIN switches to the trash path`() = runDesktopComposeUiTest {
+        val files = seedRegistryDataDir()
+        val check = FakeDevicePinCheck()
+        var finished: WalletPathsView.ResetResult? = null
         setContent {
-            BhodlTheme {
-                WelcomeScreen(
-                    onCreateWallet = {},
-                    onUnlock = {},
-                    onRestore = {},
-                    onResetComplete = { resetComplete++ },
-                    dataDir = tmp,
-                )
+            CompositionLocalProvider(LocalDevicePinCheck provides check) {
+                BhodlTheme {
+                    ConfirmWipeDialog(dataDir = tmp, preAuth = true, onDismiss = {}, onFinished = { finished = it })
+                }
             }
         }
-        waitUntilAtLeastOneExists(hasTestTag(WelcomeTags.RESET))
-        onNodeWithTag(WelcomeTags.RESET).performScrollTo().performClick()
-        waitUntilAtLeastOneExists(hasTestTag(ConfirmWipeTags.FIELD))
-        onNodeWithTag(ConfirmWipeTags.CONFIRM).assertIsNotEnabled()
-        files.forEach { assertTrue(it.exists()) }
+        waitUntilAtLeastOneExists(hasTestTag(ConfirmWipeTags.FORGOT_PIN))
+        onNodeWithTag(ConfirmWipeTags.FORGOT_PIN).performClick()
+        waitUntilAtLeastOneExists(hasTestTag(ConfirmWipeTags.TRASH_BODY))
+        assertEquals(0, onAllNodesWithTag(ConfirmWipeTags.PIN).fetchSemanticsNodes().size)
         onNodeWithTag(ConfirmWipeTags.FIELD).performTextInput("DELETE")
+        onNodeWithTag(ConfirmWipeTags.CONFIRM).assertIsNotEnabled()
+        onNodeWithTag(ConfirmWipeTags.SEED_ACK).performClick()
         onNodeWithTag(ConfirmWipeTags.CONFIRM).performClick()
-        waitUntil(timeoutMillis = 3_000) { resetComplete == 1 }
-        waitUntilAtLeastOneExists(hasText("Wiped", substring = true))
-        files.forEach { assertFalse(it.exists(), "${it.name} must be wiped") }
+        waitUntil(timeoutMillis = 3_000) { finished != null }
+        val result = finished!!
+        assertTrue(result.ok, "failed: ${result.failed}")
+        assertNotNull(result.movedTo)
+        assertTrue(check.checks.isEmpty(), "the forgot-PIN path never probes a PIN")
+        files.forEach { f ->
+            assertFalse(f.exists())
+            assertTrue(File(result.movedTo, f.relativeTo(tmp).path).isFile, "${f.name} must be in the trash")
+        }
     }
 
     /** Creates a minimal legacy single-wallet layout in [tmp]. */
@@ -426,6 +502,28 @@ class SecretActionsUiTest {
         File(tmp, WalletPaths.KDF_FILE_NAME),
         File(tmp, WalletPaths.NETWORK_FILE_NAME),
     ).onEach { it.writeText("x") }
+
+    /** Registry + one migrated signing wallet. */
+    private fun seedRegistryDataDir(): List<File> {
+        val wallet = File(tmp, "${WalletPaths.WALLETS_SUBDIR}/w1").apply { mkdirs() }
+        return listOf(
+            File(tmp, WalletPaths.REGISTRY_FILE_NAME),
+            File(tmp, WalletPaths.REGISTRY_KDF_FILE_NAME),
+            File(wallet, WalletPaths.WALLET_DB_FILE_NAME),
+            File(wallet, WalletPaths.KDF_FILE_NAME),
+        ).onEach { it.writeText("x") }
+    }
+
+    private fun trashRoot(): File = io.bhodl.desktop.wizard.LocalWipe.defaultTrashRoot(tmp)
+
+    /** "123456" is the right device PIN; records every probe. */
+    private class FakeDevicePinCheck : DevicePinCheck {
+        val checks = mutableListOf<String>()
+        override fun check(dataDir: File, pin: String): Boolean {
+            checks += pin
+            return pin == "123456"
+        }
+    }
 
     private companion object {
         const val SCOPE: String = "test-wallet"
