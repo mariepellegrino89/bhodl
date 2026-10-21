@@ -496,7 +496,7 @@ Gradle dependency verification stays checksum-only (`verify-signatures=false`): 
 verification was tried and 418 signing keys could not be fetched from any key server, so the
 result would have been mostly `ignored-key` entries. Revisit if the ecosystem's key coverage improves.
 
-`.github/workflows/tor.yml` (**Tor (live)**, nightly + `workflow_dispatch`, never on PRs):
+`.github/workflows/tor.yml` (**Tor (live)**, `workflow_dispatch` only — no schedule, never on PRs):
 installs `tor` on the runner, waits until `check.torproject.org` reports `IsTor`, then runs
 `cargo test -p bhodl-wallet-onchain --features tor-tests tor_live` and
 `./gradlew :apps:desktop:torTest` with `BHODL_TOR_REQUIRED=1`. Locally:
