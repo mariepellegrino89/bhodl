@@ -382,6 +382,10 @@ impl Harness {
     }
 
     fn negotiate(&mut self, behavior: Behavior) -> Round {
+        self.negotiate_at(behavior, FEE_RATE, false)
+    }
+
+    fn negotiate_at(&mut self, behavior: Behavior, fee_rate: u64, allow_high_fee: bool) -> Round {
         let seen: RefCell<Option<Reception>> = RefCell::new(None);
         let calls = Cell::new(0u32);
         let receiver = &self.receiver;
@@ -400,8 +404,9 @@ impl Harness {
             &self.uri,
             &self.payment_address,
             AMOUNT_SAT,
-            FEE_RATE,
+            fee_rate,
             None,
+            allow_high_fee,
             &io,
         );
         Round {
@@ -648,7 +653,15 @@ fn receiver_http_error_falls_back_to_the_original() {
     };
     let neg = h
         .sender
-        .payjoin_negotiate_with(&h.uri, &h.payment_address, AMOUNT_SAT, FEE_RATE, None, &io)
+        .payjoin_negotiate_with(
+            &h.uri,
+            &h.payment_address,
+            AMOUNT_SAT,
+            FEE_RATE,
+            None,
+            false,
+            &io,
+        )
         .unwrap();
     assert!(neg.session_id.is_none());
     assert!(
@@ -679,7 +692,15 @@ fn injected_io_does_not_bypass_endpoint_vetting() {
     };
     let err = h
         .sender
-        .payjoin_negotiate_with(&h.uri, &h.payment_address, AMOUNT_SAT, FEE_RATE, None, &io)
+        .payjoin_negotiate_with(
+            &h.uri,
+            &h.payment_address,
+            AMOUNT_SAT,
+            FEE_RATE,
+            None,
+            false,
+            &io,
+        )
         .unwrap_err();
     assert!(
         matches!(err, OnchainError::InvalidAddress(ref m) if m.contains("SSRF")),
@@ -704,6 +725,7 @@ fn injected_io_does_not_bypass_endpoint_vetting() {
             AMOUNT_SAT,
             FEE_RATE,
             None,
+            false,
             &io,
         );
         assert!(r.is_err(), "{pj_url} must be refused");
@@ -745,4 +767,70 @@ fn sequence_is_shared_by_all_inputs_in_the_proposal() {
         .map(|i| i.sequence)
         .collect();
     assert!(seqs.windows(2).all(|w| w[0] == w[1]));
+}
+
+// ------------------------------------------------ absolute-fee guard (FINDING A)
+
+/// 500 sat/vB on a ~110 vB original is ~55k sat, above
+/// `max(50_000, 5% of 50_000)`.
+const HIGH_FEE_RATE: u64 = 500;
+
+#[test]
+fn high_fee_original_is_refused_before_signing_or_contacting_the_receiver() {
+    let mut h = Harness::new();
+    let state_before = h.wallet_state();
+    let round = h.negotiate_at(Behavior::Honest, HIGH_FEE_RATE, false);
+    match round.result {
+        Err(OnchainError::FeeTooHigh { fee_sat, limit_sat }) => {
+            assert_eq!(limit_sat, 50_000);
+            assert!(fee_sat > limit_sat);
+        }
+        other => panic!("expected FeeTooHigh, got {other:?}"),
+    }
+    assert_eq!(
+        round.post_calls, 0,
+        "original must never reach the receiver"
+    );
+    assert!(round.reception.is_none());
+    assert_eq!(h.wallet_state(), state_before);
+}
+
+#[test]
+fn high_fee_original_is_accepted_with_explicit_confirmation() {
+    let mut h = Harness::new();
+    let round = h.negotiate_at(Behavior::Honest, HIGH_FEE_RATE, true);
+    assert_eq!(round.post_calls, 1);
+    let neg = round.result.expect("allowed once the user confirmed");
+    assert!(neg.original_fee_sat > 50_000, "{}", neg.original_fee_sat);
+    // Whether the receiver's proposal validates or the flow falls back,
+    // the original is a signed, broadcastable payment.
+    let original: Psbt = neg.original_psbt.parse().unwrap();
+    original.extract_tx().expect("signed original");
+}
+
+#[test]
+fn sign_step_rechecks_the_absolute_limit_on_the_proposal_fee() {
+    let mut h = Harness::new();
+    let round = h.negotiate_at(Behavior::Honest, HIGH_FEE_RATE, true);
+    let neg = round.result.unwrap();
+    let id = neg
+        .session_id
+        .expect("honest receiver must produce a proposal at 500 sat/vB");
+    let owner = h.sender.payjoin_owner_tag();
+    let mut session = pj::take_session(&id, &owner).unwrap();
+    assert!(session.allow_high_fee);
+    assert!(session.proposal.proposal_fee > 50_000);
+
+    // Same proposal, but the confirmation is lost: refused at sign time.
+    session.allow_high_fee = false;
+    let id = pj::store_session(session.clone()).unwrap();
+    assert!(matches!(
+        h.sender.payjoin_sign_checked(&id),
+        Err(OnchainError::FeeTooHigh { .. })
+    ));
+
+    // With the confirmation it signs.
+    session.allow_high_fee = true;
+    let id = pj::store_session(session).unwrap();
+    h.sender.payjoin_sign_checked(&id).unwrap();
 }

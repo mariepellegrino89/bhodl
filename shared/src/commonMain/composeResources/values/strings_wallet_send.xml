@@ -126,7 +126,7 @@
 
     <!-- PayJoin (BIP78) -->
     <string name="wsend_payjoin_detected">PayJoin endpoint detected</string>
-    <string name="wsend_payjoin_explainer">Review contacts the receiver and shows the final transaction for your approval before anything is signed. To take part, your original payment is signed and shared with the receiver, who may broadcast it as a normal payment even if you cancel.</string>
+    <string name="wsend_payjoin_explainer">Review contacts the receiver. To take part, your original payment is SIGNED first and sent to them: it is a complete, broadcastable transaction and the receiver may publish it as a normal payment even if you cancel. The PayJoin transaction itself is signed only after you approve it.</string>
     <string name="wsend_payjoin_tor_required">⚠ This PayJoin endpoint is a Tor hidden service. Enable Tor in Settings to use it, or clear PayJoin to pay normally.</string>
     <string name="wsend_payjoin_clear">Clear PayJoin (pay normally)</string>
     <string name="wsend_payjoin_review_title">Review PayJoin</string>

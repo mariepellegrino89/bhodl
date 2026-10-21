@@ -69,7 +69,8 @@ title bar, the `~/.bhodl/` data dir).
 ├── crates/
 │   ├── bhodl-core/                  # Crypto primitives (KDF, Network, Amount)
 │   ├── bhodl-wallet-onchain/        # BDK-backed wallet + SQLCipher persistence
-│   └── bhodl-uniffi/                # FFI surface (Kotlin/Swift bindings)
+│   ├── bhodl-uniffi/                # FFI surface (Kotlin/Swift bindings)
+│   └── uniffi-bindgen-kmp/          # Kotlin Multiplatform bindgen CLI (locked build)
 ├── shared/                          # KMP module — Compose theme, FFI consumer
 │   └── src/jvmTest/                 # JVM smoke tests against the cdylib
 ├── apps/
@@ -85,6 +86,15 @@ The Rust workspace and the Kotlin Multiplatform / Gradle layer share a
 single source tree. The bridge is **uniffi-rs 0.28.3** + the Ubique
 **Kotlin Multiplatform fork** of the binding generator, with one
 critical Windows ABI workaround documented in §7.
+
+The bindgen CLI is built from the workspace crate `crates/uniffi-bindgen-kmp`
+(a copy of the upstream `main.rs` plus a git dependency pinned to an exact
+Ubique commit), not by the Gradle plugin's own `cargo install --git`, which
+runs without `--locked`. `shared/build.gradle.kts` overrides `installBindgen`
+to run `cargo install --locked --path crates/uniffi-bindgen-kmp`, so every
+transitive crate is pinned in `Cargo.lock` and covered by `cargo deny` /
+`cargo audit`. When bumping `uniffi-plugin` in `gradle/libs.versions.toml`,
+bump the `rev` in that crate's `Cargo.toml` too.
 
 ---
 
@@ -479,8 +489,24 @@ coprire al 100% con E2E" in the testing pyramid notes.
   Pre-pulls container images to stay within GitHub Action timeouts.
   Blanks `ANDROID_HOME` / `ANDROID_SDK_ROOT` to avoid AGP+uniffi conflict
   (integration tests are JVM-only, not Android). See commit `a3ddea6` (gradlew exec bit) and `8765b32` (gradle.properties commonize fix).
+  The two images are pinned by digest (`name:tag@sha256:...`) in ci.yml and in the
+  `IMAGE` constants of `BitcoindRegtestContainer` / `ElectrsContainer`. To bump one, resolve the
+  new digest (`docker buildx imagetools inspect <name>:<tag>`) and update the tag and digest in
+  all places together.
 
-`.github/workflows/tor.yml` (**Tor (live)**, nightly + `workflow_dispatch`, never on PRs):
+`.github/workflows/osv-scan.yml` (**OSV scan**, push/PR + weekly): runs `osv-scanner` over
+`gradle/verification-metadata.xml` and fails on known vulnerabilities (the Gradle counterpart of
+`cargo-deny` / `cargo-audit`). The file lists build tooling too, so findings that only affect the
+Android/Kotlin Gradle plugin classpath are reviewed exceptions in `osv-scanner.toml`, pinned to
+exact versions. When a dependency bump makes the job fail: if the vulnerable package ships in the
+app, bump it; if it is build-tooling only, add a pinned override with a reason. Local run:
+`osv-scanner scan --config=osv-scanner.toml -L gradle/verification-metadata.xml`.
+
+Gradle dependency verification stays checksum-only (`verify-signatures=false`): enabling PGP
+verification was tried and 418 signing keys could not be fetched from any key server, so the
+result would have been mostly `ignored-key` entries. Revisit if the ecosystem's key coverage improves.
+
+`.github/workflows/tor.yml` (**Tor (live)**, `workflow_dispatch` only — no schedule, never on PRs):
 installs `tor` on the runner, waits until `check.torproject.org` reports `IsTor`, then runs
 `cargo test -p bhodl-wallet-onchain --features tor-tests tor_live` and
 `./gradlew :apps:desktop:torTest` with `BHODL_TOR_REQUIRED=1`. Locally:
@@ -573,6 +599,22 @@ This is a self-custodial wallet. The user's funds are protected by:
    With a proxy configured the Esplora client uses a 90 s request timeout
    (clearnet: 30 s) because Tor circuits can stall 20-35 s before the
    connection is up.
+   **Tor stream isolation.** Every SOCKS5 connection offers no-auth (`0x00`)
+   and username/password (RFC 1929, `0x02`); when the proxy picks `0x02`
+   (Tor does) BHODL authenticates with a random per-scope token, so Tor's
+   default `IsolateSOCKSAuth` puts each scope on its own circuit: one scope
+   per wallet (sync and broadcast; keyed in memory by the wallet's public
+   descriptor), one for fee estimates, one for rate / price fetches (Rust
+   `BtcRateRepo` and Kotlin `PriceFetcher`), and a fresh token per PayJoin
+   request. Without this, a single Esplora server could link all of a user's
+   wallets by circuit. Tokens are 128 random bits from the OS RNG, kept only in
+   memory, stable for the session and rotated on restart; nothing sent is
+   derived from a wallet id or key. A proxy that picks `0x00` is still used
+   (no isolation possible there, the connection proceeds). The Kotlin side
+   speaks SOCKS5 itself because the JDK client would answer with the OS
+   `user.name`. Stream isolation unlinks wallets per circuit, not per user:
+   the same exit IP can still be shared over time, and refreshing many wallets
+   back to back remains a timing correlation.
    Historical BTC rates: CoinGecko's keyless API only serves the last 365
    days (older requests answer HTTP 401), so dates older than that are
    resolved through blockchain.info + Frankfurter and CoinGecko is never

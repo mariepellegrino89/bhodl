@@ -556,6 +556,12 @@ pub(crate) fn post_payjoin(
             url
         }
         PayjoinRoute::Proxied { url, proxy } => {
+            // Fresh random isolation token per PayJoin request: it must
+            // not share a Tor circuit with any wallet sync or rate fetch.
+            let proxy = crate::tor::ureq_socks_proxy_url_isolated(
+                proxy,
+                &crate::tor::new_isolation_token()?,
+            )?;
             let proxy = ureq::Proxy::new(proxy)
                 .map_err(|e| OnchainError::InvalidArgument(format!("PayJoin proxy URL: {e}")))?;
             let onion = matches!(url.host(), Some(url::Host::Domain(d)) if is_onion(d));
@@ -587,11 +593,70 @@ pub(crate) fn post_payjoin(
             let mut body = String::new();
             let _ = resp.into_reader().take(4_096).read_to_string(&mut body);
             Err(OnchainError::Broadcast(format!(
-                "PayJoin endpoint returned HTTP {code}: {body}"
+                "PayJoin endpoint returned HTTP {code}: {}",
+                describe_receiver_error(&body)
             )))
         }
         Err(e) => Err(OnchainError::Broadcast(format!("PayJoin transport: {e}"))),
     }
+}
+
+/// Longest receiver-supplied free text we ever surface.
+const MAX_RECEIVER_TEXT_CHARS: usize = 200;
+
+/// Replace control and invisible formatting characters (newlines, ANSI
+/// escapes, bidi overrides, zero-width marks) in receiver-controlled
+/// text and cap it at [`MAX_RECEIVER_TEXT_CHARS`] characters.
+fn sanitize_receiver_text(text: &str) -> String {
+    let is_invisible = |c: char| {
+        c.is_control()
+            || matches!(
+                c,
+                '\u{200B}'..='\u{200F}'
+                    | '\u{202A}'..='\u{202E}'
+                    | '\u{2066}'..='\u{2069}'
+                    | '\u{FEFF}'
+            )
+    };
+    let cleaned: String = text
+        .chars()
+        .map(|c| if is_invisible(c) { ' ' } else { c })
+        .take(MAX_RECEIVER_TEXT_CHARS + 1)
+        .collect();
+    let cleaned = cleaned.trim();
+    if cleaned.chars().count() > MAX_RECEIVER_TEXT_CHARS {
+        let cut: String = cleaned.chars().take(MAX_RECEIVER_TEXT_CHARS).collect();
+        format!("{}...", cut.trim_end())
+    } else {
+        cleaned.to_string()
+    }
+}
+
+/// Turn a receiver's error body into text that is safe to show.
+///
+/// The four BIP-78 `errorCode`s a sender may see are mapped to fixed
+/// wording (the receiver's `message` is ignored for them). Anything else
+/// is receiver-controlled free text: sanitized and truncated.
+pub(crate) fn describe_receiver_error(body: &str) -> String {
+    let code = serde_json::from_str::<serde_json::Value>(body)
+        .ok()
+        .and_then(|v| v.get("errorCode")?.as_str().map(str::to_owned));
+    let fixed = match code.as_deref() {
+        Some("unavailable") => {
+            "receiver unavailable (unavailable): the PayJoin endpoint cannot take part right now"
+        }
+        Some("not-enough-money") => {
+            "receiver has no suitable coins (not-enough-money): it cannot add an input"
+        }
+        Some("version-unsupported") => {
+            "receiver does not support this PayJoin version (version-unsupported)"
+        }
+        Some("original-psbt-rejected") => {
+            "receiver rejected the original transaction (original-psbt-rejected)"
+        }
+        _ => return sanitize_receiver_text(body),
+    };
+    fixed.to_string()
 }
 
 /// Parse a base64 PSBT, distinguishing `PayJoin` protocol errors
@@ -602,7 +667,8 @@ pub(crate) fn post_payjoin(
 pub(crate) fn parse_psbt_response(body: &str) -> Result<Psbt, OnchainError> {
     if body.starts_with('{') {
         return Err(OnchainError::Broadcast(format!(
-            "PayJoin endpoint returned a JSON error: {body}"
+            "PayJoin endpoint returned a JSON error: {}",
+            describe_receiver_error(body)
         )));
     }
     body.trim()
@@ -1045,6 +1111,9 @@ pub(crate) struct PayjoinSession {
     pub(crate) owner: String,
     pub(crate) proposal: ValidatedProposal,
     pub(crate) fee_rate_sat_vb: u64,
+    /// The user already confirmed a fee above the absolute limit when the
+    /// negotiation started, so the sign step must not refuse it again.
+    pub(crate) allow_high_fee: bool,
 }
 
 static SESSIONS: Mutex<Vec<(String, PayjoinSession)>> = Mutex::new(Vec::new());
@@ -1449,6 +1518,50 @@ mod tests {
         let json = r#"{"errorCode":"original-psbt-rejected","message":"bad input"}"#;
         let err = parse_psbt_response(json).unwrap_err();
         assert!(matches!(err, OnchainError::Broadcast(_)));
+    }
+
+    #[test]
+    fn known_error_codes_map_to_fixed_text() {
+        for (code, needle) in [
+            ("unavailable", "receiver unavailable"),
+            ("not-enough-money", "no suitable coins"),
+            ("version-unsupported", "PayJoin version"),
+            ("original-psbt-rejected", "rejected the original"),
+        ] {
+            let body = format!(r#"{{"errorCode":"{code}","message":"EVIL <script> text"}}"#);
+            let text = describe_receiver_error(&body);
+            assert!(text.contains(needle), "{code}: {text}");
+            assert!(text.contains(code), "{code}: {text}");
+            assert!(!text.contains("EVIL"), "{code}: {text}");
+        }
+    }
+
+    #[test]
+    fn unknown_error_text_is_truncated_and_stripped() {
+        let body = format!(
+            "{{\"errorCode\":\"x\",\"m\":\"{}\"}}\u{1b}[31m\n\u{202E}tail",
+            "A".repeat(5_000)
+        );
+        let text = describe_receiver_error(&body);
+        assert!(text.chars().count() <= MAX_RECEIVER_TEXT_CHARS + 3);
+        assert!(text.ends_with("..."));
+        assert!(!text.chars().any(|c| c.is_control() || c == '\u{202E}'));
+        // Short control-laden text keeps its printable part.
+        assert_eq!(describe_receiver_error("a\u{7}b\r\nc"), "a b  c");
+    }
+
+    #[test]
+    fn huge_json_error_body_is_bounded_in_the_error_string() {
+        let body = format!(
+            r#"{{"errorCode":"weird","message":"{}"}}"#,
+            "z".repeat(900_000)
+        );
+        let err = parse_psbt_response(&body).unwrap_err().to_string();
+        assert!(err.chars().count() < 600, "{}", err.len());
+        let known = parse_psbt_response(r#"{"errorCode":"unavailable"}"#)
+            .unwrap_err()
+            .to_string();
+        assert!(known.contains("receiver unavailable"), "{known}");
     }
 }
 
