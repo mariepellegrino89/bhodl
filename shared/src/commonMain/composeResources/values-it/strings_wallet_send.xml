@@ -122,7 +122,7 @@
 
     <!-- PayJoin (BIP78) -->
     <string name="wsend_payjoin_detected">Endpoint PayJoin rilevato</string>
-    <string name="wsend_payjoin_explainer">La verifica contatta il destinatario e ti mostra la transazione finale da approvare prima di firmare qualsiasi cosa. Per partecipare, il tuo pagamento originale viene firmato e condiviso con il destinatario, che può trasmetterlo come pagamento normale anche se annulli.</string>
+    <string name="wsend_payjoin_explainer">La verifica contatta il destinatario. Per partecipare, il tuo pagamento originale viene prima FIRMATO e inviato al destinatario: è una transazione completa e trasmettibile, che il destinatario può pubblicare come pagamento normale anche se annulli. La transazione PayJoin vera e propria viene firmata solo dopo la tua approvazione.</string>
     <string name="wsend_payjoin_tor_required">⚠ Questo endpoint PayJoin è un hidden service Tor. Attiva Tor nelle Impostazioni per usarlo, oppure rimuovi PayJoin per pagare normalmente.</string>
     <string name="wsend_payjoin_clear">Rimuovi PayJoin (paga normalmente)</string>
     <string name="wsend_payjoin_review_title">Verifica PayJoin</string>
