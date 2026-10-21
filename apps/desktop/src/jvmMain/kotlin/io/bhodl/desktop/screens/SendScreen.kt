@@ -493,9 +493,13 @@ public fun SendScreen(
 
             // PayJoin badge: surfaces the receiver-advertised endpoint
             // when the pasted URI carried `pj=`. Tap on Review runs
-            // `payjoinNegotiate` and opens the review dialog; nothing
-            // is signed for the PayJoin transaction before the user
-            // confirms there. Send MAX, batch recipients and coin
+            // `payjoinNegotiate` and opens the review dialog. The
+            // ORIGINAL payment is already signed and shared with the
+            // receiver at that point (BIP-78 requires it; the receiver
+            // may broadcast it); only the PayJoin transaction itself is
+            // signed after the user confirms in the dialog. The original
+            // goes through the same absolute-fee guard as a normal send
+            // (FeeTooHigh -> second confirmation). Send MAX, batch recipients and coin
             // control are NOT compatible with PayJoin (BIP-78 v1
             // expects a single-recipient build): enabling any of them
             // disarms PayJoin rather than being silently ignored.
@@ -799,35 +803,49 @@ public fun SendScreen(
                             state = BuildState.Failed(feeUnavailableMessage)
                             return@onClick
                         }
-                        state = BuildState.Loading
-                        scope.launch {
-                            runCatching {
-                                withContext(Dispatchers.IO) {
-                                    wallet.payjoinNegotiate(
-                                        uri = pjUri,
-                                        expectedAddress = shownAddress,
-                                        expectedAmountSat = shownAmount.toULong(),
-                                        feeRateSatVb = feeRate.toULong(),
-                                        proxyUrl = EsploraEndpoint.currentProxy(),
-                                    )
-                                }
-                            }.fold(
-                                onSuccess = { review ->
-                                    // Negotiation may have revealed a
-                                    // change address; refresh history.
-                                    WalletStore.markTxEpochAdvanced()
-                                    state = BuildState.Idle
-                                    payjoinReview = review
-                                },
-                                onFailure = { e ->
-                                    val raw = e.userMessage(payjoinFailed)
-                                    WalletStore.markTxEpochAdvanced()
-                                    state = BuildState.Failed(
-                                        prettifyBroadcastError(raw, BroadcastContext.Send) ?: raw,
-                                    )
-                                },
-                            )
+                        // Local so the FeeTooHigh dialog can re-run the exact
+                        // same negotiation with the explicit confirmation.
+                        fun launchNegotiate(allowHighFee: Boolean) {
+                            state = BuildState.Loading
+                            scope.launch {
+                                runCatching {
+                                    withContext(Dispatchers.IO) {
+                                        wallet.payjoinNegotiate(
+                                            uri = pjUri,
+                                            expectedAddress = shownAddress,
+                                            expectedAmountSat = shownAmount.toULong(),
+                                            feeRateSatVb = feeRate.toULong(),
+                                            proxyUrl = EsploraEndpoint.currentProxy(),
+                                            allowHighFee = allowHighFee,
+                                        )
+                                    }
+                                }.fold(
+                                    onSuccess = { review ->
+                                        // Negotiation may have revealed a
+                                        // change address; refresh history.
+                                        WalletStore.markTxEpochAdvanced()
+                                        state = BuildState.Idle
+                                        payjoinReview = review
+                                    },
+                                    onFailure = { e ->
+                                        WalletStore.markTxEpochAdvanced()
+                                        if (e is WalletException.FeeTooHigh) {
+                                            // Refused BEFORE signing or contacting the receiver.
+                                            state = BuildState.Idle
+                                            highFeePrompt = HighFeePrompt(e.feeSat, e.limitSat) {
+                                                launchNegotiate(allowHighFee = true)
+                                            }
+                                        } else {
+                                            val raw = e.userMessage(payjoinFailed)
+                                            state = BuildState.Failed(
+                                                prettifyBroadcastError(raw, BroadcastContext.Send) ?: raw,
+                                            )
+                                        }
+                                    },
+                                )
+                            }
                         }
+                        launchNegotiate(allowHighFee = false)
                         return@onClick
                     }
                     val amountSat = if (sendMaxOn) {
@@ -999,6 +1017,9 @@ public fun SendScreen(
                                             proxyUrl = EsploraEndpoint.currentProxy(),
                                         )
                                     } else {
+                                        // Fallback original: Rust already ran the
+                                        // absolute-fee guard on it (and the user
+                                        // confirmed any FeeTooHigh) before signing.
                                         wallet.broadcastTx(
                                             esploraUrl = EsploraEndpoint.current(),
                                             signedPsbtB64 = review.originalPsbt,

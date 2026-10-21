@@ -70,20 +70,42 @@ compose.resources {
 // `package_name` is read from `crates/bhodl-uniffi/uniffi.toml` and resolves
 // to `io.bhodl.ffi`.
 uniffi {
-    // Supply chain: pin the bindgen (`cargo install --git ...`) to an
-    // exact commit. Unpinned, the plugin installs the repo's default-branch
-    // HEAD on every clean build — non-reproducible, and since upstream
-    // moved to rustc >= 1.91 it breaks our 1.88 toolchain outright.
-    // 3a6a106 = tag v1.0.14, the revision the committed bindings were
-    // generated and tested with. Bump deliberately together with the
-    // `uniffi-plugin` version in libs.versions.toml.
-    bindgenFromGitRevision(
-        "https://github.com/UbiqueInnovation/uniffi-kotlin-multiplatform-bindings.git",
-        "3a6a106e51e900066a944137196e2e9e6673128b",
+    // Supply chain: the bindgen is built from the workspace crate
+    // `crates/uniffi-bindgen-kmp` (see the `installBindgen` override below),
+    // NOT installed by the plugin. The plugin's own install task runs
+    // `cargo install --git` without `--locked`, so the bindgen's transitive
+    // crates.io dependencies would re-resolve to latest on every clean build,
+    // outside Cargo.lock / cargo-deny / cargo-audit. The crate pins the same
+    // Ubique commit (3a6a106 = tag v1.0.14); bump it deliberately together
+    // with the `uniffi-plugin` version in libs.versions.toml.
+    bindgenFromPath(
+        rootProject.layout.projectDirectory.dir("crates/uniffi-bindgen-kmp"),
+        "uniffi-bindgen-kotlin-multiplatform",
+        "bhodl-uniffi-bindgen-kmp",
     )
     generateFromLibrary {
         // The Rust crate produces multiple #[uniffi::export] symbols under
         // an inferred namespace; let the plugin compute it from the cdylib.
+    }
+}
+
+// Replace the plugin's install step with a locked build of the workspace
+// bindgen crate: same output layout (`<bindgenPath>/bin/<name>`), but resolved
+// strictly from the repo's Cargo.lock.
+tasks.named<ch.ubique.uniffi.plugin.tasks.InstallBindgenTask>("installBindgen") {
+    setActions(emptyList())
+    val workspaceDir = rootProject.layout.projectDirectory.asFile
+    val targetDir = rootProject.layout.buildDirectory.dir("bindgen-target").get().asFile
+    doLast {
+        providers.exec {
+            workingDir = workspaceDir
+            commandLine(
+                "cargo", "install", "--locked", "--force",
+                "--path", "crates/uniffi-bindgen-kmp",
+                "--root", bindgenPath.get().asFile.path,
+                "--target-dir", targetDir.path,
+            )
+        }.result.get().assertNormalExitValue()
     }
 }
 
@@ -269,8 +291,8 @@ if (RustHost.Platform.Windows.isCurrent) {
             val binDir = layout.buildDirectory.dir("bindgen-install/bin").get().asFile
             val exe = File(binDir, "uniffi-bindgen-kotlin-multiplatform.exe")
             val alias = File(binDir, "uniffi-bindgen-kotlin-multiplatform")
-            if (exe.exists() && !alias.exists()) {
-                exe.copyTo(alias, overwrite = false)
+            if (exe.exists()) {
+                exe.copyTo(alias, overwrite = true)
             }
         }
     }

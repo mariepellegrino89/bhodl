@@ -383,6 +383,8 @@ const ESPLORA_MAX_RETRIES: usize = 3;
 /// [`Self::fetch`] runs.
 pub struct PendingEsploraScan {
     request: bdk_chain::spk_client::FullScanRequest<KeychainKind>,
+    /// Tor stream-isolation scope (in-memory only; see [`crate::tor`]).
+    isolation_scope: String,
 }
 
 impl std::fmt::Debug for PendingEsploraScan {
@@ -403,7 +405,8 @@ impl PendingEsploraScan {
         esplora_url: &str,
         proxy_url: Option<&str>,
     ) -> Result<EsploraScanUpdate, OnchainError> {
-        let client = try_build_esplora_client(esplora_url, proxy_url)?;
+        let client =
+            try_build_esplora_client_scoped(esplora_url, proxy_url, &self.isolation_scope)?;
         let response = client
             .full_scan(self.request, 20, 4)
             .map_err(|e| OnchainError::EsploraSync(e.to_string()))?;
@@ -472,6 +475,29 @@ pub(crate) fn try_build_esplora_client(
     esplora_url: &str,
     proxy_url: Option<&str>,
 ) -> Result<EsploraClient, OnchainError> {
+    try_build_esplora_client_scoped(esplora_url, proxy_url, ESPLORA_MISC_SCOPE)
+}
+
+/// Isolation scope of Esplora traffic that is not tied to one wallet
+/// (fee estimates, connectivity checks).
+pub(crate) const ESPLORA_MISC_SCOPE: &str = "bhodl:esplora-misc";
+
+/// Isolation scope for one wallet's Esplora traffic: its public external
+/// descriptor. Used only as an in-memory map key (hashed) — the SOCKS
+/// credentials are an unrelated random token, see [`crate::tor`].
+pub(crate) fn wallet_isolation_scope(descriptor: &str) -> String {
+    format!("bhodl:wallet:{descriptor}")
+}
+
+/// [`try_build_esplora_client`] with an explicit Tor stream-isolation
+/// `scope`: with a proxy, every tunnel authenticates to SOCKS5 with the
+/// session token of that scope, so Tor puts different scopes (wallets)
+/// on different circuits and the Esplora server cannot link them.
+pub(crate) fn try_build_esplora_client_scoped(
+    esplora_url: &str,
+    proxy_url: Option<&str>,
+    isolation_scope: &str,
+) -> Result<EsploraClient, OnchainError> {
     let proxy_url = proxy_url.map(str::trim).filter(|p| !p.is_empty());
     let mut builder = bdk_esplora::esplora_client::Builder::new(esplora_url)
         .timeout(esplora_timeout_secs(proxy_url.is_some()))
@@ -487,7 +513,8 @@ pub(crate) fn try_build_esplora_client(
             let port = parsed
                 .port_or_known_default()
                 .ok_or_else(|| OnchainError::InvalidArgument("Esplora URL has no port".into()))?;
-            let bridge = crate::tor::ConnectBridge::start(socks, host, port)?;
+            let token = crate::tor::isolation_token(isolation_scope)?;
+            let bridge = crate::tor::ConnectBridge::start(socks, host, port, Some(token))?;
             builder = builder.proxy(&bridge.proxy_url());
             Some(bridge)
         }
@@ -504,14 +531,20 @@ pub(crate) fn try_build_esplora_client(
 /// client whose proxy URL is deliberately unparsable, so every request
 /// fails with `BadProxy` **before** any socket is opened — fail-closed,
 /// never a silent clearnet fallback.
-pub(crate) fn build_esplora_client(esplora_url: &str, proxy_url: Option<&str>) -> EsploraClient {
-    try_build_esplora_client(esplora_url, proxy_url).unwrap_or_else(|_| EsploraClient {
-        client: bdk_esplora::esplora_client::Builder::new(esplora_url)
-            .timeout(esplora_timeout_secs(true))
-            .max_retries(0)
-            .proxy("bhodl-tor-setup-failed://")
-            .build_blocking(),
-        bridge: None,
+pub(crate) fn build_esplora_client(
+    esplora_url: &str,
+    proxy_url: Option<&str>,
+    isolation_scope: &str,
+) -> EsploraClient {
+    try_build_esplora_client_scoped(esplora_url, proxy_url, isolation_scope).unwrap_or_else(|_| {
+        EsploraClient {
+            client: bdk_esplora::esplora_client::Builder::new(esplora_url)
+                .timeout(esplora_timeout_secs(true))
+                .max_retries(0)
+                .proxy("bhodl-tor-setup-failed://")
+                .build_blocking(),
+            bridge: None,
+        }
     })
 }
 
@@ -1053,7 +1086,18 @@ impl OnchainAccount {
     pub fn start_esplora_scan(&self) -> PendingEsploraScan {
         PendingEsploraScan {
             request: self.wallet.start_full_scan().build(),
+            isolation_scope: self.isolation_scope(),
         }
+    }
+
+    /// Tor stream-isolation scope of this wallet (see [`crate::tor`]).
+    fn isolation_scope(&self) -> String {
+        wallet_isolation_scope(
+            &self
+                .wallet
+                .public_descriptor(KeychainKind::External)
+                .to_string(),
+        )
     }
 
     /// Phase 3 of a lock-friendly sync: merge a fetched update into the
@@ -1360,7 +1404,7 @@ impl OnchainAccount {
         let tx = Self::extract_signed_tx(psbt_b64)?;
         let txid = tx.compute_txid();
 
-        let client = build_esplora_client(esplora_url, proxy_url);
+        let client = build_esplora_client(esplora_url, proxy_url, &self.isolation_scope());
         client
             .broadcast(&tx)
             .map_err(|e| OnchainError::Broadcast(e.to_string()))?;
@@ -2059,15 +2103,20 @@ impl OnchainAccount {
     /// 5. Validate the proposal (`crate::payjoin::validate_proposal`)
     ///    and park it in the session store under a random id.
     ///
-    /// Nothing is signed for the proposal here — the user reviews the
+    /// The ORIGINAL is signed and finalized here (BIP-78 needs a
+    /// broadcastable original and the receiver may publish it itself), so
+    /// the absolute-fee guard runs first: a fee above
+    /// [`send_policy::absolute_fee_limit_sat`] fails with
+    /// [`OnchainError::FeeTooHigh`] unless `allow_high_fee` is `true`.
+    /// Nothing is signed for the proposal — the user reviews the
     /// returned summary first, then calls
     /// [`Self::payjoin_sign_and_broadcast`].
     ///
     /// # Errors
     ///
     /// Failures in steps 1-3 are `Err` (URI / mismatch / endpoint →
-    /// [`OnchainError::InvalidAddress`]; build → `TxBuild`; signing →
-    /// `Sign`). A failure in steps 4-5 is returned as `Ok` with
+    /// [`OnchainError::InvalidAddress`]; build → `TxBuild`; fee above the
+    /// limit → `FeeTooHigh`; signing → `Sign`). A failure in steps 4-5 is returned as `Ok` with
     /// `failure_reason` set and no `session_id`, so the caller can offer
     /// to broadcast `original_psbt` as a regular payment.
     pub fn payjoin_negotiate(
@@ -2077,6 +2126,7 @@ impl OnchainAccount {
         expected_amount_sat: u64,
         fee_rate_sat_per_vb: u64,
         proxy_url: Option<&str>,
+        allow_high_fee: bool,
     ) -> Result<crate::payjoin::PayjoinNegotiation, OnchainError> {
         self.payjoin_negotiate_with(
             uri,
@@ -2084,6 +2134,7 @@ impl OnchainAccount {
             expected_amount_sat,
             fee_rate_sat_per_vb,
             proxy_url,
+            allow_high_fee,
             &crate::payjoin::PayjoinIo::PRODUCTION,
         )
     }
@@ -2094,6 +2145,7 @@ impl OnchainAccount {
     /// vetting with the injected resolver, validation) runs regardless of
     /// the `io` in use.
     #[allow(clippy::too_many_lines)] // linear BIP-78 sender script
+    #[allow(clippy::too_many_arguments)] // private test seam mirroring the public args + io
     fn payjoin_negotiate_with(
         &mut self,
         uri: &str,
@@ -2101,6 +2153,7 @@ impl OnchainAccount {
         expected_amount_sat: u64,
         fee_rate_sat_per_vb: u64,
         proxy_url: Option<&str>,
+        allow_high_fee: bool,
         io: &crate::payjoin::PayjoinIo<'_>,
     ) -> Result<crate::payjoin::PayjoinNegotiation, OnchainError> {
         use crate::payjoin as pj;
@@ -2150,6 +2203,11 @@ impl OnchainAccount {
             .finish()
             .map_err(|e| OnchainError::TxBuild(e.to_string()))?;
         self.persist()?;
+
+        // Same absolute-fee guard as every other send path, BEFORE the
+        // original is signed: once signed + finalized it is a complete
+        // broadcastable payment that the receiver may publish itself.
+        self.check_absolute_fee(&original, allow_high_fee)?;
 
         let mut original_signed = original.clone();
         let finalized = self
@@ -2222,6 +2280,7 @@ impl OnchainAccount {
                     owner: self.payjoin_owner_tag(),
                     proposal: validated,
                     fee_rate_sat_vb: fee_rate_sat_per_vb,
+                    allow_high_fee,
                 })?;
                 Ok(pj::PayjoinNegotiation {
                     session_id: Some(id),
@@ -2280,6 +2339,9 @@ impl OnchainAccount {
             .ok_or_else(|| {
                 OnchainError::TxBuild("PayJoin session unknown, expired or already used".into())
             })?;
+        // Re-check the absolute limit on the proposal itself (its fee is
+        // original + the sender's capped contribution).
+        self.check_absolute_fee(&session.proposal.psbt, session.allow_high_fee)?;
         let signed = self.sign_payjoin_proposal(&session.proposal)?;
         let vsize = signed.clone().extract_tx_unchecked_fee_rate().vsize() as u64;
         let min_fee = session
@@ -2745,6 +2807,13 @@ impl OnchainAccount {
     /// absolute limit unless the user explicitly confirmed it, then
     /// serialise the PSBT.
     fn finish_build(&self, psbt: &Psbt, allow_high_fee: bool) -> Result<String, OnchainError> {
+        self.check_absolute_fee(psbt, allow_high_fee)?;
+        Ok(psbt.to_string())
+    }
+
+    /// Refuse `psbt` when its fee exceeds the absolute limit for the
+    /// amount it sends to third parties, unless `allow_high_fee`.
+    fn check_absolute_fee(&self, psbt: &Psbt, allow_high_fee: bool) -> Result<(), OnchainError> {
         let fee_sat = psbt
             .fee()
             .map_err(|e| OnchainError::TxBuild(format!("fee compute: {e}")))?
@@ -2756,8 +2825,7 @@ impl OnchainAccount {
             .filter(|o| !self.wallet.is_mine(o.script_pubkey.clone()))
             .try_fold(0_u64, |acc, o| acc.checked_add(o.value.to_sat()))
             .ok_or_else(|| OnchainError::TxBuild("output sum overflow".into()))?;
-        send_policy::enforce_absolute_fee_limit(fee_sat, sent_external_sat, allow_high_fee)?;
-        Ok(psbt.to_string())
+        send_policy::enforce_absolute_fee_limit(fee_sat, sent_external_sat, allow_high_fee)
     }
 
     /// Outpoints automatic coin selection must never pick: BIP-329
@@ -3974,7 +4042,7 @@ mod payjoin_tests {
         let shown = acct.peek_taproot_address(7).unwrap().to_string();
         let uri = format!("bitcoin:{uri_addr}?amount=0.001&pj=https://pj.example.com/x");
         let err = acct
-            .payjoin_negotiate(&uri, &shown, 100_000, 2, None)
+            .payjoin_negotiate(&uri, &shown, 100_000, 2, None, false)
             .unwrap_err();
         assert!(
             matches!(err, OnchainError::InvalidAddress(ref m) if m.contains("differs")),
@@ -3989,14 +4057,17 @@ mod payjoin_tests {
         // C3 shape: the UI showed 1000 sat, the URI asks for 1 BTC.
         let uri = format!("bitcoin:{addr}?amount=1&pj=https://pj.example.com/x");
         let err = acct
-            .payjoin_negotiate(&uri, &addr, 1_000, 2, None)
+            .payjoin_negotiate(&uri, &addr, 1_000, 2, None, false)
             .unwrap_err();
         assert!(
             matches!(err, OnchainError::InvalidAddress(ref m) if m.contains("differs")),
             "{err:?}"
         );
         let dup = format!("bitcoin:{addr}?amount=1&AMOUNT=0.00001&pj=https://pj.example.com/x");
-        assert!(acct.payjoin_negotiate(&dup, &addr, 1_000, 2, None).is_err());
+        assert!(
+            acct.payjoin_negotiate(&dup, &addr, 1_000, 2, None, false)
+                .is_err()
+        );
     }
 
     #[test]
@@ -4005,7 +4076,7 @@ mod payjoin_tests {
         let addr = other_signet_address();
         let uri = format!("bitcoin:{addr}?amount=0.001&pj=http://abcdef.onion/pj");
         let err = acct
-            .payjoin_negotiate(&uri, &addr, 100_000, 2, None)
+            .payjoin_negotiate(&uri, &addr, 100_000, 2, None, false)
             .unwrap_err();
         assert!(
             matches!(err, OnchainError::InvalidAddress(ref m) if m.contains("Tor")),

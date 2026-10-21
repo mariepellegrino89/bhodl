@@ -187,6 +187,10 @@ public interface WalletPort {
      * [`PayjoinReview`] and call [`payjoinSignAndBroadcast`] only after
      * the user confirmed. `sessionId == null` means negotiation failed;
      * `originalPsbt` can then be broadcast via [`broadcastTx`].
+     *
+     * The ORIGINAL is signed here, so a fee above the absolute limit
+     * throws [WalletException.FeeTooHigh] unless `allowHighFee` is true
+     * (pass true only after the user confirmed it, like the build calls).
      */
     @Throws(WalletException::class)
     public fun payjoinNegotiate(
@@ -195,6 +199,7 @@ public interface WalletPort {
         expectedAmountSat: ULong,
         feeRateSatVb: ULong,
         proxyUrl: String?,
+        allowHighFee: Boolean,
     ): PayjoinReview
 
     /**
@@ -414,8 +419,9 @@ public class UniffiWalletPort(
         expectedAmountSat: ULong,
         feeRateSatVb: ULong,
         proxyUrl: String?,
+        allowHighFee: Boolean,
     ): PayjoinReview =
-        handle.payjoinNegotiate(uri, expectedAddress, expectedAmountSat, feeRateSatVb, proxyUrl)
+        handle.payjoinNegotiate(uri, expectedAddress, expectedAmountSat, feeRateSatVb, proxyUrl, allowHighFee)
 
     override fun payjoinSignAndBroadcast(
         sessionId: String,
