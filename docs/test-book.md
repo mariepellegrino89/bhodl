@@ -34,7 +34,7 @@ Ogni scenario (riga numerata di una tabella, o `### NN.M` nelle sezioni
   (`Classe.`metodo``). Senza suffisso = `./gradlew :shared:jvmTest
   :apps:desktop:jvmTest`, che gira su ogni PR; `(cargo)` = `cargo test
   --workspace` (anche su ogni PR); `(integrationTest)` = job Docker
-  regtest della CI; `nightly` = workflow `Tor (live)`.
+  regtest della CI; `nightly` = workflow `Tor (live)` (ora solo manuale, `workflow_dispatch`).
 - `[partial]` — la logica è automatizzata, resta manuale il passo
   indicato (resa visiva, wiring in `Main.kt`/`App.kt`, riavvio reale).
 - `[ ]` — manuale.
@@ -2140,9 +2140,9 @@ Atteso: verde. Fake SOCKS5 server nei test Rust (bridge, ureq) e Kotlin
 ### Test live con un daemon Tor reale (automatizzati, 2026-10-10)
 
 Sostituiscono il vecchio test manuale "sync con un daemon Tor reale"
-(46.1) e coprono la parte di rete di 46.2/46.3. Girano solo su richiesta
-o di notte in CI (workflow `Tor (live)`, `.github/workflows/tor.yml`),
-mai sulle PR: dipendono da Tor e da servizi pubblici.
+(46.1) e coprono la parte di rete di 46.2/46.3. Girano solo su richiesta,
+in locale o in CI lanciando a mano il workflow `Tor (live)` (`.github/workflows/tor.yml`),
+mai in automatico: dipendono da Tor e da servizi pubblici.
 
 ```
 scripts/tor-tests.sh            # attende il bootstrap di Tor, poi Rust + Kotlin
