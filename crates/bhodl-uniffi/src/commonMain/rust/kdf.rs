@@ -617,9 +617,7 @@ fn derive_candidate_keys(
         &cand.params,
     )?);
     let db_key = match device {
-        Some(d) => Zeroizing::new(bhodl_core::combine_with_device_secret(
-            &pin_key, &d, &cand.salt,
-        )),
+        Some(d) => bhodl_core::combine_with_device_secret(&pin_key, &d, &cand.salt),
         None => pin_key.clone(),
     };
     Ok((db_key, pin_key))
@@ -916,11 +914,7 @@ pub(crate) fn migrate_if_stale(
         (unlocked.salt, unlocked.params, unlocked.pin_key.clone())
     };
     let new_key: SecretKey = match &device {
-        Some(d) => Zeroizing::new(bhodl_core::combine_with_device_secret(
-            &new_pin_key,
-            d,
-            &new_salt,
-        )),
+        Some(d) => bhodl_core::combine_with_device_secret(&new_pin_key, d, &new_salt),
         None => new_pin_key,
     };
 

@@ -307,6 +307,8 @@ pub fn validate_new_secret(secret: &str, device_bound: bool) -> Result<(), KeyDe
 /// device secret, and vice versa. `salt` is the store's Argon2 salt,
 /// re-used as HKDF salt for per-store separation.
 ///
+/// The result is wiped on drop ([`Zeroizing`]), like every other key buffer.
+///
 /// # Panics
 ///
 /// Never in practice: a 32-byte output is always a valid HKDF-SHA256
@@ -315,13 +317,13 @@ pub fn combine_with_device_secret(
     pin_key: &[u8; DERIVED_KEY_LEN],
     device_secret: &[u8; DEVICE_SECRET_LEN],
     salt: &[u8; SALT_LEN],
-) -> [u8; DERIVED_KEY_LEN] {
+) -> Zeroizing<[u8; DERIVED_KEY_LEN]> {
     let mut ikm = Zeroizing::new([0u8; DERIVED_KEY_LEN + DEVICE_SECRET_LEN]);
     ikm[..DERIVED_KEY_LEN].copy_from_slice(pin_key);
     ikm[DERIVED_KEY_LEN..].copy_from_slice(device_secret);
     let hk = Hkdf::<Sha256>::new(Some(salt), ikm.as_slice());
-    let mut out = [0u8; DERIVED_KEY_LEN];
-    hk.expand(DEVICE_KEY_HKDF_INFO, &mut out)
+    let mut out = Zeroizing::new([0u8; DERIVED_KEY_LEN]);
+    hk.expand(DEVICE_KEY_HKDF_INFO, out.as_mut_slice())
         .expect("32 bytes is a valid HKDF-SHA256 output length");
     out
 }
@@ -559,16 +561,16 @@ mod tests {
     fn device_bound_key_differs_from_pin_only_key() {
         let pin_key = derive_key_from_pin("123456", &TEST_SALT).unwrap();
         let bound = combine_with_device_secret(&pin_key, &DEVICE_A, &TEST_SALT);
-        assert_ne!(bound, pin_key);
-        assert_ne!(bound, DEVICE_A);
+        assert_ne!(bound.as_slice(), pin_key.as_slice());
+        assert_ne!(bound.as_slice(), DEVICE_A.as_slice());
     }
 
     #[test]
     fn device_bound_key_is_deterministic() {
         let pin_key = derive_key_from_pin("123456", &TEST_SALT).unwrap();
         assert_eq!(
-            combine_with_device_secret(&pin_key, &DEVICE_A, &TEST_SALT),
-            combine_with_device_secret(&pin_key, &DEVICE_A, &TEST_SALT)
+            combine_with_device_secret(&pin_key, &DEVICE_A, &TEST_SALT).as_slice(),
+            combine_with_device_secret(&pin_key, &DEVICE_A, &TEST_SALT).as_slice()
         );
     }
 
@@ -578,13 +580,19 @@ mod tests {
         let k2 = derive_key_from_pin("123457", &TEST_SALT).unwrap();
         let base = combine_with_device_secret(&k1, &DEVICE_A, &TEST_SALT);
         // Same PIN, different device secret (keystore lost / other machine).
-        assert_ne!(base, combine_with_device_secret(&k1, &DEVICE_B, &TEST_SALT));
+        assert_ne!(
+            base.as_slice(),
+            combine_with_device_secret(&k1, &DEVICE_B, &TEST_SALT).as_slice()
+        );
         // Different PIN, same device secret.
-        assert_ne!(base, combine_with_device_secret(&k2, &DEVICE_A, &TEST_SALT));
+        assert_ne!(
+            base.as_slice(),
+            combine_with_device_secret(&k2, &DEVICE_A, &TEST_SALT).as_slice()
+        );
         // Different salt.
         assert_ne!(
-            base,
-            combine_with_device_secret(&k1, &DEVICE_A, &[0xff; SALT_LEN])
+            base.as_slice(),
+            combine_with_device_secret(&k1, &DEVICE_A, &[0xff; SALT_LEN]).as_slice()
         );
     }
 
@@ -604,8 +612,8 @@ mod tests {
             )
             .unwrap();
         assert_eq!(
-            combine_with_device_secret(&pin_key, &DEVICE_A, &TEST_SALT),
-            expected
+            combine_with_device_secret(&pin_key, &DEVICE_A, &TEST_SALT).as_slice(),
+            expected.as_slice()
         );
     }
 

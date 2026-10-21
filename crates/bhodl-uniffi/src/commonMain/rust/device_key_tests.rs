@@ -640,7 +640,8 @@ fn fresh_registry_is_device_bound_and_new_watch_files_use_its_key() {
 #[ignore = "touches the real OS keystore"]
 fn real_os_keystore_end_to_end() {
     let real: Arc<dyn DeviceKeystore> = Arc::from(bhodl_keystore::platform_keystore());
-    real.probe().expect("an OS keystore must be available for this test");
+    real.probe()
+        .expect("an OS keystore must be available for this test");
     let _g = keystore::override_for_test(real.clone());
 
     // Fresh device-bound wallet.
