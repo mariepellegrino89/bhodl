@@ -856,6 +856,12 @@ impl WalletHandle {
     /// builds + signs the original, POSTs it, and validates the
     /// receiver's proposal against the BIP-78 sender checks.
     ///
+    /// The ORIGINAL is signed here, so the absolute-fee guard applies:
+    /// a fee above the limit fails with `WalletError::FeeTooHigh` unless
+    /// `allow_high_fee` is `true` (only after the user confirmed it, as
+    /// for the regular send builders). The confirmation also covers the
+    /// sign step of the resulting session.
+    ///
     /// Nothing is signed for the proposal yet: show the returned
     /// [`PayjoinReview`] to the user, then call
     /// [`Self::payjoin_sign_and_broadcast`] with its `session_id`.
@@ -869,6 +875,7 @@ impl WalletHandle {
         expected_amount_sat: u64,
         fee_rate_sat_vb: u64,
         proxy_url: Option<String>,
+        allow_high_fee: bool,
     ) -> Result<PayjoinReview, WalletError> {
         let mut guard = self.inner.lock().map_err(|_| WalletError::Storage {
             detail: "wallet mutex poisoned".into(),
@@ -879,6 +886,7 @@ impl WalletHandle {
             expected_amount_sat,
             fee_rate_sat_vb,
             proxy_url.as_deref(),
+            allow_high_fee,
         )?;
         Ok(review.into())
     }

@@ -2054,15 +2054,20 @@ impl OnchainAccount {
     /// 5. Validate the proposal (`crate::payjoin::validate_proposal`)
     ///    and park it in the session store under a random id.
     ///
-    /// Nothing is signed for the proposal here — the user reviews the
+    /// The ORIGINAL is signed and finalized here (BIP-78 needs a
+    /// broadcastable original and the receiver may publish it itself), so
+    /// the absolute-fee guard runs first: a fee above
+    /// [`send_policy::absolute_fee_limit_sat`] fails with
+    /// [`OnchainError::FeeTooHigh`] unless `allow_high_fee` is `true`.
+    /// Nothing is signed for the proposal — the user reviews the
     /// returned summary first, then calls
     /// [`Self::payjoin_sign_and_broadcast`].
     ///
     /// # Errors
     ///
     /// Failures in steps 1-3 are `Err` (URI / mismatch / endpoint →
-    /// [`OnchainError::InvalidAddress`]; build → `TxBuild`; signing →
-    /// `Sign`). A failure in steps 4-5 is returned as `Ok` with
+    /// [`OnchainError::InvalidAddress`]; build → `TxBuild`; fee above the
+    /// limit → `FeeTooHigh`; signing → `Sign`). A failure in steps 4-5 is returned as `Ok` with
     /// `failure_reason` set and no `session_id`, so the caller can offer
     /// to broadcast `original_psbt` as a regular payment.
     pub fn payjoin_negotiate(
@@ -2072,6 +2077,7 @@ impl OnchainAccount {
         expected_amount_sat: u64,
         fee_rate_sat_per_vb: u64,
         proxy_url: Option<&str>,
+        allow_high_fee: bool,
     ) -> Result<crate::payjoin::PayjoinNegotiation, OnchainError> {
         self.payjoin_negotiate_with(
             uri,
@@ -2079,6 +2085,7 @@ impl OnchainAccount {
             expected_amount_sat,
             fee_rate_sat_per_vb,
             proxy_url,
+            allow_high_fee,
             &crate::payjoin::PayjoinIo::PRODUCTION,
         )
     }
@@ -2089,6 +2096,7 @@ impl OnchainAccount {
     /// vetting with the injected resolver, validation) runs regardless of
     /// the `io` in use.
     #[allow(clippy::too_many_lines)] // linear BIP-78 sender script
+    #[allow(clippy::too_many_arguments)] // private test seam mirroring the public args + io
     fn payjoin_negotiate_with(
         &mut self,
         uri: &str,
@@ -2096,6 +2104,7 @@ impl OnchainAccount {
         expected_amount_sat: u64,
         fee_rate_sat_per_vb: u64,
         proxy_url: Option<&str>,
+        allow_high_fee: bool,
         io: &crate::payjoin::PayjoinIo<'_>,
     ) -> Result<crate::payjoin::PayjoinNegotiation, OnchainError> {
         use crate::payjoin as pj;
@@ -2145,6 +2154,11 @@ impl OnchainAccount {
             .finish()
             .map_err(|e| OnchainError::TxBuild(e.to_string()))?;
         self.persist()?;
+
+        // Same absolute-fee guard as every other send path, BEFORE the
+        // original is signed: once signed + finalized it is a complete
+        // broadcastable payment that the receiver may publish itself.
+        self.check_absolute_fee(&original, allow_high_fee)?;
 
         let mut original_signed = original.clone();
         let finalized = self
@@ -2217,6 +2231,7 @@ impl OnchainAccount {
                     owner: self.payjoin_owner_tag(),
                     proposal: validated,
                     fee_rate_sat_vb: fee_rate_sat_per_vb,
+                    allow_high_fee,
                 })?;
                 Ok(pj::PayjoinNegotiation {
                     session_id: Some(id),
@@ -2275,6 +2290,9 @@ impl OnchainAccount {
             .ok_or_else(|| {
                 OnchainError::TxBuild("PayJoin session unknown, expired or already used".into())
             })?;
+        // Re-check the absolute limit on the proposal itself (its fee is
+        // original + the sender's capped contribution).
+        self.check_absolute_fee(&session.proposal.psbt, session.allow_high_fee)?;
         let signed = self.sign_payjoin_proposal(&session.proposal)?;
         let vsize = signed.clone().extract_tx_unchecked_fee_rate().vsize() as u64;
         let min_fee = session
@@ -2740,6 +2758,13 @@ impl OnchainAccount {
     /// absolute limit unless the user explicitly confirmed it, then
     /// serialise the PSBT.
     fn finish_build(&self, psbt: &Psbt, allow_high_fee: bool) -> Result<String, OnchainError> {
+        self.check_absolute_fee(psbt, allow_high_fee)?;
+        Ok(psbt.to_string())
+    }
+
+    /// Refuse `psbt` when its fee exceeds the absolute limit for the
+    /// amount it sends to third parties, unless `allow_high_fee`.
+    fn check_absolute_fee(&self, psbt: &Psbt, allow_high_fee: bool) -> Result<(), OnchainError> {
         let fee_sat = psbt
             .fee()
             .map_err(|e| OnchainError::TxBuild(format!("fee compute: {e}")))?
@@ -2751,8 +2776,7 @@ impl OnchainAccount {
             .filter(|o| !self.wallet.is_mine(o.script_pubkey.clone()))
             .try_fold(0_u64, |acc, o| acc.checked_add(o.value.to_sat()))
             .ok_or_else(|| OnchainError::TxBuild("output sum overflow".into()))?;
-        send_policy::enforce_absolute_fee_limit(fee_sat, sent_external_sat, allow_high_fee)?;
-        Ok(psbt.to_string())
+        send_policy::enforce_absolute_fee_limit(fee_sat, sent_external_sat, allow_high_fee)
     }
 
     /// Outpoints automatic coin selection must never pick: BIP-329
@@ -3969,7 +3993,7 @@ mod payjoin_tests {
         let shown = acct.peek_taproot_address(7).unwrap().to_string();
         let uri = format!("bitcoin:{uri_addr}?amount=0.001&pj=https://pj.example.com/x");
         let err = acct
-            .payjoin_negotiate(&uri, &shown, 100_000, 2, None)
+            .payjoin_negotiate(&uri, &shown, 100_000, 2, None, false)
             .unwrap_err();
         assert!(
             matches!(err, OnchainError::InvalidAddress(ref m) if m.contains("differs")),
@@ -3984,14 +4008,17 @@ mod payjoin_tests {
         // C3 shape: the UI showed 1000 sat, the URI asks for 1 BTC.
         let uri = format!("bitcoin:{addr}?amount=1&pj=https://pj.example.com/x");
         let err = acct
-            .payjoin_negotiate(&uri, &addr, 1_000, 2, None)
+            .payjoin_negotiate(&uri, &addr, 1_000, 2, None, false)
             .unwrap_err();
         assert!(
             matches!(err, OnchainError::InvalidAddress(ref m) if m.contains("differs")),
             "{err:?}"
         );
         let dup = format!("bitcoin:{addr}?amount=1&AMOUNT=0.00001&pj=https://pj.example.com/x");
-        assert!(acct.payjoin_negotiate(&dup, &addr, 1_000, 2, None).is_err());
+        assert!(
+            acct.payjoin_negotiate(&dup, &addr, 1_000, 2, None, false)
+                .is_err()
+        );
     }
 
     #[test]
@@ -4000,7 +4027,7 @@ mod payjoin_tests {
         let addr = other_signet_address();
         let uri = format!("bitcoin:{addr}?amount=0.001&pj=http://abcdef.onion/pj");
         let err = acct
-            .payjoin_negotiate(&uri, &addr, 100_000, 2, None)
+            .payjoin_negotiate(&uri, &addr, 100_000, 2, None, false)
             .unwrap_err();
         assert!(
             matches!(err, OnchainError::InvalidAddress(ref m) if m.contains("Tor")),
