@@ -57,8 +57,10 @@ Any path that could lead to:
 - Disclosure of metadata that breaks BHODL's privacy guarantees
   (Tor routing, PayJoin, privacy mode, no telemetry) when those features are enabled.
 - Bypass of the on-disk encryption layer (SQLCipher AES-256).
-- Bypass of platform secure storage when integrated (Keystore on
-  Android, Secure Enclave on iOS, OS keyring on desktop).
+- Bypass of the OS-keystore device binding on desktop (Windows DPAPI,
+  macOS Keychain, Linux Secret Service), e.g. any way to test PIN guesses
+  offline from a copy of the data directory alone, or platform secure
+  storage once integrated on mobile (Android Keystore, iOS Secure Enclave).
 - Downgrade of KDF parameters (e.g. OWASP 2024 strong → legacy weak)
   across versions.
 
@@ -86,19 +88,64 @@ the advisory unless they prefer to stay anonymous.
 
 ## Encryption and Key Derivation
 
-- **SQLCipher**: AES-256-CBC encryption at rest. Encryption key is
-  the 32-byte output of `Argon2id(pin, salt)`.
+- **SQLCipher**: AES-256-CBC encryption at rest for the wallet DB, the
+  device registry and every watch-only state file.
+- **Key schedule**: `pin_key = Argon2id(PIN, salt)`. On a device with an
+  OS keystore the database key is
+  `HKDF-SHA256(pin_key || device_secret, salt, "bhodl/sqlcipher-key/v1 …")`,
+  where `device_secret` is a random 256-bit value generated when the wallet
+  or registry is created and held by the operating system:
+  - Windows: DPAPI, `CurrentUser` scope (the DPAPI blob is stored in the
+    KDF descriptor; only the same Windows account on the same machine can
+    decrypt it).
+  - macOS: a generic-password item in the login Keychain
+    (service `io.bhodl.device-key`).
+  - Linux: an item in the Secret Service `default` collection (GNOME
+    Keyring, KWallet, KeePassXC).
+- **Threat model**: someone who copies the data directory (`~/.bhodl`) —
+  a backup, a synced folder, a disk image read from another account — gets
+  the salt and the encrypted databases but not the device secret, so they
+  cannot test PIN guesses offline. This is what makes a 6-digit PIN
+  acceptable. An attacker who also controls the user's OS account (malware
+  running as the user, or the full disk *plus* the login password) can
+  recover the device secret; the PIN is then the only barrier
+  (Argon2id, ~0.5–0.8 s and 64 MiB per guess), so 8+ digits or a passphrase
+  remain the recommendation.
+- **No keystore** (e.g. headless Linux without a Secret Service): new
+  wallets and registries are not device-bound and **require a passphrase of
+  at least 12 characters** instead of a PIN. The app explains why on the
+  setup screen; it never silently falls back to a short PIN. An optional
+  passphrase mode is also offered when a keystore is available.
+- **Recovery implications**: if the OS keystore entry is lost (OS
+  reinstall, a different user account, a reset keyring, data dir restored
+  on another machine), a device-bound store cannot be opened with the PIN
+  any more. The unlock screen reports this distinctly from "wrong PIN" (and
+  does not count it against the PIN lockout); the user restores from the
+  BIP-39 recovery phrase or an encrypted backup. Copying `~/.bhodl` to a new
+  machine is therefore **not** a backup.
 - **Argon2id**: OWASP 2024 strong baseline (m=64 MiB, t=3, p=4).
   Previous wallets used legacy params (m=19 MiB, t=2, p=1).
-- **KDF migration**: Wallets without `wallet.kdf.json` (created pre-hardening)
-  are auto-upgraded on next unlock. FFI reads salt, derives key with legacy
-  params, opens DB, writes `wallet.kdf.json` with current params, calls
-  `PRAGMA rekey` to re-encrypt the DB in-place. No downgrade vector.
+- **KDF descriptor** (`wallet.kdf.json`, `registry.kdf.json`): versioned,
+  HMAC-sealed after the first successful open. v3 records the key
+  protection (`device_key` with the keystore backend + handle, or
+  `secret_only`) and its MAC covers that record. Builds that predate v3
+  refuse it instead of deriving a wrong key.
+- **KDF / device-binding migration**: PIN-only wallets and registries
+  (and wallets with legacy Argon2id params) are migrated transparently on
+  the first unlock where a keystore is reachable. Crash-safe ordering: the
+  device secret is stored in the keystore, the new descriptor is written to
+  `<descriptor>.next` and fsynced, `PRAGMA rekey` re-encrypts the DB, and
+  only then is `.next` renamed over the old descriptor. At every point
+  exactly one descriptor opens the DB; the next unlock falls back to
+  `.next` if needed and discards a stale one (and its keystore entry). The
+  watch-only state files share the registry key and are re-encrypted
+  right after the registry (resumable, idempotent). If no keystore is
+  available the store keeps opening exactly as before. No downgrade vector.
 - **BIP-39 passphrase** (optional): Entered on setup (Advanced toggle),
   stored encrypted at rest in the `bhodl_seed` table alongside the mnemonic.
   The threat model is identical to the mnemonic itself: an attacker with the
-  SQLCipher file + salt + PIN can read both. Incorrect passphrase silently
-  derives a different wallet (standard BIP-39 behavior).
+  SQLCipher file + the database key can read both. Incorrect passphrase
+  silently derives a different wallet (standard BIP-39 behavior).
 - **Backup export**: age encryption (age-cli compatible format). Encrypted
   blob + user password. Restore flow decrypts to plaintext mnemonic
   (held in memory, zeroized on drop).
@@ -107,8 +154,9 @@ the advisory unless they prefer to stay anonymous.
 
 Supply chain hardening currently in place:
 
-- Workspace lints forbid `unsafe` in our crates (the FFI shim is the
-  only audited exception).
+- Workspace lints forbid `unsafe` in our crates. Audited exceptions: the
+  UniFFI shim and the Windows DPAPI module of `bhodl-keystore`
+  (`unsafe` denied crate-wide, allowed only in `dpapi.rs`).
 - `cargo-deny` runs in CI: license allow-list, source allow-list, and
   yanked-crate detection.
 - All workspace dependencies pinned to specific minor versions.

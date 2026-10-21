@@ -2517,3 +2517,43 @@ un modulo tracker attivo (Reports visibile), valuta fiat EUR.
   --tests "io.bhodl.desktop.screens.NetWorthHeroBitcoinLensTest"   --tests "io.bhodl.desktop.screens.RuleAmountPrivacyTest"   --tests "io.bhodl.desktop.ui.money.SignedAmountScanTest" \
   --tests "io.bhodl.desktop.screens.TableColumnHidingTest"
 ```
+
+## 54. Audit 2026-10 — Chiave DB legata al keystore del sistema operativo (2026-10-21)
+
+La chiave SQLCipher di wallet e registry ora è
+`HKDF(argon2id(PIN) ‖ device_secret)`: il `device_secret` (256 bit) è
+custodito da DPAPI (Windows), Portachiavi (macOS) o Secret Service
+(Linux). Una copia di `~/.bhodl` da sola non permette di provare PIN
+offline. Senza keystore serve una passphrase di almeno 12 caratteri.
+Dettagli: handbook §4.1.1, SECURITY.md.
+
+**Prima di iniziare:** fai un backup cifrato del wallet di test e tieni a
+portata la frase di recupero (alcuni test rendono il wallet non
+apribile per costruzione). Usa signet. Per ispezionare il descrittore:
+`wallet.kdf.json` / `registry.kdf.json` → `version` e `protection`.
+
+| #     | Test | Passi | Atteso | Pass |
+|-------|------|-------|--------|------|
+| 54.1  | Windows: nuovo wallet legato a DPAPI | 1. Data dir vuota, crea un wallet con PIN `123456`. 2. Apri `~/.bhodl/wallets/<id>/wallet.kdf.json` e `~/.bhodl/registry.kdf.json`. 3. Chiudi e riapri, sblocca. | Nel setup compare "Your PIN is combined with a secret kept by Windows DPAPI…". Entrambi i descrittori: `"version": 3`, `protection.mode = "device_key"`, `wrap.backend = "windows_dpapi"`, `handle` esadecimale lungo (blob DPAPI). Sblocco normale. | [auto] `cargo test -p bhodl-keystore` (dpapi round trip, blob alterato, entropy) + device_key_tests.`fresh_wallet_is_device_bound_and_pin_alone_does_not_open_it` |
+| 54.2  | Windows: altro utente / altra macchina | 1. Copia l'intera `~/.bhodl` nel profilo di un altro utente Windows (o su un altro PC). 2. Avvia BHODL come quell'utente e inserisci il PIN giusto. 3. Riprova con un PIN sbagliato. | Messaggio "This device can no longer open this data: the secret that BHODL stored in the system keyring is missing…" con rimando a frase di recupero / backup, sia col PIN giusto sia con uno sbagliato. Nessun "Wrong PIN", nessun countdown di lockout. Il ripristino da frase in una data dir nuova funziona. | [ ] |
+| 54.3  | macOS: Portachiavi | 1. Crea un wallet. 2. Accesso Portachiavi → cerca `io.bhodl.device-key`. 3. `cargo test -p bhodl-keystore -- --ignored` sul Mac. | Esiste una voce password generica per wallet e una per il registry (account = id esadecimale). Descrittore `wrap.backend = "macos_keychain"`. Test ignorati verdi (round trip + delete). | [ ] |
+| 54.4  | macOS: voce cancellata / portachiavi bloccato | 1. Cancella la voce `io.bhodl.device-key` del wallet da Accesso Portachiavi, sblocca. 2. Ricrea un wallet, blocca il portachiavi login (`security lock-keychain`), sblocca il wallet e annulla la richiesta di sistema. | 1: messaggio "device key missing" (frase di recupero), non "Wrong PIN". 2: "The system keyring could not be reached… Unlock your keyring and try again", tentativo non conteggiato; sbloccando il portachiavi il wallet si apre. | [ ] |
+| 54.5  | Linux desktop: Secret Service | 1. Sessione GNOME/KDE con portachiavi attivo, crea un wallet. 2. `secret-tool search --all application io.bhodl`. 3. `cargo test -p bhodl-keystore -- --ignored`. | Voci "BHODL wallet device key" nella collezione `default` (login), attributo `bhodl-device-key-id`. Descrittore `wrap.backend = "secret_service"`. Test ignorati verdi. | [ ] |
+| 54.6  | Linux senza keystore: passphrase obbligatoria | 1. Sessione senza Secret Service (es. `env -u DBUS_SESSION_BUS_ADDRESS ./gradlew :apps:desktop:run` o server headless con X forwarding). 2. Crea un wallet. 3. Prova PIN `123456`, poi passphrase `Tr3s-Securise-42`. | Testo rosso "No system keyring is available on this device… a passphrase of at least 12 characters is required."; niente pulsante "Use a numeric PIN". Il PIN non abilita Finish ("Passphrase is too short (6 / 12…)"); la passphrase sì. Descrittore `protection.mode = "secret_only"`. | [auto] PinSetupScreenTest.`without a keystore a PIN is refused and a passphrase is required` + device_key_tests.`without_keystore_a_pin_is_refused_and_a_passphrase_is_required` |
+| 54.7  | Passphrase opzionale con keystore | 1. Setup wallet su un sistema con keystore. 2. "Use a passphrase instead of a PIN". 3. Inserisci `abcdefghijkl` due volte, crea. 4. Sblocca con la passphrase. | I campi si svuotano al cambio modo, etichette "Passphrase"/"Confirm passphrase", Finish abilitato da 12 caratteri; spazi non accettati. Sblocco (wallet e "Device PIN" del registry) con la passphrase. | [auto] PinSetupScreenTest.`with a keystore the passphrase mode is opt-in` + PinValidatorTest |
+| 54.8  | Migrazione di un wallet esistente (solo PIN) | 1. Con la build precedente (main prima di questa PR) crea wallet + un watch-only; annota `version` dei descrittori (2). 2. Aggiorna a questa build, sblocca registry e wallet. 3. Riapri i descrittori; apri il watch-only e la lista Tracker. 4. Chiudi e risblocca. | Dopo il primo sblocco: `version` 3 con `device_key`, stesso `salt_hex`, nessun `*.kdf.json.next`, nessun `registry.watch-rekey.pending`. Il watch-only si apre e mostra il saldo (file `watch-state` ricifrati). Sblocchi successivi normali; PIN sbagliato = "Wrong PIN". | [auto] device_key_tests.`pin_only_wallet_migrates_to_device_bound_on_unlock` + `pin_only_registry_migrates_and_watch_states_follow` + `legacy_params_and_binding_migrate_in_one_step` |
+| 54.9  | Migrazione interrotta | 1. Wallet solo-PIN della build precedente. 2. Avvia lo sblocco e termina il processo (Task Manager / `kill -9`) subito dopo l'invio del PIN, più volte a tempi diversi. 3. Riavvia e sblocca. | Il wallet si apre sempre con il PIN; alla fine la migrazione è completa (v3, nessun `.next`). Mai "device key missing" né perdita di accesso. | [auto] device_key_tests.`interrupted_binding_before_rekey_keeps_old_key_and_cleans_up` + `interrupted_binding_after_rekey_recovers_from_pending_descriptor` + `failed_rekey_leaves_the_old_descriptor_in_charge` + `interrupted_registry_migration_resumes_the_watch_sweep` |
+| 54.10 | Wallet esistente senza keystore | 1. Wallet solo-PIN della build precedente su Linux senza Secret Service. 2. Aggiorna e sblocca. | Si apre come prima con il PIN; il descrittore resta `version` 2 senza `protection`. Avviato più tardi un Secret Service, il primo sblocco lo migra a v3. | [auto] device_key_tests.`pin_only_wallet_stays_openable_and_untouched_without_keystore` |
+| 54.11 | Downgrade bloccato | 1. Dopo 54.8, avvia la build precedente e sblocca. | La build precedente rifiuta "unsupported kdf descriptor version 3" ("newer version of BHODL"), tentativo non conteggiato. | [ ] |
+| 54.12 | Stringhe in italiano | Settings → Lingua → Italiano, ripeti 54.2 e 54.6. | "Questo dispositivo non può più aprire questi dati…", "Su questo dispositivo non è disponibile un portachiavi di sistema…", "Usa una passphrase invece del PIN". | [ ] |
+
+### Verifiche automatizzate
+
+```
+cargo test -p bhodl-keystore            # DPAPI reale su Windows; Keychain/Secret Service: -- --ignored
+cargo test -p bhodl-core key_derivation
+cargo test -p bhodl-uniffi device_key_tests
+./gradlew :apps:desktop:jvmTest --tests "io.bhodl.desktop.wizard.PinValidatorTest" \
+  --tests "io.bhodl.desktop.wizard.SecurityAuditPinTest" \
+  --tests "io.bhodl.desktop.screens.PinSetupScreenTest"
+```

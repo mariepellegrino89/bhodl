@@ -68,6 +68,7 @@ title bar, the `~/.bhodl/` data dir).
 ├── .cargo/config.toml               # Forces +crt-static on Windows MSVC
 ├── crates/
 │   ├── bhodl-core/                  # Crypto primitives (KDF, Network, Amount)
+│   ├── bhodl-keystore/              # OS keystore device secret (DPAPI / Keychain / Secret Service)
 │   ├── bhodl-wallet-onchain/        # BDK-backed wallet + SQLCipher persistence
 │   └── bhodl-uniffi/                # FFI surface (Kotlin/Swift bindings)
 ├── shared/                          # KMP module — Compose theme, FFI consumer
@@ -192,16 +193,61 @@ Pure-Rust crypto primitives, no I/O, no BDK. Re-exports:
 | `generate_salt`                   | OS-RNG-backed 16-byte salt (uses `OsRng`, not     |
 |                                   | `ThreadRng` — safer across JVM/JNI thread boundary)|
 | `SALT_LEN`, `DERIVED_KEY_LEN`     | Layout constants, both consumed by the wallet     |
+| `combine_with_device_secret`      | `HKDF-SHA256(argon2_out ‖ device_secret, salt, info)` — the device-bound DB key |
+| `validate_new_secret(s, device_bound)` | Creation policy: 6+ digit PIN or 12+ char passphrase when bound; passphrase only when no keystore |
 
 `#![deny(unsafe_code)]` workspace-wide; `bhodl-core` has zero `unsafe`
 blocks.
 
-**KDF migration policy**: On `unlock_persistent`, if `wallet.kdf.json`
-does not exist, the FFI layer reads the salt, re-derives the key using
-`LEGACY_OWASP_MIN`, opens SQLCipher, then writes a fresh `wallet.kdf.json`
-with `CURRENT` params and calls `PRAGMA rekey` to upgrade the encryption
-key in-place. No data loss; wallets with old parameters become strong
-automatically on next unlock.
+**KDF migration policy**: On unlock, if `wallet.kdf.json` does not exist
+the FFI layer reads the legacy salt, re-derives the key using
+`LEGACY_OWASP_MIN`, opens SQLCipher, then migrates to `CURRENT` params via
+`PRAGMA rekey`. The same crash-safe migration also binds PIN-only stores to
+the OS keystore (see §4.1.1). No data loss; wallets with old parameters
+become strong automatically on next unlock.
+
+### 4.1.1 `bhodl-keystore` and device-bound keys
+
+A random 256-bit **device secret** is created with every new wallet and
+registry and handed to the OS: Windows DPAPI (`CurrentUser`; the blob is
+stored in the descriptor), macOS login Keychain (service
+`io.bhodl.device-key`), Linux Secret Service (`default` collection). The
+database key becomes `HKDF(argon2id(PIN) ‖ device_secret)`, so a copy of
+`~/.bhodl` alone is useless for an offline PIN search.
+
+- Descriptor **v3** (`kdf.rs`) records `protection`:
+  `{"mode":"device_key","wrap":{"backend":"windows_dpapi","handle":"…"}}` or
+  `{"mode":"secret_only"}`; the MAC covers it. v1/v2 = PIN-only.
+- **Creation** (`unlock_with(create_if_missing)`): keystore probe OK →
+  device-bound, PIN or passphrase allowed. Probe fails → `secret_only`,
+  passphrase of 12+ characters required (`KeyDerivation` error
+  "passphrase required" otherwise). The desktop setup screens ask
+  `deviceKeystoreStatus()` first and switch to passphrase mode with an
+  explanation.
+- **Migration** (`migrate_if_stale`): after a successful unlock of a
+  PIN-only store with a reachable keystore → store secret, write sealed
+  `.next`, `PRAGMA rekey`, rename `.next` over the descriptor. Salt and
+  params are kept (the wallet scope also bumps legacy Argon2id params in
+  the same step). A failed keystore write just skips the binding.
+- **Registry**: its key also encrypts `watch-state/*.sqlite`. The
+  migration writes `registry.watch-rekey.pending` before the registry
+  rekey; `sweep_watch_states` re-encrypts each watch file from the
+  PIN-derived key to the new key (idempotent) and removes the marker, on
+  this or a later unlock.
+- **Errors**: lost entry → `WalletError::DeviceKeyMissing`; keyring
+  unreachable/locked → `WalletError::DeviceKeystoreUnavailable`. The
+  device secret is loaded before Argon2id, so a lost key is reported for
+  any PIN, never as "wrong PIN". Desktop maps them to
+  `PinFailureKind.DeviceKeyMissing` / `KeystoreUnavailable`, never counted
+  against the lockout.
+- **Tests**: Rust unit tests use the in-memory `EphemeralKeystore`
+  (`keystore::override_for_test` swaps in `UnavailableKeystore` or
+  custom fakes). The Gradle test tasks set
+  `BHODL_KEYSTORE=ephemeral-test` (root `build.gradle.kts`) so the JVM
+  suites never touch the real keyring. Real backends:
+  `cargo test -p bhodl-keystore` exercises DPAPI on Windows; the
+  Keychain / Secret Service round trips are `#[ignore]`d and run by
+  hand (`-- --ignored`, test-book §54).
 
 ### 4.2 `bhodl-wallet-onchain`
 
@@ -535,13 +581,23 @@ This is a self-custodial wallet. The user's funds are protected by:
    on `Drop`. `non_secure_erase` is the secp256k1 crate's compiler-
    fence-aware memset-to-zero — best effort, not a hard guarantee
    against memory dumps that catch it before drop.
-2. **Encryption at rest** via SQLCipher (AES-256-CBC). The encryption key is the
-   32-byte output of `derive_key_from_pin(pin, salt)` using **Argon2id with
-   OWASP 2024 strong parameters** (m=64 MiB, t=3, p=4). This costs ~500–800 ms
-   per unlock on 2024 desktop hardware and ~50–800 ms per brute-force guess
-   (4-digit PIN: ~10 min single-threaded, 6-digit: ~14 hours). The salt is
-   persisted next to the DB in plaintext; it is not a secret, but losing it
-   locks the user out forever.
+2. **Encryption at rest** via SQLCipher (AES-256-CBC). The PIN goes through
+   **Argon2id with OWASP 2024 strong parameters** (m=64 MiB, t=3, p=4,
+   ~500–800 ms per unlock on 2024 desktop hardware) and the result is bound
+   to an OS-held 256-bit device secret with HKDF-SHA256 (§4.1.1). A copy of
+   the data dir therefore cannot be brute-forced offline: without the device
+   secret even the right PIN does not produce the key. Only an attacker who
+   also controls the user's OS account can run the PIN search (~50–800 ms
+   per guess; 6 digits ≈ 14 CPU-hours), which is why 8+ digits or a
+   passphrase are still recommended. Without an OS keystore a 12+ character
+   passphrase is mandatory. The salt is persisted next to the DB in
+   plaintext; it is not a secret, but losing it locks the user out forever.
+
+   **Recovery implication**: the device secret does not travel with
+   `~/.bhodl`. After an OS reinstall, under another user account, or on
+   another machine the wallet cannot be unlocked with the PIN ("device key
+   missing", not "wrong PIN"): restore from the recovery phrase or an
+   encrypted backup.
    
    **KDF migration**: Wallets created with older parameters (m=19 MiB, t=2, p=1)
    are detected by absence of `wallet.kdf.json` and automatically re-keyed to
@@ -551,8 +607,9 @@ This is a self-custodial wallet. The user's funds are protected by:
    `bhodl_seed` table holds `(mnemonic, passphrase)` so the
    mnemonic-less unlock path can rebuild signing-capable descriptors;
    the threat model is identical to "an attacker has the SQLCipher
-   file and the salt": they still need to brute-force the PIN through
-   Argon2id (~50–800 ms per attempt). **BIP-39 passphrases** (optional,
+   file and the salt": they also need the OS-held device secret, and
+   then still have to brute-force the PIN through Argon2id (~50–800 ms
+   per attempt). **BIP-39 passphrases** (optional,
    behind Advanced toggle on first setup) are stored encrypted at rest in the
    `bhodl_seed` table alongside the mnemonic. The threat model is identical to
    the mnemonic itself: an attacker with the SQLCipher file + salt + PIN can read both.
@@ -583,9 +640,13 @@ What the wallet does NOT defend against (Phase 2 acceptance):
 - Process-memory dumps captured while the wallet is unlocked (the
   mnemonic is held in memory and zeroized on drop, but a determined
   attacker with memory access can extract it before drop).
-- Hardware-backed key wraps (Keystore on Android, Secure Enclave on
-  iOS, OS keyring on desktop). These land alongside the corresponding
-  platform target (Phase 3.5+).
+- Hardware-backed key wraps on mobile (Keystore on Android, Secure
+  Enclave on iOS). The desktop OS keystores (DPAPI, Keychain, Secret
+  Service) are integrated (§4.1.1); the mobile backends land with the
+  corresponding platform target (the core currently reports "no
+  keystore" there, so a passphrase is required).
+- Malware running as the logged-in user: it can read the OS keystore
+  like BHODL does and log the PIN as it is typed.
 - Coin-join / privacy mixing. Coin control + descriptor backup are
   the building blocks; CoinJoin / PayJoin land in a later phase (Phase 4+).
 - Hardware wallet signing (Trezor, Ledger, Coldcard). Architectural
@@ -610,6 +671,11 @@ rewrites the on-disk data in formats older builds do not understand:
 - the registry is migrated to **schema v4** (`PRAGMA user_version`;
   v2 lot `original_quantity`, v3 crypto-kind `user_set`, v4 wallet
   `mirror_of`) in one transaction — `registry.rs::ensure_schema`.
+
+The OS-keystore binding (2026-10) re-seals device-bound descriptors as
+**v3** on the first unlock where a keystore is reachable. Builds without
+v3 support refuse them with "unsupported kdf descriptor version 3".
+Stores that stay PIN-only (no keystore) keep the v2 format.
 
 After that, an older build cannot open the data: it rejects the v2
 descriptor (typically reported as a wrong PIN / integrity error — do not
@@ -684,6 +750,9 @@ All roadmap decisions live in `PLAN.md`.
 | Kotlin says `unresolved reference 'uniffi.runtime'`| Stale generated bindings; delete `shared/build/generated/uniffi/` and rerun |
 | `java.lang.Error: Invalid memory access` at startup | CRT mismatch — see §7. Re-check `.cargo/config.toml`|
 | Wrong PIN says "Wrong PIN" but you're sure it's right | Likely DB created by a pre-seed-table version. From Welcome → "Reset local wallet" (two-tap) → Create new wallet |
+| Unlock says the device key is missing from the system keyring | The descriptor is device-bound (v3, `device_key`) and the OS entry is gone or belongs to another account (OS reinstall, other user, keyring reset, `~/.bhodl` copied from another machine). Not recoverable with the PIN: restore from the recovery phrase / encrypted backup. Check `wallet.kdf.json` → `protection.wrap.backend` |
+| Unlock says the system keyring could not be reached | Linux: Secret Service not running or the keyring is locked and the prompt was dismissed (`secret-tool search application io.bhodl`); macOS: login keychain locked. Unlock the keyring and retry; the PIN was not checked |
+| Setup insists on a passphrase instead of a PIN | `deviceKeystoreStatus()` reported no keystore (typically headless Linux / no D-Bus session). Start GNOME Keyring / KWallet / KeePassXC (Secret Service enabled), or use a 12+ character passphrase |
 | Signet faucet says "queued in 0 seconds" but no tx arrives | `signetfaucet.com` queue lag. Wait 2–5 min and check `mempool.space/signet/address/<addr>`; try `alt.signetfaucet.com` if needed |
 | BDK `sign_psbt` returns "PSBT signed but not fully finalised" | `SignOptions::default().trust_witness_utxo = false`. We've explicitly set it to `true`; if you reverted that, taproot signing breaks |
 | CI clippy fails on doc comments                    | The `clippy::doc_markdown` and `clippy::doc_lazy_continuation` lints; backtick technical names (`SQLCipher`, `BDK`, etc.) and avoid `+ word` paragraph leaders that look like Markdown lists |
