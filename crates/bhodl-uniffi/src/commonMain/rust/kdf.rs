@@ -486,11 +486,8 @@ pub(crate) fn unlock_with<T>(
     }
 
     for cand in candidates {
-        let key: SecretKey = Zeroizing::new(bhodl_core::derive_key_from_pin_with_params(
-            pin,
-            &cand.salt,
-            &cand.params,
-        )?);
+        let key: SecretKey =
+            bhodl_core::derive_key_from_pin_with_params(pin, &cand.salt, &cand.params)?;
         let attempt = match &cand.file {
             Some(f) => f.verify_mac(&key),
             None => Ok(()),
@@ -617,11 +614,8 @@ pub(crate) fn migrate_kdf_if_stale(
     }
     let scope = KdfScope::Wallet;
     let new_salt = generate_salt()?;
-    let new_key: SecretKey = Zeroizing::new(bhodl_core::derive_key_from_pin_with_params(
-        pin,
-        &new_salt,
-        &KdfParams::CURRENT,
-    )?);
+    let new_key: SecretKey =
+        bhodl_core::derive_key_from_pin_with_params(pin, &new_salt, &KdfParams::CURRENT)?;
     let pending = scope.pending_path(db_dir);
     write_descriptor_file(
         &pending,
