@@ -42,18 +42,8 @@ class HardcodedUiStringScanTest {
 
     /** `file suffix` + `literal fragment` → reason. */
     private val ALLOWLIST: Map<Pair<String, String>, String> = mapOf(
-        ("screens/DebugWatchScreen.kt" to "") to
-            "Developer-only screen (DebugFlags: dev Gradle run + BHODL_DEBUG=1), never shipped.",
-        ("screens/SettingsSystemSections.kt" to "Debug") to
-            "Title of the developer-only Debug section (shown only when DebugFlags allow it).",
-        ("screens/DashboardScreen.kt" to "· tracker") to
-            "Default NAME of the tracker mirror written into the wallet registry (data, not UI copy).",
-        ("screens/SettingsWalletSections.kt" to "· tracker") to
-            "Default NAME of the tracker mirror written into the wallet registry (data, not UI copy).",
         ("screens/TrackingKpi.kt" to "skeleton") to
             "`label =` of an infinite-transition animation: a Compose tooling name, never rendered.",
-        ("screens/UnlockScreen.kt" to "My Wallet") to
-            "Fallback wallet NAME stored in the registry (data, not UI copy).",
         ("screens/SettingsWalletSections.kt" to "My Wallet") to
             "Fallback wallet NAME stored in the registry (data, not UI copy).",
     )

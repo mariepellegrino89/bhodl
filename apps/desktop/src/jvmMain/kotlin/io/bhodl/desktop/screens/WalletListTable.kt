@@ -25,7 +25,6 @@ import io.bhodl.desktop.ui.ColumnAmountFormat
 import io.bhodl.desktop.ui.tableCell
 import io.bhodl.desktop.ui.headerWithUnit
 import io.bhodl.desktop.ui.rememberColumnAmountFormat
-import io.bhodl.ffi.WalletKindFfi
 import io.bhodl.ffi.WalletRecordFfi
 import io.bhodl.ui.theme.BhodlTheme
 import io.bhodl.shared.resources.Res
@@ -39,31 +38,28 @@ import org.jetbrains.compose.resources.stringResource
 /**
  * Phase 7.1 — dense wallet table for the TrackerHome.
  *
- * Replaces the spacious [WalletPickerRow] (kept on Welcome) with a
- * Bloomberg/Sparrow-style compact row layout. Each wallet row is
+ * Bloomberg/Sparrow-style compact row layout; it is also the wallet
+ * picker — a row opens that wallet's workspace. Each wallet row is
  * 36dp tall (down from ~80dp), zebra-striped, with the balance
  * right-aligned in monospace.
  *
  * Columns:
  *  - **Name** (2 weight) — wallet label.
- *  - **Type** (1 weight) — Signing / Watch (HD / xpub / addresses).
+ *  - **Type** (1 weight) — Watch (HD / xpub / addresses).
  *  - **Network** (1 weight) — signet / mainnet / etc.
- *  - **Balance** (1.4 weight, right-aligned) — sat amount or "—"
- *    when the wallet is signing and we don't yet have a watch mirror.
+ *  - **Balance** (1.4 weight, right-aligned) — last-synced amount, or
+ *    "—" before the first sync.
  *
- * Wallets are grouped by xpub via the existing [groupPickerWalletsByXpub]
- * so a signing wallet and its watch mirror render as ONE row labeled
- * "Signing (tracked)" — consistent with WelcomeScreen.
+ * Rows sharing an xpub collapse into one ([groupWalletsByXpub]).
  */
 @Composable
 public fun WalletListTable(
     wallets: List<WalletRecordFfi>,
     watchBalances: Map<String, ULong>,
-    onSigningTap: (walletId: String) -> Unit,
-    onWatchTap: (walletId: String) -> Unit,
+    onOpenWallet: (walletId: String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val groups = groupPickerWalletsByXpub(wallets, watchBalances)
+    val groups = groupWalletsByXpub(wallets, watchBalances)
     // UX review 2026-10 (rec 2) — one unit for the balance column, named
     // in the header; cells carry the bare number.
     val amounts = rememberColumnAmountFormat(groups.mapNotNull { it.balanceSat?.toLong() })
@@ -100,8 +96,7 @@ public fun WalletListTable(
                         amounts = amounts,
                         cols = cols,
                         isZebra = idx % 2 == 1,
-                        onSigningTap = onSigningTap,
-                        onWatchTap = onWatchTap,
+                        onOpenWallet = onOpenWallet,
                     )
                 }
             }
@@ -151,15 +146,14 @@ private fun TableHeaderCell(
 
 @Composable
 private fun WalletListDataRow(
-    group: GroupedPickerWallet,
+    group: GroupedWallet,
     amounts: ColumnAmountFormat,
     cols: List<WalletListCol>,
     isZebra: Boolean,
-    onSigningTap: (walletId: String) -> Unit,
-    onWatchTap: (walletId: String) -> Unit,
+    onOpenWallet: (walletId: String) -> Unit,
 ) {
     val bg = if (isZebra) BhodlTheme.colors.rowZebra else androidx.compose.ui.graphics.Color.Transparent
-    val testTagId = group.signingId ?: group.watchId ?: "?"
+    val walletId = group.memberIds.first()
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -168,12 +162,9 @@ private fun WalletListDataRow(
             .height(BhodlTheme.density.rowHeight)
             .background(bg)
             // Item 15 — keyboard focus ring + ↑/↓ row moves.
-            .tableRowClickable {
-                if (group.signingId != null) onSigningTap(group.signingId)
-                else if (group.watchId != null) onWatchTap(group.watchId)
-            }
+            .tableRowClickable { onOpenWallet(walletId) }
             .padding(horizontal = BhodlTheme.spacing.md)
-            .testTag(WalletListTableTags.row(testTagId)),
+            .testTag(WalletListTableTags.row(walletId)),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         for (c in cols) when (c) {
@@ -186,7 +177,7 @@ private fun WalletListDataRow(
                 overflow = TextOverflow.Ellipsis,
             )
             WalletListCol.TYPE -> Text(
-                text = group.kindLabel,
+                text = group.kindDisplay,
                 modifier = Modifier.tableCell(this, c),
                 style = BhodlTheme.typography.labelMedium,
                 color = BhodlTheme.colors.textSecondary,

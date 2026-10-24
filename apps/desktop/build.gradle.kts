@@ -121,6 +121,16 @@ tasks.named<Test>("jvmTest") {
     systemProperty("user.country", "US")
 }
 
+// Dev-only: on the `run` task (and the KMP `jvmRun` alias) the BTC
+// average-cost view also counts signet / testnet / regtest wallets, at
+// the real BTC price of each day, so the card can be tried with test
+// funds. Packaged distributions never set the property. Opt out with
+// `-Pbhodl.costBasisTestNetworks=false`.
+tasks.withType<JavaExec>().matching { it.name == "run" || it.name == "jvmRun" }.configureEach {
+    val enabled = providers.gradleProperty("bhodl.costBasisTestNetworks").orElse("true")
+    systemProperty("bhodl.costBasis.includeTestNetworks", enabled.get())
+}
+
 tasks.register<Test>("torTest") {
     description = "Runs the live Tor tests (needs a running Tor SOCKS proxy, see BHODL_TOR_SOCKS)."
     group = "verification"
@@ -200,14 +210,4 @@ compose.desktop {
             packageVersion = "0.1.0"
         }
     }
-}
-
-// Security audit 2026-10 — debug-only surfaces (DebugWatchScreen) are
-// gated behind a build-time flag in addition to BHODL_DEBUG=1. The flag
-// is a JVM system property set ONLY on the dev `run` task (and the KMP
-// `jvmRun` alias), never on packaged distributions (`runDistributable`,
-// `packageDistributionForCurrentOS`, installers) — so a release build
-// can't expose the debug screen via an environment variable.
-tasks.withType<JavaExec>().matching { it.name == "run" || it.name == "jvmRun" }.configureEach {
-    systemProperty("bhodl.devBuild", "true")
 }

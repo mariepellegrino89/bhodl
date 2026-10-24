@@ -274,41 +274,6 @@ class SettingsStoreTest {
         assertEquals(emptySet(), SettingsStore.excludedWalletIds.value)
     }
 
-    // ---- Phase 6.0 — tracker pairing dismissal -----------------------
-
-    @Test
-    fun `default tracker pairing skipped set is empty`() {
-        assertEquals(emptySet(), SettingsStore.trackerPairingSkipped.value)
-    }
-
-    @Test
-    fun `markTrackerPairingSkipped adds the wallet id`() {
-        SettingsStore.markTrackerPairingSkipped("wallet-abc")
-        assertEquals(setOf("wallet-abc"), SettingsStore.trackerPairingSkipped.value)
-    }
-
-    @Test
-    fun `markTrackerPairingSkipped twice with same id is idempotent`() {
-        SettingsStore.markTrackerPairingSkipped("wallet-abc")
-        SettingsStore.markTrackerPairingSkipped("wallet-abc")
-        assertEquals(setOf("wallet-abc"), SettingsStore.trackerPairingSkipped.value)
-    }
-
-    @Test
-    fun `clearTrackerPairingSkipped removes only the matching id`() {
-        SettingsStore.markTrackerPairingSkipped("wallet-a")
-        SettingsStore.markTrackerPairingSkipped("wallet-b")
-        SettingsStore.clearTrackerPairingSkipped("wallet-a")
-        assertEquals(setOf("wallet-b"), SettingsStore.trackerPairingSkipped.value)
-    }
-
-    @Test
-    fun `reset clears the tracker pairing skipped set`() {
-        SettingsStore.markTrackerPairingSkipped("wallet-a")
-        SettingsStore.reset()
-        assertEquals(emptySet(), SettingsStore.trackerPairingSkipped.value)
-    }
-
     // -- Phase 8.3.1 — Bitcoin Lens advanced preferences ----------------
 
     @Test

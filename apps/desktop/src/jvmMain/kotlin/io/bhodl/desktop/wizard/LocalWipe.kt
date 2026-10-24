@@ -14,9 +14,9 @@ import io.bhodl.shared.resources.onb_wipe_nothing
  *
  * Order matters on Windows, where an open SQLCipher connection makes
  * its file undeletable:
- *  1. release EVERY in-memory handle first — signing port, watch
- *     handle, registry handle (its clear() also wipes the device-PIN
- *     session and cancels the backfill) — plus any parked wizard seed;
+ *  1. release EVERY in-memory handle first — the open wallet port and
+ *     the registry handle (its clear() also wipes the device-PIN
+ *     session and cancels the backfill);
  *  2. [WalletPathsView.resetChecked] deletes databases BEFORE their KDF
  *     descriptors and aborts if a database survives;
  *  3. the PIN-failure history file is removed and the in-memory
@@ -34,10 +34,8 @@ public object LocalWipe {
 
     public fun wipeAll(dataDir: File): WalletPathsView.ResetResult {
         WalletStore.clear()
-        WatchStore.clear()
         RegistryStore.clear()
         DevicePinSession.clear()
-        SetupSecrets.wipeAll()
 
         val result = WalletPaths.from(dataDir).resetChecked()
         if (!result.aborted) {

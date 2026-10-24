@@ -1,7 +1,9 @@
 package io.bhodl.desktop.integration
 
 import io.bhodl.ffi.Network
-import io.bhodl.ffi.WalletHandle
+import io.bhodl.ffi.RegistryHandle
+import io.bhodl.ffi.WatchBipFfi
+import io.bhodl.ffi.WatchHandle
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Tag
@@ -21,10 +23,10 @@ import org.testcontainers.containers.Network as TcNetwork
  * without companion-object boilerplate.
  *
  * Subclasses use [`fundWallet`] to push satoshis to a wallet address
- * and have the resulting UTXO confirmed in one call. They build their
- * own [`WalletHandle`] (each test class gets its own mnemonic so
- * containers stay isolated and we never interleave wallet state
- * across tests).
+ * and have the resulting UTXO confirmed in one call. They open their
+ * own watch-only [`WatchHandle`] through a [`RegistryHandle`] rooted in
+ * a temp dir ([`openRegtestWatch`]): BHODL never holds keys, so the
+ * wallet is registered from the BIP-86 test account tpub.
  */
 @Tag("integration")
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
@@ -58,7 +60,7 @@ abstract class RegtestFixture {
         if (::network.isInitialized) network.close()
     }
 
-    /** Esplora REST endpoint for `wallet.syncWithEsplora` / `broadcastTx`. */
+    /** Esplora REST endpoint for `wallet.syncWithEsplora`. */
     protected fun esploraUrl(): String = electrs.esploraApiUrl()
 
     /**
@@ -88,10 +90,10 @@ abstract class RegtestFixture {
      * instead of guessing a delay.
      */
     protected fun syncUntil(
-        wallet: WalletHandle,
+        wallet: WatchHandle,
         timeoutMs: Long = 30_000L,
         intervalMs: Long = 500L,
-        predicate: (WalletHandle) -> Boolean,
+        predicate: (WatchHandle) -> Boolean,
     ) {
         val deadline = System.currentTimeMillis() + timeoutMs
         var lastSyncFailure: Throwable? = null
@@ -118,19 +120,26 @@ abstract class RegtestFixture {
         )
     }
 
-    protected fun newRegtestWallet(mnemonic: String): WalletHandle =
-        WalletHandle.fromMnemonic(
-            network = Network.REGTEST,
-            mnemonic = mnemonic,
-            passphrase = "",
-        )
+    /**
+     * Register the BIP-86 test account as a regtest watch-only xpub
+     * wallet in [registry] and open it.
+     */
+    protected fun openRegtestWatch(registry: RegistryHandle, label: String = "regtest"): WatchHandle {
+        val record = registry.addWatchXpub(label, BIP86_TEST_TPUB, Network.REGTEST, WatchBipFfi.TAPROOT)
+        return registry.openWatch(record.id)
+    }
 
     protected companion object {
-        // Standard BIP86 test mnemonic. Different subclasses use the
-        // same one because the bitcoind container is per-class so
-        // their on-chain histories never collide.
-        const val BIP86_TEST_MNEMONIC: String =
-            "abandon abandon abandon abandon abandon abandon " +
-                "abandon abandon abandon abandon abandon about"
+        /**
+         * Account tpub at `m/86'/1'/0'` of the BIP-86 test mnemonic
+         * ("abandon … about"). Different subclasses use the same one
+         * because the bitcoind container is per-class so their on-chain
+         * histories never collide.
+         */
+        const val BIP86_TEST_TPUB: String =
+            "tpubDDfvzhdVV4unsoKt5aE6dcsNsfeWbTgmLZPi8LQDYU2xixrYemMfWJ3BaVneH3u7DBQePdTwhpybaKRU95pi6PMUtLPBJLVQRpzEnjfjZzX"
+
+        /** Device PIN of the temp registries. */
+        const val TEST_DEVICE_PIN: String = "482916"
     }
 }

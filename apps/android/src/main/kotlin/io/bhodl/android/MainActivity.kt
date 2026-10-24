@@ -15,6 +15,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import io.bhodl.shared.resources.Res
+import io.bhodl.shared.resources.android_placeholder_body
 import io.bhodl.shared.resources.app_name
 import org.jetbrains.compose.resources.stringResource
 
@@ -53,7 +54,7 @@ private fun PlaceholderScreen() {
             style = MaterialTheme.typography.headlineMedium,
         )
         Text(
-            text = "Phase-1 alpha runs on the desktop app. The Android UI lands in a follow-up commit.",
+            text = stringResource(Res.string.android_placeholder_body),
             style = MaterialTheme.typography.bodyMedium,
         )
     }

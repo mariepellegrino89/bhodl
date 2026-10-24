@@ -117,6 +117,10 @@ public object BackfillRunner {
                 // [cancel] (Idle) and propagate so the coroutine unwinds.
                 throw c
             } catch (t: Throwable) {
+                // Same guard as Done: a failure caused by the registry
+                // being closed under us belongs to the session the user
+                // already left, so the state stays as [cancel] set it.
+                if (!isActive) return@launch
                 _state.value = State.Failed(t.message ?: t.javaClass.simpleName)
             }
         }

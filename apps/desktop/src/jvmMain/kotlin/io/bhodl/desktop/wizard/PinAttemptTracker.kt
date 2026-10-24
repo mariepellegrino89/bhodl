@@ -69,6 +69,9 @@ public object PinScopes {
     /** Device PIN (registry unlock, re-auth prompts). */
     public const val DEVICE: String = "device-pin"
 
+    /** Recovery code typed on the "forgot PIN" screen. */
+    public const val RECOVERY: String = "recovery-code"
+
     /** Legacy (pre-3.0) wallet PIN typed on the migration screen. */
     public const val MIGRATION_LEGACY: String = "migration-legacy-pin"
 

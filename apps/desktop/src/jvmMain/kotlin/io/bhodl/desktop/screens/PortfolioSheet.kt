@@ -19,7 +19,7 @@ import io.bhodl.ffi.TrackingManualAssetFfi
  *
  * Change over the period, per row:
  *  - wallets: exact — current balance minus the signed on-chain flows
- *    inside the window (a txid seen by a signing wallet and its mirror
+ *    inside the window (a txid seen by two rows of the same wallet group
  *    counts once);
  *  - investments / manual assets: the value at the period start uses the
  *    SAME approximation as the net-worth history (`net_worth_history.rs`):
@@ -183,7 +183,7 @@ internal fun buildPortfolioSheet(
  * Signed on-chain flow of a wallet group after [sinceUnix] (= current
  * balance − balance at the start). Unconfirmed events count as inside
  * the window (they are happening now). A txid reported by more than one
- * member (signing wallet + its mirror) counts once.
+ * member of the group counts once.
  */
 internal fun walletFlowSince(memberIds: Set<String>, events: List<PaymentEvent>, sinceUnix: Long): Long =
     events.asSequence()

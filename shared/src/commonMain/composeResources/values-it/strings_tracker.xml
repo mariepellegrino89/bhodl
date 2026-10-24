@@ -79,12 +79,9 @@
     <string name="trk_wallets_total_nw">Patrimonio netto totale</string>
     <string name="trk_wallets_across_one">Su 1 wallet</string>
     <string name="trk_wallets_across_many">Su %1$d wallet</string>
-    <string name="trk_wallet_kind_signing_tracked">Firma (tracciato)</string>
-    <string name="trk_wallet_kind_signing">Firma</string>
     <string name="trk_wallet_kind_watch_xpub">Sola lettura (xpub)</string>
     <string name="trk_wallet_kind_watch_addresses">Sola lettura (indirizzi)</string>
     <string name="trk_wallet_kind_watch_hd">Sola lettura (HD)</string>
-    <string name="trk_wallet_not_active_hint">Non attivo — per tracciare questo wallet quando non è sbloccato, aggiungine una copia in sola lettura (con la sua xpub).</string>
     <string name="trk_wallet_included">Incluso</string>
     <string name="trk_wallet_excluded">Escluso</string>
     <string name="trk_chart_balance">Saldo · %1$s</string>
@@ -118,7 +115,7 @@
     <string name="trk_kpi_balance">Saldo</string>
     <string name="trk_hist_wallets">Wallet</string>
     <string name="trk_hist_history">Cronologia</string>
-    <string name="trk_hist_empty">Ancora nessuna transazione nei wallet. Sincronizza un wallet in sola lettura dalla sua dashboard, oppure invia / ricevi dal wallet di firma attivo, per popolare la cronologia.</string>
+    <string name="trk_hist_empty">Ancora nessuna transazione nei wallet. Aggiorna i saldi o apri un wallet e sincronizzalo per popolare la cronologia.</string>
     <string name="trk_hist_no_match">Nessuna transazione corrisponde al filtro attivo.</string>
     <string name="trk_hist_unknown_wallet">(wallet sconosciuto)</string>
     <string name="trk_hist_showing_50">Mostrate 50 di %1$d. Usa Esporta CSV per l’elenco completo.</string>
@@ -183,4 +180,8 @@
     <string name="trk_csv_overwrite_body">“%1$s” esiste già. Sovrascriverlo?</string>
     <string name="trk_csv_save_failed">Salvataggio non riuscito: %1$s</string>
     <string name="trk_chart_activity_scatter">Distribuzione attività (età × importo)</string>
+    <string name="trk_cache_err_registry_closed">Registro non aperto.</string>
+    <string name="trk_cache_err_sync">Sincronizzazione non riuscita per %1$d wallet: mostro i dati in cache. %2$s</string>
+    <string name="trk_cache_err_sync_unknown">sincronizzazione non riuscita</string>
+    <string name="trk_cache_err_refresh">Aggiornamento del tracker non riuscito.</string>
 </resources>

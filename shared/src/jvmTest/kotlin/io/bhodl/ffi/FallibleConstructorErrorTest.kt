@@ -5,27 +5,22 @@ import kotlin.test.Test
 import kotlin.test.assertFailsWith
 
 /**
- * Regression: a fallible constructor that returns an object must surface the
- * typed [WalletException], not a NullPointerException from the generated
- * bindings (see the `fallibleCallNpe` rewrite in shared/build.gradle.kts).
- * The desktop PIN lockout only counts `WalletException.Storage` as a wrong
- * PIN, so an NPE here silently disabled the lockout.
+ * Regression: a fallible constructor / method that returns an object must
+ * surface the typed [WalletException], not a NullPointerException from the
+ * generated bindings (see the `fallibleCallNpe` rewrite in
+ * shared/build.gradle.kts). The desktop PIN lockout only counts
+ * `WalletException.Storage` as a wrong PIN, so an NPE here silently
+ * disabled the lockout.
  */
 class FallibleConstructorErrorTest {
     @Test
-    fun `wrong pin on unlockPersistent throws WalletException Storage`() {
+    fun `wrong device pin on createOrLoad throws WalletException Storage`() {
         val dir = Files.createTempDirectory("bhodl-wrong-pin").toFile()
         try {
-            WalletHandle.createOrLoadPersistent(
-                dbDir = dir.absolutePath,
-                network = Network.REGTEST,
-                mnemonic = MNEMONIC,
-                passphrase = "",
-                pin = "1234567",
-            ).close()
+            RegistryHandle.createOrLoad(dir.absolutePath, "1234567").destroy()
 
             assertFailsWith<WalletException.Storage> {
-                WalletHandle.unlockPersistent(dir.absolutePath, Network.REGTEST, "9999999")
+                RegistryHandle.createOrLoad(dir.absolutePath, "9999999").destroy()
             }
         } finally {
             dir.deleteRecursively()
@@ -33,19 +28,19 @@ class FallibleConstructorErrorTest {
     }
 
     @Test
-    fun `missing data dir on unlockPersistent throws WalletException`() {
-        val dir = Files.createTempDirectory("bhodl-empty").toFile()
+    fun `openWatch of an unknown wallet id throws WalletException`() {
+        val dir = Files.createTempDirectory("bhodl-unknown-watch").toFile()
+        val registry = RegistryHandle.createOrLoad(dir.absolutePath, "1234567")
         try {
             assertFailsWith<WalletException> {
-                WalletHandle.unlockPersistent(dir.absolutePath, Network.REGTEST, "1234567")
+                registry.openWatch("00000000-0000-4000-8000-000000000000").destroy()
+            }
+            assertFailsWith<WalletException> {
+                registry.openWatch("not-a-uuid").destroy()
             }
         } finally {
+            runCatching { registry.destroy() }
             dir.deleteRecursively()
         }
-    }
-
-    private companion object {
-        const val MNEMONIC =
-            "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
     }
 }

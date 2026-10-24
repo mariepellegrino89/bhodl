@@ -152,7 +152,8 @@ public object SettingsStore {
     /**
      * Returns a human-readable warning when [url] uses the http scheme
      * and the host is NOT a loopback address. Returns null when the URL
-     * is safe (https, or http to localhost / 127.0.0.1 / ::1 / [::1]).
+     * is safe (https, http to a `.onion` host, or http to localhost /
+     * 127.0.0.1 / ::1 / [::1]).
      *
      * Pure function with no side-effects; the UI layer can call it to
      * surface an inline banner without blocking the user from saving --
@@ -170,7 +171,9 @@ public object SettingsStore {
         if (uri.scheme?.lowercase() != "http") return null
         // Strip IPv6 brackets so "[::1]" normalises to "::1" before the set lookup.
         val host = uri.host?.lowercase()?.trimStart('[')?.trimEnd(']') ?: return null
-        if (host in LOCAL_ESPLORA_HOSTS) return null
+        // Same exemptions as the Settings banner (isPlaintextRemoteHttp):
+        // a `.onion` host is end-to-end encrypted by Tor.
+        if (host in LOCAL_ESPLORA_HOSTS || host.endsWith(".onion")) return null
         return "Using http:// with a remote host sends wallet data in cleartext. " +
             "Use https:// for remote Esplora endpoints."
     }
@@ -390,63 +393,26 @@ public object SettingsStore {
         if (_privacyAutoHide.value) _balancesHidden.value = true
     }
 
-    // UX review 2026-10 (item 14) — Security Hub timestamps. Only
-    // non-sensitive facts are kept: WHEN something happened, keyed by
-    // wallet UUID (already present in this file via excludedWalletIds),
-    // never what was exported or any secret material. Unix seconds.
-    private val _backupVerifiedAt = mutableStateOf<Map<String, Long>>(emptyMap())
-    /** Recovery phrase verified (wizard challenge, restore, or Security Hub check). */
-    public val backupVerifiedAt: State<Map<String, Long>> get() = _backupVerifiedAt
-
-    private val _backupExportedAt = mutableStateOf<Map<String, Long>>(emptyMap())
-    /** Last encrypted (age) backup export. */
-    public val backupExportedAt: State<Map<String, Long>> get() = _backupExportedAt
-
+    // UX review 2026-10 (item 14) — Security Hub: when the BIP-329 labels
+    // of a wallet were last exported, keyed by wallet UUID. Only the date
+    // is kept, never what was exported. Unix seconds.
     private val _labelsExportedAt = mutableStateOf<Map<String, Long>>(emptyMap())
     /** Last BIP-329 labels export. */
     public val labelsExportedAt: State<Map<String, Long>> get() = _labelsExportedAt
-
-    public fun markBackupVerified(walletId: String, unix: Long = System.currentTimeMillis() / 1000L) {
-        _backupVerifiedAt.value = _backupVerifiedAt.value + (walletId to unix)
-        persistIfEnabled()
-    }
-
-    public fun markBackupExported(walletId: String, unix: Long = System.currentTimeMillis() / 1000L) {
-        _backupExportedAt.value = _backupExportedAt.value + (walletId to unix)
-        persistIfEnabled()
-    }
 
     public fun markLabelsExported(walletId: String, unix: Long = System.currentTimeMillis() / 1000L) {
         _labelsExportedAt.value = _labelsExportedAt.value + (walletId to unix)
         persistIfEnabled()
     }
 
-    // Spaced security reminders: dismissing snoozes them for a growing
-    // interval (see SecurityReminderPolicy) instead of nagging daily.
-    // Keyed per wallet UUID (security review): snoozing one wallet's
-    // reminder must not silence another wallet's.
-    private val _securityReminderSnoozedUntil = mutableStateOf<Map<String, Long>>(emptyMap())
-    public val securityReminderSnoozedUntil: State<Map<String, Long>> get() = _securityReminderSnoozedUntil
-    private val _securityReminderDismissCount = mutableStateOf<Map<String, Int>>(emptyMap())
-    public val securityReminderDismissCount: State<Map<String, Int>> get() = _securityReminderDismissCount
-
-    public fun snoozeSecurityReminder(walletId: String, untilUnix: Long) {
-        _securityReminderSnoozedUntil.value = _securityReminderSnoozedUntil.value + (walletId to untilUnix)
-        val count = (_securityReminderDismissCount.value[walletId] ?: 0) + 1
-        _securityReminderDismissCount.value = _securityReminderDismissCount.value + (walletId to count)
-        persistIfEnabled()
-    }
-
     /**
-     * Security review — forget every Security Hub date and snooze, e.g.
-     * after a local wipe (the wallets they describe are gone).
+     * Security review — forget every Security Hub date, e.g. after a
+     * local wipe (the wallets they describe are gone). The excluded
+     * wallet UUIDs go too (GAP-023): they would only be orphans.
      */
     public fun clearSecurityState() {
-        _backupVerifiedAt.value = emptyMap()
-        _backupExportedAt.value = emptyMap()
         _labelsExportedAt.value = emptyMap()
-        _securityReminderSnoozedUntil.value = emptyMap()
-        _securityReminderDismissCount.value = emptyMap()
+        _excludedWalletIds.value = emptySet()
         persistIfEnabled()
     }
 
@@ -465,42 +431,8 @@ public object SettingsStore {
     }
 
     /** Rehydrate the Security Hub fields without a write-through. */
-    internal fun replaceSecurityTimestamps(
-        backupVerifiedAt: Map<String, Long>,
-        backupExportedAt: Map<String, Long>,
-        labelsExportedAt: Map<String, Long>,
-        reminderSnoozedUntil: Map<String, Long>,
-        reminderDismissCount: Map<String, Int>,
-    ) {
-        _backupVerifiedAt.value = backupVerifiedAt
-        _backupExportedAt.value = backupExportedAt
+    internal fun replaceSecurityTimestamps(labelsExportedAt: Map<String, Long>) {
         _labelsExportedAt.value = labelsExportedAt
-        _securityReminderSnoozedUntil.value = reminderSnoozedUntil
-        _securityReminderDismissCount.value = reminderDismissCount
-    }
-
-    // Phase 6.0 — per-wallet "do not nag me again about Tracker pairing"
-    // memory. The Dashboard surfaces a one-shot banner on every first
-    // unlock of a signing wallet that is not yet paired as a watch-only
-    // entry. The user can either accept ("Add to Tracker") or skip;
-    // skipping persists the wallet's UUID here so the banner does not
-    // re-appear on the next unlock. Stored in settings.json (persisted
-    // alongside theme, fiat, etc.) so the choice survives app restarts.
-    private val _trackerPairingSkipped = mutableStateOf<Set<String>>(emptySet())
-    public val trackerPairingSkipped: State<Set<String>> get() = _trackerPairingSkipped
-
-    public fun markTrackerPairingSkipped(walletId: String) {
-        _trackerPairingSkipped.value = _trackerPairingSkipped.value + walletId
-        persistIfEnabled()
-    }
-
-    public fun clearTrackerPairingSkipped(walletId: String) {
-        _trackerPairingSkipped.value = _trackerPairingSkipped.value - walletId
-        persistIfEnabled()
-    }
-
-    internal fun replaceTrackerPairingSkipped(ids: Set<String>) {
-        _trackerPairingSkipped.value = ids
     }
 
     // Phase 7.6 — last Unix timestamp the user clicked "Dismiss" on
@@ -645,13 +577,8 @@ public object SettingsStore {
         _autoFetchInvestmentPrices.value = false
         _privacyAutoHide.value = false
         _balancesHidden.value = false
-        _backupVerifiedAt.value = emptyMap()
-        _backupExportedAt.value = emptyMap()
         _labelsExportedAt.value = emptyMap()
-        _securityReminderSnoozedUntil.value = emptyMap()
-        _securityReminderDismissCount.value = emptyMap()
         _onboardingUnitsSeen.value = false
-        _trackerPairingSkipped.value = emptySet()
         _lastMonthlyReviewDismissedUnix.value = 0L
         // Phase 8.3.1 — reset the Bitcoin-Lens preferences too.
         _unitFormat.value = DEFAULT_UNIT_FORMAT

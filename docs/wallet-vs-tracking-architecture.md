@@ -1,5 +1,10 @@
 # Wallet vs. Tracking — Information Architecture and Layering Plan
 
+> **Note (2026-10-23):** since 2026-10-23 BHODL is watch-only: it holds no private keys
+> and cannot send bitcoin. The parts of this document about seeds, signing, sending,
+> PayJoin, backups or signing↔tracker mirrors are historical; see `docs/handbook.md`
+> for the current design.
+
 > Supplement to `phase-3-architecture.md`. Authored 2026-05-14 after
 > multi-wallet foundation (3.0 / 3.1 / 3.2-partial) landed on
 > `phase-3`. This document answers: where does the Wallet/Tracking

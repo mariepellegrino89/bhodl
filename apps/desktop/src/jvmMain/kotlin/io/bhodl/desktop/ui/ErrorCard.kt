@@ -22,18 +22,10 @@ import androidx.compose.ui.unit.dp
 import io.bhodl.ui.theme.BhodlTheme
 import io.bhodl.shared.resources.Res
 import io.bhodl.shared.resources.common_retry
-import io.bhodl.shared.resources.wview_err_bc_conflict
-import io.bhodl.shared.resources.wview_err_bc_in_chain
-import io.bhodl.shared.resources.wview_err_bc_rejected
-import io.bhodl.shared.resources.wview_err_bc_spent_cpfp
-import io.bhodl.shared.resources.wview_err_bc_spent_rbf
-import io.bhodl.shared.resources.wview_err_bc_spent_send
 import io.bhodl.shared.resources.wview_err_net_refused
 import io.bhodl.shared.resources.wview_err_net_timeout
 import io.bhodl.shared.resources.wview_err_net_tls
 import io.bhodl.shared.resources.wview_err_net_unreachable
-import io.bhodl.shared.resources.wview_err_payjoin_rejected
-import io.bhodl.shared.resources.wview_err_payjoin_transport
 import io.bhodl.shared.resources.wview_err_unknown
 import io.bhodl.shared.resources.wview_hide_details
 import io.bhodl.shared.resources.wview_show_details
@@ -177,104 +169,3 @@ public fun prettifyNetworkError(raw: String?): String {
  * after the first call this is a map lookup.
  */
 private fun uiText(resource: StringResource): String = runBlocking { getString(resource) }
-
-/**
- * Caller context passed into [`prettifyBroadcastError`] so the -25
- * (`bad-txns-inputs-missingorspent`) message can read naturally for
- * the specific flow the user is in. The same RPC error means
- * different things depending on intent:
- *
- * - [`Rbf`] — "the parent confirmed, fee bump pointless" (user
- *   wanted to *replace* a pending tx).
- * - [`Cpfp`] — "the parent confirmed, speed-up no longer needed"
- *   (user wanted to *push along* a pending tx by spending its
- *   outputs).
- * - [`Send`] — "your selected coins were spent elsewhere; try
- *   re-syncing" (user wanted to spend a UTXO that was consumed
- *   between Build and Broadcast).
- */
-public enum class BroadcastContext {
-    Rbf,
-    Cpfp,
-    Send,
-}
-
-/**
- * Map a raw `sendrawtransaction` RPC error (or any other broadcast
- * failure surfaced as [`io.bhodl.ffi.WalletException.Broadcast`])
- * into a user-readable hint.
- *
- * Catches the cases the wallet has actually observed in the field
- * (Bitcoin Core error codes -25 and -26 are by far the most common
- * after a state race against a mid-flow confirmation). Anything we
- * do not recognise returns `null` so the caller can fall back to the
- * raw text — the raw text always belongs in the [`ErrorCard.details`]
- * slot regardless of whether we prettify the message.
- *
- * `context` switches the -25 copy between RBF / CPFP / Send (see
- * [`BroadcastContext`]). Defaults to [`BroadcastContext.Rbf`] for
- * source compatibility with the original single-arg call sites.
- */
-public fun prettifyBroadcastError(
-    raw: String?,
-    context: BroadcastContext = BroadcastContext.Rbf,
-): String? {
-    if (raw.isNullOrBlank()) return null
-    val lowered = raw.lowercase()
-    val hint = when {
-        // Bitcoin Core -25: the input the wallet is trying to spend
-        // is no longer in the UTXO set. The follow-up depends on
-        // what the user was trying to do — the same RPC error reads
-        // very differently for an RBF, CPFP, or Send race.
-        "code\\\":-25" in lowered ||
-            "code:-25" in lowered ||
-            "bad-txns-inputs-missingorspent" in lowered ->
-            when (context) {
-                BroadcastContext.Rbf -> Res.string.wview_err_bc_spent_rbf
-                BroadcastContext.Cpfp -> Res.string.wview_err_bc_spent_cpfp
-                BroadcastContext.Send -> Res.string.wview_err_bc_spent_send
-            }
-
-        // Bitcoin Core -26: a mempool tx already spends the same UTXO
-        // at >= the same feerate, so the relay refuses to swap it for
-        // our new one (BIP-125 rule 4). Either the user is sending
-        // again from the same UTXO without a higher fee, or a "ghost"
-        // tx the wallet did not surface is occupying the slot.
-        "code\\\":-26" in lowered ||
-            "code:-26" in lowered ||
-            "insufficient fee, rejecting replacement" in lowered ->
-            Res.string.wview_err_bc_conflict
-
-        // Bitcoin Core -27: tx already in chain. Friendlier than the
-        // raw "transaction already in block chain" string.
-        "code\\\":-27" in lowered ||
-            "code:-27" in lowered ||
-            "transaction already in block chain" in lowered ->
-            Res.string.wview_err_bc_in_chain
-
-        // Generic 4xx from the Esplora endpoint — wallet built and
-        // signed locally, the network just refused. Could be many
-        // reasons (low fee, non-standard, dust, …); surface a
-        // friendlier fallback that points the user at next steps.
-        "httpresponse { status: 4" in lowered ||
-            "sendrawtransaction rpc error" in lowered ->
-            Res.string.wview_err_bc_rejected
-
-        // PayJoin transport failures: ureq did not even get a response
-        // (DNS lookup failed, TCP refused, TLS handshake aborted, …).
-        // The wallet never signed or broadcast anything; the user is
-        // safe to retry once the network situation clears.
-        "payjoin transport" in lowered ->
-            Res.string.wview_err_payjoin_transport
-
-        // PayJoin receiver returned a non-2xx HTTP response. The body
-        // (often BIP-78 JSON `{"errorCode", "message"}`) is included
-        // in the raw text but a friendlier summary covers the common
-        // case where the user pasted a stale `pj=` URL.
-        "payjoin endpoint returned http" in lowered ->
-            Res.string.wview_err_payjoin_rejected
-
-        else -> null
-    }
-    return hint?.let { uiText(it) }
-}

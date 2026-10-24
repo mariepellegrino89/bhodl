@@ -1,5 +1,10 @@
 # Ricerca — logiche funzionali di un'app di finance tracking
 
+> **Nota (2026-10-23):** dal 2026-10-23 BHODL è watch-only: non tiene chiavi private e
+> non può inviare bitcoin. Le parti di questo documento su seed, firma, invio, PayJoin,
+> backup o mirror signing↔tracker sono storiche; il design attuale è in
+> `docs/handbook.md`.
+
 > Documento di ricerca, 2026-05-20. Sintesi dello stato dell'arte
 > applicato a BHODL. Le sezioni "→ BHODL" sono ipotesi/proposte,
 > non decisioni: le decisioni si formalizzano in `PLAN.md`.

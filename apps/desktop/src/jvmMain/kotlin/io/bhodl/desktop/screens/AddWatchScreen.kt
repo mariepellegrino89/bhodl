@@ -40,7 +40,6 @@ import io.bhodl.desktop.wizard.WalletPaths
 import io.bhodl.desktop.wizard.localizedText
 import io.bhodl.ffi.Network
 import io.bhodl.desktop.ui.userMessage
-import io.bhodl.ffi.WalletException
 import io.bhodl.ffi.WatchBipFfi
 import io.bhodl.ui.theme.BhodlTheme
 import kotlinx.coroutines.Dispatchers
@@ -64,7 +63,6 @@ import io.bhodl.shared.resources.onb_script_native_segwit
 import io.bhodl.shared.resources.onb_script_nested_segwit
 import io.bhodl.shared.resources.onb_script_type
 import io.bhodl.shared.resources.onb_wallet_name_taken
-import io.bhodl.shared.resources.onb_xpub_dup_signing
 import io.bhodl.shared.resources.onb_xpub_dup_watch
 import org.jetbrains.compose.resources.stringResource
 
@@ -132,7 +130,9 @@ public fun AddWatchScreen(
             // watch row would duplicate every UTXO under a different
             // label; the dedup at balance time would still produce
             // correct totals but the picker would be confusing.
-            val xpubTrimmed = xpub.trim()
+            // Compare in the core's canonical form: a vpub/zpub of an
+            // account already saved (stored as tpub/xpub) is the same key.
+            val xpubTrimmed = io.bhodl.desktop.wallet.AccountKey.normalize(xpub)
             val duplicateXpub = runCatching {
                 withContext(Dispatchers.IO) {
                     val match = registry.listWallets().firstOrNull { row ->
@@ -149,14 +149,7 @@ public fun AddWatchScreen(
             }.getOrNull()
             if (duplicateXpub != null) {
                 working = false
-                lastError = localizedText(
-                    if (duplicateXpub.kind == io.bhodl.ffi.WalletKindFfi.SIGNING) {
-                        Res.string.onb_xpub_dup_signing
-                    } else {
-                        Res.string.onb_xpub_dup_watch
-                    },
-                    duplicateXpub.label,
-                )
+                lastError = localizedText(Res.string.onb_xpub_dup_watch, duplicateXpub.label)
                 return@launch
             }
             // Phase 1: add the registry row + create the watch-state

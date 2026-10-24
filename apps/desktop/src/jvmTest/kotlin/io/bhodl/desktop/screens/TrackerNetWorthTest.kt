@@ -1,13 +1,10 @@
 package io.bhodl.desktop.screens
 
-import io.bhodl.ffi.Network
 import io.bhodl.ffi.TrackingLiabilityFfi
-import io.bhodl.ffi.WalletHandle
 import io.bhodl.ffi.WalletKindFfi
 import io.bhodl.ffi.WalletRecordFfi
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertTrue
 
 /**
  * UX review 2026-10 — B1 (hero net worth ignored liabilities) and B8
@@ -96,51 +93,57 @@ class TrackerNetWorthTest {
         assertEquals(0UL, underwater.goalBaseSat)
     }
 
-    private fun externalDescriptor(mnemonic: String): String {
-        val w = WalletHandle.fromMnemonic(Network.SIGNET, mnemonic, "")
-        try {
-            return w.exportPublicDescriptor().externalDescriptor
-        } finally {
-            runCatching { w.destroy() }
-        }
-    }
+    /** Account xpubs are matched as strings (`extractAccountXpub`); no key material needed. */
+    private fun externalDescriptor(xpub: String): String = "tr([deadbeef/86h/1h/0h]$xpub/0/*)#aabbccdd"
 
     private fun record(id: String, kind: WalletKindFfi, descriptor: String) = WalletRecordFfi(
         id = id, label = id, kind = kind, descriptorPub = descriptor,
-        network = "signet", createdAtUnix = 0, pinsWarned = false,
+        network = "signet", createdAtUnix = 0,
     )
 
     @Test
-    fun `B8 a signing wallet and its watch mirror count as ONE tracked wallet`() {
-        val a = externalDescriptor("legal winner thank year wave sausage worth useful legal winner thank yellow")
-        val b = externalDescriptor("letter advice cage absurd amount doctor acoustic avoid letter advice cage above")
-        val c = externalDescriptor("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about")
-        // Typical shape: 4 registry rows, 3 wallets.
+    fun `B8 two registry rows on the same account xpub count as ONE tracked wallet`() {
+        val a = externalDescriptor("tpubAAAA")
+        val b = externalDescriptor("tpubBBBB")
+        val c = externalDescriptor("tpubCCCC")
+        // 4 registry rows (the xpub registered twice: as xpub and as HD
+        // descriptor), 3 wallets.
         val wallets = listOf(
-            record("signing", WalletKindFfi.SIGNING, a),
-            record("mirror", WalletKindFfi.WATCH_XPUB, a),
+            record("first", WalletKindFfi.WATCH_XPUB, a),
+            record("again", WalletKindFfi.WATCH_HD, "wpkh(tpubAAAA/0/*)"),
             record("cold", WalletKindFfi.WATCH_XPUB, b),
             record("savings", WalletKindFfi.WATCH_XPUB, c),
         )
-        val balances = mapOf("mirror" to 3_000_000UL, "cold" to 50_000_000UL, "savings" to 2_000_000UL)
+        val balances = mapOf("first" to 3_000_000UL, "cold" to 50_000_000UL, "savings" to 2_000_000UL)
 
         val groups = trackedWalletGroups(wallets, balances)
 
         assertEquals(3, groups.size, "Portfolio used wallets.size (= 4)")
         assertEquals(55_000_000UL, trackedWalletSat(groups))
-        assertTrue(groups.single { it.displayLabel == "signing" }.isSigning)
+        assertEquals(setOf("first", "again"), groups.single { it.displayLabel == "first" }.memberIds)
+    }
+
+    @Test
+    fun `B8 address-list wallets never merge, even with equal descriptors`() {
+        val wallets = listOf(
+            record("addr1", WalletKindFfi.WATCH_ADDRESSES, "addr(tb1qsame)"),
+            record("addr2", WalletKindFfi.WATCH_ADDRESSES, "addr(tb1qsame)"),
+        )
+        val groups = trackedWalletGroups(wallets, mapOf("addr1" to 1UL, "addr2" to 2UL))
+        assertEquals(2, groups.size)
+        assertEquals(3UL, trackedWalletSat(groups))
     }
 
     @Test
     fun `B8 excluded wallets drop out of the tracked count and total`() {
-        val a = externalDescriptor("legal winner thank year wave sausage worth useful legal winner thank yellow")
-        val b = externalDescriptor("letter advice cage absurd amount doctor acoustic avoid letter advice cage above")
+        val a = externalDescriptor("tpubAAAA")
+        val b = externalDescriptor("tpubBBBB")
         val wallets = listOf(
-            record("signing", WalletKindFfi.SIGNING, a),
-            record("mirror", WalletKindFfi.WATCH_XPUB, a),
+            record("first", WalletKindFfi.WATCH_XPUB, a),
+            record("again", WalletKindFfi.WATCH_HD, a),
             record("cold", WalletKindFfi.WATCH_XPUB, b),
         )
-        val balances = mapOf("mirror" to 10UL, "cold" to 20UL)
+        val balances = mapOf("first" to 10UL, "cold" to 20UL)
         val groups = trackedWalletGroups(wallets, balances, excludedWalletIds = setOf("cold"))
         assertEquals(1, groups.size)
         assertEquals(10UL, trackedWalletSat(groups))

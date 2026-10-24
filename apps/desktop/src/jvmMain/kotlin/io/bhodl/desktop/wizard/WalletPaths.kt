@@ -7,11 +7,16 @@ import java.nio.file.attribute.PosixFilePermissions
 /**
  * Where the desktop app stores its on-disk wallet data.
  *
- * Keeps the wallet outside the project tree, in the user's home
- * directory under `~/.bhodl/`. Two artifacts live there:
- * - `wallet.salt` — the 16-byte Argon2id salt (created on first setup,
- *   reused on every unlock).
- * - `wallet.sqlite` — the SQLCipher-encrypted wallet database.
+ * Keeps the data outside the project tree, in the user's home
+ * directory under `~/.bhodl/`:
+ * - `registry.sqlite` + `registry.kdf.json` — the device-PIN registry
+ *   (wallet list + tracker tables) and its Argon2id descriptor;
+ * - `watch-state/<uuid>.sqlite` — each watch wallet's chain state,
+ *   labels and address book, encrypted with the same device key.
+ *
+ * The `wallet.*` / `wallets/` names below belong to builds that could
+ * hold seeds; they are only ever detected and deleted
+ * ([WalletPathsView.purgeLegacySigningData]).
  *
  * Helper exists in pure Kotlin (no Compose) so the boot guard logic
  * inside `App()` and the unit tests can both reach it without touching
@@ -23,7 +28,7 @@ public object WalletPaths {
     /** Default sub-directory under `~/`. Tests override via [`from`]. */
     public const val DEFAULT_DIR_NAME: String = ".bhodl"
 
-    /** Salt file name used by [`io.bhodl.ffi.WalletHandle.createOrLoadPersistent`]. */
+    /** Legacy (pre-watch-only) signing-wallet salt file. */
     public const val SALT_FILE_NAME: String = "wallet.salt"
     public const val KDF_FILE_NAME: String = "wallet.kdf.json"
 
@@ -44,19 +49,17 @@ public object WalletPaths {
     /** Prefix of an orphan DB renamed aside by Rust (`orphan_sqlite_path`, L5). */
     public const val ORPHAN_DB_PREFIX: String = "wallet.sqlite.orphan-"
 
-    /**
-     * Per-wallet network choice persisted by
-     * [`io.bhodl.desktop.wallet.NetworkPersistence`]. One line of
-     * lower-case enum text (e.g. `signet`).
-     */
+    /** Legacy signing-wallet network choice (one line, e.g. `signet`). */
     public const val NETWORK_FILE_NAME: String = "wallet.network"
 
     // Phase 3 — multi-wallet layout. The legacy single-wallet files
-    // (above) are migrated into a per-wallet directory at
+    // (above) were migrated into a per-wallet directory at
     // `<dataDir>/wallets/<uuid>/`. The registry catalogues them.
 
     public const val REGISTRY_FILE_NAME: String = "registry.sqlite"
     public const val REGISTRY_KDF_FILE_NAME: String = "registry.kdf.json"
+    /** PIN recovery: the data key wrapped by the recovery code (Rust `kdf.rs`). */
+    public const val RECOVERY_FILE_NAME: String = "registry.recovery.json"
     public const val WALLETS_SUBDIR: String = "wallets"
     public const val WATCH_STATE_SUBDIR: String = "watch-state"
     public const val MIGRATION_LOCK_NAME: String = "migration.lock"
@@ -110,133 +113,75 @@ public data class WalletPathsView(val dir: File) {
     public val migrationBackupDir: File get() = File(dir, WalletPaths.MIGRATION_BACKUP_SUBDIR)
 
     /**
-     * Security audit 2026-10 (M2 follow-up) — `true` when the data-dir
-     * root holds a pre-3.0 single-wallet install. Besides the modern
-     * `wallet.kdf.json`, a pre-descriptor install has only the raw
-     * `wallet.salt` (or a `wallet.kdf.json.next` left by an interrupted
-     * KDF migration) next to `wallet.sqlite`. Those must reach
-     * `unlock_persistent` / the Phase 3.0 migration, where Rust upgrades
-     * them, instead of being routed to a directory without a wallet.
-     */
-    public fun legacyRootWalletExists(): Boolean =
-        kdfFile.isFile ||
-            (
-                legacyDbFile.isFile &&
-                    (saltFile.isFile || File(dir, WalletPaths.KDF_PENDING_FILE_NAME).isFile)
-                )
-
-    /**
-     * `true` when [sub] (a `wallets/<uuid>/` dir) is a signing wallet the
-     * Rust unlock path can open:
-     *  - it carries KDF state of its own (`wallet.kdf.json`, legacy
-     *    `wallet.salt`, or a pending `wallet.kdf.json.next`); or
-     *  - it was broken by the pre-fix Phase 3.0 migration of a
-     *    `wallet.salt`-only install: `wallet.sqlite` was moved in but the
-     *    salt stayed at the data-dir root (and the root has no legacy DB
-     *    of its own). `unlock_persistent` repairs this
-     *    (`repair_migrated_legacy_salt`), so it must be routable.
-     */
-    private fun isUnlockableWalletDir(sub: File): Boolean {
-        if (!sub.isDirectory) return false
-        val hasKdfState = listOf(
-            WalletPaths.KDF_FILE_NAME,
-            WalletPaths.SALT_FILE_NAME,
-            WalletPaths.KDF_PENDING_FILE_NAME,
-        ).any { File(sub, it).isFile }
-        if (hasKdfState) return true
-        return File(sub, WalletPaths.WALLET_DB_FILE_NAME).isFile &&
-            saltFile.isFile &&
-            !legacyDbFile.exists()
-    }
-
-    /**
-     * `true` when an existing wallet is detected at [`dir`].
-     *
-     * Recognises three install states:
-     *  1. **Legacy pre-3.0**: `wallet.salt` OR `wallet.kdf.json` at the
-     *     root of `dir`. Single-wallet installs from before the
-     *     multi-wallet refactor.
-     *  2. **Post-3.0**: `wallets/<uuid>/wallet.kdf.json` for at least
-     *     one UUID under `wallets/`. Multi-wallet layout.
-     *  3. **In-progress migration**: `migration.lock` is present. The
-     *     boot path treats this like an existing wallet so the
-     *     recovery branch in `run_migration_if_needed` can finish
-     *     the partial migration before the UI flow continues.
-     *
-     * Without recognising any of these, `WalletHandle.unlockPersistent`
-     * would be called against a missing DB and surface as the opaque
-     * Ubique-UniFFI NPE (foot-gun §7 in `handbook.md`).
-     */
-    public fun walletExists(): Boolean =
-        saltFile.isFile ||
-            kdfFile.isFile ||
-            migrationLockFile.isFile ||
-            anyMigratedWalletExists()
-
-    /**
-     * `true` iff at least one `wallets/<uuid>/` holds an unlockable
-     * signing wallet (see [isUnlockableWalletDir]). Equivalent to
-     * "Phase 3 multi-wallet layout has at least one signing wallet".
-     * Used by the boot guard.
-     */
-    public fun anyMigratedWalletExists(): Boolean {
-        val root = walletsRoot
-        if (!root.isDirectory) return false
-        return root.listFiles()?.any(::isUnlockableWalletDir) ?: false
-    }
-
-    /**
-     * Locate the active wallet directory.
-     *
-     * Resolution order:
-     *  1. Legacy single-wallet ([legacyRootWalletExists]: `wallet.kdf.json`,
-     *     or `wallet.sqlite` + `wallet.salt` / `.next` at root): returns [`dir`].
-     *     This is the pre-migration state — `unlockPersistent` will be
-     *     called with the data dir itself.
-     *  2. Phase 3 multi-wallet (`wallets/<uuid>/`, see [isUnlockableWalletDir]):
-     *     returns the first such subdirectory found. For 3.0 there's
-     *     exactly one (the migrated wallet); 3.1+ will introduce an
-     *     "active wallet" pointer in the registry.
-     *  3. None: returns `null`.
-     *
-     * Order matters: if both states are visible mid-migration (the
-     * Rust recovery path hasn't finished yet), the legacy file is the
-     * authoritative state until Phase B of the migration commits.
-     */
-    public fun activeWalletDir(): File? {
-        if (legacyRootWalletExists()) return dir
-        val root = walletsRoot
-        if (!root.isDirectory) return null
-        return root.listFiles()?.firstOrNull(::isUnlockableWalletDir)
-    }
-
-    /**
-     * `true` when a pre-3.0 single-wallet install is detected AND no
-     * registry yet exists. The Phase 3.0 migration modal triggers on
-     * this state at app boot.
-     *
-     * Note: if `migration.lock` is present, recovery from a previous
-     * interrupted run takes precedence — call `runMigrationIfNeeded`
-     * directly without prompting the user.
-     */
-    public fun migrationNeeded(): Boolean =
-        legacyRootWalletExists() && !registryFile.isFile && !migrationLockFile.isFile
-
-    /**
-     * `true` when a Phase 3 registry already exists on disk. Used by
-     * the boot guard to decide whether the device-PIN gate
-     * (`DevicePinUnlockScreen`) should run before falling through to
-     * the per-wallet unlock. False on pre-3.0 installs and on fresh
-     * installs where the registry has not been created yet.
+     * `true` when a Phase 3 registry exists on disk: the boot guard
+     * routes to the device-PIN gate. False on a fresh install.
      */
     public fun registryExists(): Boolean = registryFile.isFile
 
     /**
-     * `true` when a previous migration was interrupted and left a
-     * sentinel. Boot path should call `runMigrationIfNeeded` to
-     * complete recovery before any UI prompts.
+     * `true` when key material left by a build that could hold seeds is
+     * still on disk: a pre-3.0 single-wallet install at the root
+     * (`wallet.sqlite`, `wallet.salt`, `wallet.kdf.json`, …), its
+     * migration backup / sentinel, or any `wallets/<uuid>/` signing
+     * wallet directory. BHODL is watch-only now: the boot guard sends the
+     * user to the legacy-cleanup screen, which deletes it on confirmation.
      */
-    public fun migrationRecoveryPending(): Boolean = migrationLockFile.isFile
+    public fun legacySigningDataExists(): Boolean =
+        legacyRootArtifacts().any { it.exists() } ||
+            (walletsRoot.listFiles()?.isNotEmpty() ?: false)
+
+    /**
+     * Delete every legacy signing artefact found by
+     * [legacySigningDataExists]. Databases first, KDF descriptors last
+     * (same rule as [resetChecked]): if a database cannot be deleted the
+     * descriptors stay so it remains decryptable. Never touches the
+     * registry or watch-wallet state. **Destructive** — gate behind an
+     * explicit confirmation and close every handle first.
+     */
+    public fun purgeLegacySigningData(): ResetResult {
+        val deleted = mutableListOf<File>()
+        val databases = buildList {
+            add(legacyDbFile)
+            addAll(orphanDbs(dir))
+            add(File(migrationBackupDir, WalletPaths.WALLET_DB_FILE_NAME))
+            walletsRoot.listFiles()?.filter { it.isDirectory }?.forEach { sub ->
+                add(File(sub, WalletPaths.WALLET_DB_FILE_NAME))
+                addAll(orphanDbs(sub))
+            }
+        }
+        val dbFailures = mutableListOf<File>()
+        for (db in databases) {
+            for (f in listOf(db) + SQLITE_SIDECARS.map { File(db.parentFile, db.name + it) }) {
+                if (!f.exists()) continue
+                if (f.delete()) deleted += f else dbFailures += f
+            }
+        }
+        if (dbFailures.isNotEmpty()) {
+            return ResetResult(deleted = deleted, failed = dbFailures, aborted = true)
+        }
+        for (f in legacyRootArtifacts()) {
+            if (f.isDirectory) {
+                if (f.deleteRecursively()) deleted += f
+            } else if (f.isFile && f.delete()) {
+                deleted += f
+            }
+        }
+        if (walletsRoot.isDirectory && walletsRoot.deleteRecursively()) deleted += walletsRoot
+        val leftovers = (legacyRootArtifacts() + walletsRoot).filter { it.exists() }
+        return ResetResult(deleted = deleted, failed = leftovers, aborted = false)
+    }
+
+    /** Root-level files / dirs of a pre-watch-only signing install. */
+    private fun legacyRootArtifacts(): List<File> = listOf(
+        legacyDbFile,
+        saltFile,
+        kdfFile,
+        networkFile,
+        File(dir, WalletPaths.KDF_PENDING_FILE_NAME),
+        File(dir, WalletPaths.KDF_SEALED_MARKER_NAME),
+        migrationLockFile,
+        migrationBackupDir,
+    ) + orphanDbs(dir)
 
     /** String form of the directory, suitable for the UniFFI binding. */
     public fun dataDirAsString(): String = dir.absolutePath
@@ -245,11 +190,11 @@ public data class WalletPathsView(val dir: File) {
      * Wipe the locally stored wallet artefacts so the boot guard
      * treats the next launch as a fresh install.
      *
-     * **WARNING — destructive.** Removes the SQLCipher databases the
-     * user's spending keys are encrypted into. Recovery is only possible
-     * from the user's BIP39 seed phrase. Callers MUST gate this behind
-     * an explicit confirmation step AND release every open handle first
-     * (see [LocalWipe]).
+     * **WARNING — destructive.** Removes the registry (wallet list and
+     * every tracker table) and all watch-wallet state, plus any legacy
+     * signing data. Callers MUST gate this behind an explicit
+     * confirmation step AND release every open handle first (see
+     * [LocalWipe]).
      *
      * Returns the files actually deleted (in deletion order). See
      * [resetChecked] for the variant that also reports what could NOT
@@ -370,6 +315,8 @@ public data class WalletPathsView(val dir: File) {
         registryKdfFile,
         File(dir, WalletPaths.KDF_PENDING_FILE_NAME),
         File(dir, WalletPaths.REGISTRY_KDF_FILE_NAME + ".next"),
+        // PIN recovery: the data key wrapped by the recovery code.
+        File(dir, WalletPaths.RECOVERY_FILE_NAME),
     ) + (dir.listFiles { f -> f.isFile && f.name.endsWith(".kdf.sealed") }?.toList() ?: emptyList())
 
     private companion object {

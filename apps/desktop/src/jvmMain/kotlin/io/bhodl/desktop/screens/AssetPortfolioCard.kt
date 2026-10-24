@@ -94,7 +94,6 @@ import io.bhodl.shared.resources.trp_sheet_badge_loan
 import io.bhodl.shared.resources.trp_sheet_badge_manual
 import io.bhodl.shared.resources.trp_sheet_badge_mortgage
 import io.bhodl.shared.resources.trp_sheet_badge_real_estate
-import io.bhodl.shared.resources.trp_sheet_badge_signing
 import io.bhodl.shared.resources.trp_sheet_badge_stock
 import io.bhodl.shared.resources.trp_sheet_badge_watch
 import io.bhodl.shared.resources.trp_sheet_fetch_prices
@@ -584,10 +583,9 @@ private fun UpdatedCell(unix: Long?, modifier: Modifier) {
 
 @Composable
 private fun kindBadge(section: SheetSection, kind: String): Pair<String, Color> = when (section) {
-    // Short badge: the full kind ("Signing (tracked)", "Watch-only
-    // (xpub)") does not fit the dense TYPE column.
-    SheetSection.WALLETS ->
-        (if (kind.contains("sign", ignoreCase = true)) stringResource(Res.string.trp_sheet_badge_signing) else stringResource(Res.string.trp_sheet_badge_watch)) to nwRoleColors().btcWallets
+    // Short badge: the full kind ("Watch (xpub)") does not fit the
+    // dense TYPE column.
+    SheetSection.WALLETS -> stringResource(Res.string.trp_sheet_badge_watch) to nwRoleColors().btcWallets
     SheetSection.INVESTMENTS -> investmentTypeLabelAndColor(kind)
     SheetSection.MANUAL_ASSETS -> manualAssetKindLabelAndColor(kind)
     SheetSection.LIABILITIES -> liabilityKindLabelAndColor(kind)

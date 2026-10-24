@@ -54,10 +54,16 @@ use bitcoin::{
 };
 use rusqlite::Connection;
 
-use crate::account::{
-    ENCRYPTION_KEY_LEN, TxRecord, map_network, open_encrypted_connection, try_build_esplora_client,
+use std::collections::HashMap;
+
+use crate::common::{
+    DerivedAddress, DescriptorBackup, ENCRYPTION_KEY_LEN, ReceiveLabelCopy, TxRecord, UtxoInfo,
+    ensure_contacts_table, ensure_labels_table, map_network, open_encrypted_connection,
+    try_build_esplora_client, validated_contact_label,
 };
+use crate::contacts::{self, Contact};
 use crate::error::OnchainError;
+use crate::labels::{self, Label, LabelKind};
 
 // ---------------------------------------------------------------------------
 // Public type: WatchBip
@@ -152,13 +158,11 @@ impl std::fmt::Debug for WatchScanUpdate {
 /// A read-only wallet.
 ///
 /// Holds public material only — no mnemonic, no xpriv, no signing
-/// capability. Backed by a `SQLCipher`-encrypted `SQLite` file (same Argon2id
-/// key-derivation pipeline as [`crate::OnchainAccount`]).
+/// capability. Backed by a `SQLCipher`-encrypted `SQLite` file keyed with
+/// the Argon2id-derived device key.
 ///
 /// HD watch wallets are BDK descriptor wallets; address-list watch wallets
-/// are plain script-pubkey trackers (see the module docs). No spending APIs
-/// are exposed: sites needing PSBT construction must use a full
-/// [`crate::OnchainAccount`].
+/// are plain script-pubkey trackers (see the module docs).
 pub struct WatchAccount {
     network: BhodlNetwork,
     backend: WatchBackend,
@@ -550,6 +554,22 @@ CREATE TABLE IF NOT EXISTS bhodl_watch_address (\
     address TEXT NOT NULL\
 )";
 
+/// Open a watch DB and make sure the label / address-book tables exist.
+fn open_watch_db(
+    db_path: &Path,
+    encryption_key: &[u8; ENCRYPTION_KEY_LEN],
+) -> Result<Connection, OnchainError> {
+    let conn = open_encrypted_connection(db_path, encryption_key)?;
+    ensure_labels_table(&conn)?;
+    ensure_contacts_table(&conn)?;
+    Ok(conn)
+}
+
+/// Error for derivation requests on an address-list watch wallet.
+fn no_derivation_error() -> OnchainError {
+    OnchainError::InvalidArgument("address-list watch wallets cannot derive new addresses".into())
+}
+
 fn ensure_watch_address_table(conn: &Connection) -> Result<(), OnchainError> {
     conn.execute(CREATE_WATCH_ADDRESS_TABLE_SQL, [])
         .map_err(|e| OnchainError::Storage(e.to_string()))?;
@@ -820,7 +840,7 @@ impl WatchAccount {
         let (desc_ext, desc_int) = xpub_watch_descriptors(xpub, network, bip)?;
         let btc_net = map_network(network);
 
-        let mut conn = open_encrypted_connection(db_path, encryption_key)?;
+        let mut conn = open_watch_db(db_path, encryption_key)?;
         let mut wallet = open_or_create_wallet(&mut conn, desc_ext, desc_int, btc_net)?;
         wallet
             .persist(&mut conn)
@@ -867,7 +887,7 @@ impl WatchAccount {
             hd_watch_descriptors(master_fingerprint, derivation_path, xpub, network)?;
         let btc_net = map_network(network);
 
-        let mut conn = open_encrypted_connection(db_path, encryption_key)?;
+        let mut conn = open_watch_db(db_path, encryption_key)?;
         let mut wallet = open_or_create_wallet(&mut conn, desc_ext, desc_int, btc_net)?;
         wallet
             .persist(&mut conn)
@@ -914,7 +934,7 @@ impl WatchAccount {
         }
         let btc_net = map_network(network);
 
-        let mut conn = open_encrypted_connection(db_path, encryption_key)?;
+        let mut conn = open_watch_db(db_path, encryption_key)?;
         ensure_watch_address_table(&conn)?;
         let mut stored = Self::stored_addresses(&conn, network)?;
         let mut next_idx = stored.last().map_or(0, |(i, _)| i.saturating_add(1));
@@ -974,7 +994,17 @@ impl WatchAccount {
         encryption_key: &[u8; ENCRYPTION_KEY_LEN],
     ) -> Result<Self, OnchainError> {
         let btc_net = map_network(network);
-        let mut conn = open_encrypted_connection(db_path, encryption_key)?;
+        // Opening a missing path would create an empty encrypted DB as a
+        // side effect before failing below; refuse up front instead.
+        if !db_path.exists() {
+            return Err(OnchainError::Storage(
+                "no watch wallet state file at this path; \
+                 create it first via create_from_xpub / create_from_hd / \
+                 create_from_addresses"
+                    .into(),
+            ));
+        }
+        let mut conn = open_watch_db(db_path, encryption_key)?;
 
         // Ensure address table exists (HD wallets will have an empty table; that is fine).
         ensure_watch_address_table(&conn)?;
@@ -1087,7 +1117,9 @@ impl WatchAccount {
     }
 
     /// Phase 1 of a lock-friendly sync (audit M5): snapshot the scan
-    /// request. Offline; see [`crate::OnchainAccount::start_esplora_scan`].
+    /// request. Offline: callers guarding the account with a mutex take it
+    /// only for this call, run [`PendingWatchScan::fetch`] unlocked, then
+    /// re-lock for [`Self::apply_esplora_scan`].
     #[must_use]
     pub fn start_esplora_scan(&self) -> PendingWatchScan {
         match &self.backend {
@@ -1156,6 +1188,461 @@ impl WatchAccount {
         }
     }
 
+    // -----------------------------------------------------------------------
+    // Addresses
+    // -----------------------------------------------------------------------
+
+    /// `true` for address-list watch wallets (no BIP-32 derivation: no
+    /// new receive addresses, no change keychain).
+    #[must_use]
+    pub fn is_address_list(&self) -> bool {
+        matches!(self.backend, WatchBackend::Scripts(_))
+    }
+
+    /// Reveal the next external (receive) address and persist the advance.
+    ///
+    /// # Errors
+    ///
+    /// - [`OnchainError::InvalidArgument`] — address-list wallet.
+    /// - [`OnchainError::Storage`] — persisting the reveal failed.
+    pub fn reveal_next_address(&mut self) -> Result<Address, OnchainError> {
+        let WatchBackend::Descriptor(wallet) = &mut self.backend else {
+            return Err(no_derivation_error());
+        };
+        let address = wallet.reveal_next_address(KeychainKind::External).address;
+        wallet
+            .persist(&mut self.db_conn)
+            .map_err(|e| OnchainError::Storage(e.to_string()))?;
+        Ok(address)
+    }
+
+    /// Lowest revealed receive address that has not received funds yet,
+    /// revealing (and persisting) a new one only when every revealed
+    /// address is used, so visiting the Receive tab never burns indices.
+    ///
+    /// # Errors
+    ///
+    /// Same as [`Self::reveal_next_address`].
+    pub fn next_unused_receive_address(&mut self) -> Result<Address, OnchainError> {
+        let WatchBackend::Descriptor(wallet) = &mut self.backend else {
+            return Err(no_derivation_error());
+        };
+        let address = wallet.next_unused_address(KeychainKind::External).address;
+        wallet
+            .persist(&mut self.db_conn)
+            .map_err(|e| OnchainError::Storage(e.to_string()))?;
+        Ok(address)
+    }
+
+    /// Every address revealed so far on one keychain (external = receive,
+    /// internal = change), oldest first, with its usage state and BIP-329
+    /// `addr` label / category.
+    ///
+    /// HD wallets list `0..=derivation_index`, so a fresh wallet returns an
+    /// empty list. Address-list wallets list the watched addresses on the
+    /// external side and nothing on the change side. `used` means the
+    /// script has received at least one output in the synced history.
+    ///
+    /// # Errors
+    ///
+    /// [`OnchainError::Storage`] if the label table cannot be read.
+    pub fn list_addresses(&self, change: bool) -> Result<Vec<DerivedAddress>, OnchainError> {
+        let addr_labels: HashMap<String, Label> = labels::list_labels(&self.db_conn)?
+            .into_iter()
+            .filter(|l| l.kind == LabelKind::Addr)
+            .map(|l| (l.target.clone(), l))
+            .collect();
+        let entry = |index: u32, address: Address, used: bool| {
+            let label = addr_labels.get(&address.to_string());
+            DerivedAddress {
+                index,
+                is_change: change,
+                used,
+                label: label.map(|l| l.text.clone()).filter(|t| !t.is_empty()),
+                category: label.and_then(|l| l.category.clone()),
+                address,
+            }
+        };
+        match &self.backend {
+            WatchBackend::Descriptor(wallet) => {
+                let keychain = if change {
+                    KeychainKind::Internal
+                } else {
+                    KeychainKind::External
+                };
+                let Some(last) = wallet.derivation_index(keychain) else {
+                    return Ok(Vec::new());
+                };
+                Ok((0..=last)
+                    .map(|index| {
+                        entry(
+                            index,
+                            wallet.peek_address(keychain, index).address,
+                            wallet.spk_index().is_used(keychain, index),
+                        )
+                    })
+                    .collect())
+            }
+            WatchBackend::Scripts(s) => {
+                if change {
+                    return Ok(Vec::new());
+                }
+                Ok(Self::stored_addresses(&self.db_conn, self.network)?
+                    .into_iter()
+                    .map(|(index, address)| entry(index, address, s.graph.index.is_used(&index)))
+                    .collect())
+            }
+        }
+    }
+
+    /// Set (or clear) the BIP-329 `addr` label and the BHODL `category`
+    /// extension on one of this wallet's addresses. Funds that later
+    /// arrive at the address inherit them via
+    /// [`Self::apply_receive_labels`]. A blank `text` with no category
+    /// removes the row.
+    ///
+    /// # Errors
+    ///
+    /// [`OnchainError::Storage`] on a database failure.
+    pub fn set_address_label(
+        &self,
+        address: &str,
+        text: &str,
+        category: Option<String>,
+    ) -> Result<(), OnchainError> {
+        let category = category.filter(|c| !c.trim().is_empty());
+        if text.trim().is_empty() && category.is_none() {
+            labels::remove_label(&self.db_conn, LabelKind::Addr, address)?;
+            return Ok(());
+        }
+        labels::upsert_label(
+            &self.db_conn,
+            &Label {
+                kind: LabelKind::Addr,
+                target: address.to_string(),
+                text: text.trim().to_string(),
+                spendable: None,
+                category,
+            },
+        )
+    }
+
+    /// Copy the BIP-329 `addr` label and category of a receive address onto
+    /// the transaction that paid it. Rules:
+    ///
+    /// - only transactions with a positive net amount;
+    /// - when one transaction pays several labelled addresses, the lowest
+    ///   output index wins (deterministic);
+    /// - an existing transaction label / category is never overwritten;
+    /// - each `(txid, address)` copy happens once (recorded in the
+    ///   encrypted DB), so a label the user clears stays cleared.
+    ///
+    /// Returns what was applied (the caller mirrors categories into the
+    /// tracker registry).
+    ///
+    /// # Errors
+    ///
+    /// [`OnchainError::Storage`] on a database failure.
+    pub fn apply_receive_labels(&self) -> Result<Vec<ReceiveLabelCopy>, OnchainError> {
+        let addr_labels: HashMap<String, Label> = labels::list_labels(&self.db_conn)?
+            .into_iter()
+            .filter(|l| {
+                l.kind == LabelKind::Addr
+                    && (!l.text.trim().is_empty()
+                        || l.category.as_deref().is_some_and(|c| !c.trim().is_empty()))
+            })
+            .map(|l| (l.target.clone(), l))
+            .collect();
+        if addr_labels.is_empty() {
+            return Ok(Vec::new());
+        }
+        let btc_network = map_network(self.network);
+        let mut applied = Vec::new();
+        for (txid, tx) in self.incoming_txs() {
+            let hit = tx.output.iter().find_map(|out| {
+                if !self.is_mine(&out.script_pubkey) {
+                    return None;
+                }
+                let address = Address::from_script(&out.script_pubkey, btc_network)
+                    .ok()?
+                    .to_string();
+                addr_labels.get(&address).map(|l| (address, l))
+            });
+            let Some((address, addr_label)) = hit else {
+                continue;
+            };
+            let txid = txid.to_string();
+            if labels::label_copy_done(&self.db_conn, &txid, &address)? {
+                continue;
+            }
+            let existing = labels::get_label(&self.db_conn, LabelKind::Tx, &txid)?;
+            let existing_text = existing
+                .as_ref()
+                .map(|l| l.text.clone())
+                .unwrap_or_default();
+            let existing_category = existing.as_ref().and_then(|l| l.category.clone());
+            let new_text = (existing_text.trim().is_empty() && !addr_label.text.trim().is_empty())
+                .then(|| addr_label.text.clone());
+            let new_category = if existing_category.is_none() {
+                addr_label.category.clone().filter(|c| !c.trim().is_empty())
+            } else {
+                None
+            };
+            if new_text.is_some() || new_category.is_some() {
+                labels::upsert_label(
+                    &self.db_conn,
+                    &Label {
+                        kind: LabelKind::Tx,
+                        target: txid.clone(),
+                        text: new_text.clone().unwrap_or(existing_text),
+                        spendable: None,
+                        category: new_category.clone().or(existing_category),
+                    },
+                )?;
+            }
+            labels::mark_label_copy(&self.db_conn, &txid, &address)?;
+            applied.push(ReceiveLabelCopy {
+                txid,
+                address,
+                label: new_text,
+                category: new_category,
+            });
+        }
+        Ok(applied)
+    }
+
+    /// Canonical transactions whose net effect on this wallet is positive.
+    fn incoming_txs(&self) -> Vec<(bitcoin::Txid, std::sync::Arc<bitcoin::Transaction>)> {
+        match &self.backend {
+            WatchBackend::Descriptor(wallet) => wallet
+                .transactions()
+                .filter(|wt| {
+                    let (sent, received) = wallet.sent_and_received(&wt.tx_node.tx);
+                    received > sent
+                })
+                .map(|wt| (wt.tx_node.txid, wt.tx_node.tx.clone()))
+                .collect(),
+            WatchBackend::Scripts(s) => s
+                .graph
+                .graph()
+                .list_canonical_txs(
+                    &s.chain,
+                    s.chain.tip().block_id(),
+                    CanonicalizationParams::default(),
+                )
+                .filter(|c| {
+                    let (sent, received) = s.graph.index.sent_and_received(&c.tx_node.tx, ..);
+                    received > sent
+                })
+                .map(|c| (c.tx_node.txid, c.tx_node.tx.clone()))
+                .collect(),
+        }
+    }
+
+    /// Whether `script` belongs to this wallet.
+    fn is_mine(&self, script: &bitcoin::Script) -> bool {
+        match &self.backend {
+            WatchBackend::Descriptor(wallet) => wallet.is_mine(script.to_owned()),
+            WatchBackend::Scripts(s) => s.graph.index.index_of_spk(script.to_owned()).is_some(),
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // UTXOs / chain
+    // -----------------------------------------------------------------------
+
+    /// Unspent outputs held by the watched scripts (confirmed plus mempool).
+    ///
+    /// # Errors
+    ///
+    /// [`OnchainError::Storage`] if a UTXO's `script_pubkey` cannot be
+    /// expressed as an address for this network (corrupted state).
+    pub fn list_utxos(&self) -> Result<Vec<UtxoInfo>, OnchainError> {
+        let btc_network = map_network(self.network);
+        let to_info = |outpoint: bitcoin::OutPoint,
+                       txout: &bitcoin::TxOut,
+                       is_change: bool,
+                       confirmed: bool| {
+            let address = Address::from_script(&txout.script_pubkey, btc_network).map_err(|e| {
+                OnchainError::Storage(format!(
+                    "UTXO {outpoint} script_pubkey cannot be expressed as an address: {e}"
+                ))
+            })?;
+            Ok(UtxoInfo {
+                outpoint,
+                value: Amount::from_sat(txout.value.to_sat()),
+                address,
+                is_change,
+                confirmed,
+            })
+        };
+        match &self.backend {
+            WatchBackend::Descriptor(wallet) => wallet
+                .list_unspent()
+                .map(|out| {
+                    to_info(
+                        out.outpoint,
+                        &out.txout,
+                        out.keychain == KeychainKind::Internal,
+                        out.chain_position.is_confirmed(),
+                    )
+                })
+                .collect(),
+            WatchBackend::Scripts(s) => s
+                .graph
+                .graph()
+                .filter_chain_unspents(
+                    &s.chain,
+                    s.chain.tip().block_id(),
+                    CanonicalizationParams::default(),
+                    s.graph.index.outpoints().iter().copied(),
+                )
+                .map(|(_, out)| {
+                    to_info(
+                        out.outpoint,
+                        &out.txout,
+                        false,
+                        out.chain_position.is_confirmed(),
+                    )
+                })
+                .collect(),
+        }
+    }
+
+    /// Height of the wallet's latest synced block (its local chain tip).
+    /// `0` before the first successful sync.
+    #[must_use]
+    pub fn chain_tip_height(&self) -> u32 {
+        match &self.backend {
+            WatchBackend::Descriptor(wallet) => wallet.latest_checkpoint().height(),
+            WatchBackend::Scripts(s) => s.chain.tip().height(),
+        }
+    }
+
+    /// Public receive + change descriptors of an HD watch wallet, for
+    /// import into Sparrow / Liana / Specter. `None` for address-list
+    /// wallets, which have no descriptor.
+    #[must_use]
+    pub fn export_descriptors(&self) -> Option<DescriptorBackup> {
+        let WatchBackend::Descriptor(wallet) = &self.backend else {
+            return None;
+        };
+        Some(DescriptorBackup {
+            network: self.network,
+            external: wallet.public_descriptor(KeychainKind::External).to_string(),
+            internal: wallet.public_descriptor(KeychainKind::Internal).to_string(),
+        })
+    }
+
+    // -----------------------------------------------------------------------
+    // BIP-329 labels
+    // -----------------------------------------------------------------------
+
+    /// Add (or overwrite) a BIP-329 label, keyed by `(kind, target)`.
+    ///
+    /// # Errors
+    ///
+    /// [`OnchainError::Storage`] on a database failure.
+    pub fn add_label(&self, label: &Label) -> Result<(), OnchainError> {
+        labels::upsert_label(&self.db_conn, label)
+    }
+
+    /// Look up a single BIP-329 label by `(kind, target)`.
+    ///
+    /// # Errors
+    ///
+    /// [`OnchainError::Storage`] on a database failure.
+    pub fn get_label(&self, kind: LabelKind, target: &str) -> Result<Option<Label>, OnchainError> {
+        labels::get_label(&self.db_conn, kind, target)
+    }
+
+    /// Every BIP-329 label stored on this wallet.
+    ///
+    /// # Errors
+    ///
+    /// [`OnchainError::Storage`] on a database failure.
+    pub fn list_labels(&self) -> Result<Vec<Label>, OnchainError> {
+        labels::list_labels(&self.db_conn)
+    }
+
+    /// Delete a BIP-329 label. Returns `true` if a row was removed.
+    ///
+    /// # Errors
+    ///
+    /// [`OnchainError::Storage`] on a database failure.
+    pub fn remove_label(&self, kind: LabelKind, target: &str) -> Result<bool, OnchainError> {
+        labels::remove_label(&self.db_conn, kind, target)
+    }
+
+    /// Render every label as a BIP-329 JSONL document.
+    ///
+    /// # Errors
+    ///
+    /// [`OnchainError::Storage`] on a database failure.
+    pub fn export_labels_jsonl(&self) -> Result<String, OnchainError> {
+        labels::export_jsonl(&self.db_conn)
+    }
+
+    /// Import a BIP-329 JSONL document produced by another wallet. Returns
+    /// the count of records imported.
+    ///
+    /// # Errors
+    ///
+    /// [`OnchainError::Storage`] on a malformed record or database failure.
+    pub fn import_labels_jsonl(&self, jsonl: &str) -> Result<usize, OnchainError> {
+        labels::import_jsonl(&self.db_conn, jsonl)
+    }
+
+    // -----------------------------------------------------------------------
+    // Address book
+    // -----------------------------------------------------------------------
+
+    /// Add an address-book entry; returns its row id. The address must be
+    /// valid for this wallet's network and is stored in canonical form.
+    ///
+    /// # Errors
+    ///
+    /// - [`OnchainError::InvalidArgument`] — empty / oversized label.
+    /// - [`OnchainError::InvalidAddress`] — bad or wrong-network address.
+    /// - [`OnchainError::Storage`] — duplicate address or database failure.
+    pub fn add_contact(&self, label: &str, address: &str) -> Result<i64, OnchainError> {
+        let label = validated_contact_label(label)?;
+        let address = validate_watch_address(address, self.network)?.to_string();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
+            .unwrap_or(0);
+        contacts::insert_contact(&self.db_conn, label, &address, now)
+    }
+
+    /// Every saved contact in insertion order.
+    ///
+    /// # Errors
+    ///
+    /// [`OnchainError::Storage`] on a database failure.
+    pub fn list_contacts(&self) -> Result<Vec<Contact>, OnchainError> {
+        contacts::list_contacts(&self.db_conn)
+    }
+
+    /// Rename a contact. Returns `false` if no row matched `id`.
+    ///
+    /// # Errors
+    ///
+    /// [`OnchainError::InvalidArgument`] for a bad label,
+    /// [`OnchainError::Storage`] on a database failure.
+    pub fn update_contact_label(&self, id: i64, new_label: &str) -> Result<bool, OnchainError> {
+        contacts::update_contact_label(&self.db_conn, id, validated_contact_label(new_label)?)
+    }
+
+    /// Delete a contact. Returns `false` if no row matched `id`.
+    ///
+    /// # Errors
+    ///
+    /// [`OnchainError::Storage`] on a database failure.
+    pub fn remove_contact(&self, id: i64) -> Result<bool, OnchainError> {
+        contacts::delete_contact(&self.db_conn, id)
+    }
+
     /// Script pubkeys this wallet tracks for address wallets (index order).
     /// `None` for HD wallets.
     #[cfg(test)]
@@ -1181,14 +1668,13 @@ impl WatchAccount {
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
+#[path = "uc_wallet_tests.rs"]
+mod uc_wallet_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use tempfile::TempDir;
-
-    /// Canonical BIP-86 test-vector mnemonic.
-    /// Source: <https://github.com/bitcoin/bips/blob/master/bip-0086.mediawiki>
-    const BIP86_MNEMONIC: &str = "abandon abandon abandon abandon abandon abandon \
-         abandon abandon abandon abandon abandon about";
 
     fn fixture_key() -> [u8; ENCRYPTION_KEY_LEN] {
         [0x42u8; ENCRYPTION_KEY_LEN]
@@ -1198,55 +1684,16 @@ mod tests {
         [0x99u8; ENCRYPTION_KEY_LEN]
     }
 
-    /// Build an in-memory `OnchainAccount` from the BIP-86 test mnemonic, then
-    /// extract the account-level xpub from the exported public descriptor.
-    ///
-    /// Descriptor shape: `tr([fingerprint/86'/coin'/0']xpub.../0/*)`
-    /// We strip everything up to and including the last `]`, then strip the
-    /// trailing `/0/*)` to get the bare xpub string.
     fn xpub_from_mnemonic(network: BhodlNetwork) -> String {
-        use crate::OnchainAccount;
-        let account = OnchainAccount::from_mnemonic(network, BIP86_MNEMONIC, "").unwrap();
-        let backup = account.export_descriptors();
-        let ext = &backup.external;
-        // ext = "tr([aabbccdd/86'/1'/0']tpubXXX.../0/*)"
-        let after_bracket = ext.rsplit(']').next().expect("descriptor must contain ]");
-        // after_bracket = "tpubXXX.../0/*)"
-        // Strip "/0/*)" to get just the xpub.
-        after_bracket
-            .trim_end_matches(')')
-            .rsplit_once("/0/*")
-            .map_or_else(
-                || {
-                    // Fallback: take everything before the first '/'
-                    after_bracket
-                        .split('/')
-                        .next()
-                        .expect("xpub must be non-empty")
-                        .to_string()
-                },
-                |(xpub, _)| xpub.to_string(),
-            )
+        crate::test_support::bip86_xpub(network)
     }
 
-    /// Derive the BIP-86 taproot address at `index` on signet from the test mnemonic.
     fn signet_address_at(index: u32) -> String {
-        use crate::OnchainAccount;
-        OnchainAccount::from_mnemonic(BhodlNetwork::Signet, BIP86_MNEMONIC, "")
-            .unwrap()
-            .peek_taproot_address(index)
-            .unwrap()
-            .to_string()
+        crate::test_support::bip86_address(BhodlNetwork::Signet, index)
     }
 
-    /// Derive the BIP-86 taproot address at `index` on mainnet from the test mnemonic.
     fn mainnet_address_at(index: u32) -> String {
-        use crate::OnchainAccount;
-        OnchainAccount::from_mnemonic(BhodlNetwork::Mainnet, BIP86_MNEMONIC, "")
-            .unwrap()
-            .peek_taproot_address(index)
-            .unwrap()
-            .to_string()
+        crate::test_support::bip86_address(BhodlNetwork::Mainnet, index)
     }
 
     // ------------------------------------------------------------------
@@ -1832,5 +2279,233 @@ mod tests {
             normalize_xpub(&big_z),
             Err(OnchainError::Descriptor(_))
         ));
+    }
+
+    // ------------------------------------------------------------------
+    // Receive addresses, labels, address book, UTXOs
+    // ------------------------------------------------------------------
+
+    fn signet_xpub_wallet(dir: &TempDir) -> WatchAccount {
+        WatchAccount::create_from_xpub(
+            BhodlNetwork::Signet,
+            &dir.path().join("watch_rx.sqlite"),
+            &fixture_key(),
+            &xpub_from_mnemonic(BhodlNetwork::Signet),
+            WatchBip::Taproot,
+        )
+        .unwrap()
+    }
+
+    /// Insert an unconfirmed transaction paying `sat` to `addr` into an
+    /// address-list wallet's graph.
+    fn fund_address_wallet(acct: &mut WatchAccount, addr: &str, sat: u64) -> bitcoin::Txid {
+        use bitcoin::{
+            OutPoint, Sequence, Transaction, TxIn, TxOut, Witness, absolute, transaction,
+        };
+        let tx = Transaction {
+            version: transaction::Version::TWO,
+            lock_time: absolute::LockTime::ZERO,
+            input: vec![TxIn {
+                previous_output: OutPoint::new(
+                    <bitcoin::Txid as bitcoin::hashes::Hash>::from_byte_array([9; 32]),
+                    0,
+                ),
+                script_sig: bitcoin::ScriptBuf::new(),
+                sequence: Sequence::MAX,
+                witness: Witness::new(),
+            }],
+            output: vec![TxOut {
+                value: bitcoin::Amount::from_sat(sat),
+                script_pubkey: spk_of(addr),
+            }],
+        };
+        let txid = tx.compute_txid();
+        match &mut acct.backend {
+            WatchBackend::Scripts(s) => {
+                let _ = s.graph.insert_tx(tx);
+                let _ = s.graph.insert_seen_at(txid, 1_700_000_000);
+            }
+            WatchBackend::Descriptor(_) => panic!("address wallet must use the script backend"),
+        }
+        txid
+    }
+
+    #[test]
+    fn xpub_wallet_hands_out_bip86_receive_addresses_and_persists_reveals() {
+        let dir = TempDir::new().unwrap();
+        {
+            let mut acct = signet_xpub_wallet(&dir);
+            assert!(!acct.is_address_list());
+            assert!(acct.list_addresses(false).unwrap().is_empty());
+            // Unused address is stable across calls (no index burnt).
+            let first = acct.next_unused_receive_address().unwrap().to_string();
+            assert_eq!(first, signet_address_at(0));
+            assert_eq!(
+                acct.next_unused_receive_address().unwrap().to_string(),
+                first
+            );
+            // Explicit "new address" advances.
+            assert_eq!(
+                acct.reveal_next_address().unwrap().to_string(),
+                signet_address_at(1)
+            );
+        }
+        let acct = WatchAccount::load(
+            BhodlNetwork::Signet,
+            &dir.path().join("watch_rx.sqlite"),
+            &fixture_key(),
+        )
+        .unwrap();
+        let listed: Vec<String> = acct
+            .list_addresses(false)
+            .unwrap()
+            .iter()
+            .map(|a| a.address.to_string())
+            .collect();
+        assert_eq!(listed, vec![signet_address_at(0), signet_address_at(1)]);
+        assert!(acct.list_addresses(true).unwrap().is_empty());
+        assert!(acct.list_utxos().unwrap().is_empty());
+        assert_eq!(acct.chain_tip_height(), 0);
+    }
+
+    #[test]
+    fn address_labels_show_up_in_the_address_list() {
+        let dir = TempDir::new().unwrap();
+        let mut acct = signet_xpub_wallet(&dir);
+        let addr = acct.next_unused_receive_address().unwrap().to_string();
+        acct.set_address_label(&addr, " Salary ", Some("income".into()))
+            .unwrap();
+        let row = &acct.list_addresses(false).unwrap()[0];
+        assert_eq!(row.label.as_deref(), Some("Salary"));
+        assert_eq!(row.category.as_deref(), Some("income"));
+        // Blank text + no category clears the label.
+        acct.set_address_label(&addr, "  ", None).unwrap();
+        let row = &acct.list_addresses(false).unwrap()[0];
+        assert_eq!(row.label, None);
+        assert_eq!(row.category, None);
+    }
+
+    #[test]
+    fn address_list_wallet_lists_its_addresses_but_cannot_derive() {
+        let dir = TempDir::new().unwrap();
+        let addr = signet_address_at(3);
+        let mut acct = WatchAccount::create_from_addresses(
+            BhodlNetwork::Signet,
+            &dir.path().join("watch_list.sqlite"),
+            &fixture_key(),
+            &[addr.clone()],
+        )
+        .unwrap();
+        assert!(acct.is_address_list());
+        assert!(matches!(
+            acct.reveal_next_address(),
+            Err(OnchainError::InvalidArgument(_))
+        ));
+        assert!(matches!(
+            acct.next_unused_receive_address(),
+            Err(OnchainError::InvalidArgument(_))
+        ));
+        assert!(acct.export_descriptors().is_none());
+        let rows = acct.list_addresses(false).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].address.to_string(), addr);
+        assert!(!rows[0].used);
+        assert!(acct.list_addresses(true).unwrap().is_empty());
+
+        fund_address_wallet(&mut acct, &addr, 21_000);
+        assert!(acct.list_addresses(false).unwrap()[0].used);
+        let utxos = acct.list_utxos().unwrap();
+        assert_eq!(utxos.len(), 1);
+        assert_eq!(utxos[0].value.to_sat(), 21_000);
+        assert_eq!(utxos[0].address.to_string(), addr);
+        assert!(!utxos[0].is_change);
+        assert!(!utxos[0].confirmed);
+    }
+
+    #[test]
+    fn receive_label_is_copied_once_onto_the_paying_transaction() {
+        let dir = TempDir::new().unwrap();
+        let addr = signet_address_at(0);
+        let mut acct = WatchAccount::create_from_addresses(
+            BhodlNetwork::Signet,
+            &dir.path().join("watch_copy.sqlite"),
+            &fixture_key(),
+            &[addr.clone()],
+        )
+        .unwrap();
+        acct.set_address_label(&addr, "Invoice 42", Some("income".into()))
+            .unwrap();
+        let txid = fund_address_wallet(&mut acct, &addr, 10_000).to_string();
+
+        let applied = acct.apply_receive_labels().unwrap();
+        assert_eq!(
+            applied,
+            vec![ReceiveLabelCopy {
+                txid: txid.clone(),
+                address: addr.clone(),
+                label: Some("Invoice 42".into()),
+                category: Some("income".into()),
+            }]
+        );
+        let tx_label = acct.get_label(LabelKind::Tx, &txid).unwrap().unwrap();
+        assert_eq!(tx_label.text, "Invoice 42");
+
+        // A label the user clears afterwards stays cleared.
+        acct.remove_label(LabelKind::Tx, &txid).unwrap();
+        assert!(acct.apply_receive_labels().unwrap().is_empty());
+        assert!(acct.get_label(LabelKind::Tx, &txid).unwrap().is_none());
+    }
+
+    #[test]
+    fn labels_round_trip_through_bip329_jsonl() {
+        let dir = TempDir::new().unwrap();
+        let acct = signet_xpub_wallet(&dir);
+        acct.add_label(&Label {
+            kind: LabelKind::Tx,
+            target: "ab".repeat(32),
+            text: "Rent".into(),
+            spendable: None,
+            category: Some("housing".into()),
+        })
+        .unwrap();
+        let jsonl = acct.export_labels_jsonl().unwrap();
+
+        let other_dir = TempDir::new().unwrap();
+        let other = signet_xpub_wallet(&other_dir);
+        assert_eq!(other.import_labels_jsonl(&jsonl).unwrap(), 1);
+        assert_eq!(other.list_labels().unwrap(), acct.list_labels().unwrap());
+    }
+
+    #[test]
+    fn address_book_validates_network_and_label() {
+        let dir = TempDir::new().unwrap();
+        let acct = signet_xpub_wallet(&dir);
+        let id = acct.add_contact(" Alice ", &signet_address_at(5)).unwrap();
+        let contacts = acct.list_contacts().unwrap();
+        assert_eq!(contacts.len(), 1);
+        assert_eq!(contacts[0].label, "Alice");
+        assert_eq!(contacts[0].address, signet_address_at(5));
+
+        assert!(acct.add_contact("Bob", &mainnet_address_at(0)).is_err());
+        assert!(acct.add_contact("   ", &signet_address_at(6)).is_err());
+
+        assert!(acct.update_contact_label(id, "Alice B").unwrap());
+        assert_eq!(acct.list_contacts().unwrap()[0].label, "Alice B");
+        assert!(acct.remove_contact(id).unwrap());
+        assert!(!acct.remove_contact(id).unwrap());
+        assert!(acct.list_contacts().unwrap().is_empty());
+    }
+
+    #[test]
+    fn xpub_wallet_exports_its_public_descriptors() {
+        let dir = TempDir::new().unwrap();
+        let acct = signet_xpub_wallet(&dir);
+        let backup = acct
+            .export_descriptors()
+            .expect("HD wallet has descriptors");
+        let xpub = xpub_from_mnemonic(BhodlNetwork::Signet);
+        assert!(backup.external.starts_with(&format!("tr({xpub}/0/*)")));
+        assert!(backup.internal.starts_with(&format!("tr({xpub}/1/*)")));
+        assert_eq!(backup.account_xpub().as_deref(), Some(xpub.as_str()));
     }
 }

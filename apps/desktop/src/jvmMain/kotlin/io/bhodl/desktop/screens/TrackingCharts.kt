@@ -52,7 +52,6 @@ import io.bhodl.desktop.ui.ChartTableData
 import io.bhodl.desktop.ui.ChartTableToggleButton
 import io.bhodl.desktop.ui.chartSemantics
 import io.bhodl.desktop.ui.money.amountsMasked
-import io.bhodl.ffi.PaymentDirection
 import io.bhodl.ffi.PaymentEvent
 import io.bhodl.shared.resources.Res
 import io.bhodl.shared.resources.tracker_n_categories

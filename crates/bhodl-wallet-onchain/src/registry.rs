@@ -1,25 +1,24 @@
 //! Multi-wallet registry — Phase 3 foundation.
 //!
 //! The registry is the **device-PIN-encrypted** `SQLite` database that
-//! catalogues every wallet known to this BHODL installation. One row
-//! per wallet, regardless of whether it is signing-capable or
-//! watch-only. The registry holds **only public data**:
+//! catalogues every (watch-only) wallet known to this BHODL
+//! installation, plus every tracker table. The wallet rows hold **only
+//! public data**:
 //!
 //! - Wallet UUID (filesystem path identity).
 //! - User-chosen label.
-//! - Wallet kind (signing vs the three watch-only variants).
-//! - Public descriptor (xpub-derived, never xprv).
+//! - Wallet kind (one of the three watch-only variants).
+//! - Public descriptor (xpub-derived) or address list.
 //! - Network (mainnet / signet / testnet4 / regtest).
-//! - Creation timestamp + the `pins_warned` flag for the same-PIN
-//!   one-time banner (security review).
+//! - Creation timestamp.
 //!
-//! Signing material (mnemonic, passphrase, secret descriptor) lives
-//! in the per-wallet `wallets/<uuid>/wallet.sqlite` encrypted with
-//! that wallet's own PIN — never in the registry.
+//! BDK chain state, labels and the address book live in
+//! `watch-state/<uuid>.sqlite`, also encrypted with the device key; the
+//! registry only knows the descriptor + label.
 //!
-//! Watch-only BDK chain state lives in `watch-state/<uuid>.sqlite`
-//! also encrypted with the device PIN; the registry only knows the
-//! descriptor + label, not the chain state.
+//! Builds before the watch-only rework also stored `signing` rows (keys
+//! in `wallets/<uuid>/`). They are hidden from every listing and removed
+//! by [`Registry::purge_legacy_signing_wallets`] once the user confirms.
 //!
 //! See `docs/phase-3-architecture.md` §"Two-tier security model" and
 //! §"Storage layout" for the surrounding design.
@@ -30,7 +29,7 @@ use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::account::{ENCRYPTION_KEY_LEN, open_encrypted_connection};
+use crate::common::{ENCRYPTION_KEY_LEN, open_encrypted_connection};
 use crate::error::OnchainError;
 use crate::watch::{
     WatchBip, hd_watch_descriptors, validate_watch_address, xpub_watch_descriptors,
@@ -44,15 +43,12 @@ pub const REGISTRY_FILE_NAME: &str = "registry.sqlite";
 /// the wallet-level `wallet.kdf.json` layout for consistency.
 pub const REGISTRY_KDF_FILE_NAME: &str = "registry.kdf.json";
 
-/// One of the four wallet kinds the registry supports.
+/// One of the three (watch-only) wallet kinds the registry supports.
 ///
 /// Persisted as a `TEXT` column rather than an integer enum so the
 /// schema is debuggable from a `SQLCipher` shell with the device PIN.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum WalletKind {
-    /// Has the mnemonic / passphrase / secret descriptor in
-    /// `wallets/<uuid>/wallet.sqlite`. Can build, sign, and broadcast.
-    Signing,
     /// HD watch-only at a known BIP path (86 / 84 / 49). Derives
     /// addresses from the xpub. No signing.
     WatchXpub,
@@ -67,7 +63,6 @@ pub enum WalletKind {
 impl WalletKind {
     pub fn as_db_str(self) -> &'static str {
         match self {
-            Self::Signing => "signing",
             Self::WatchXpub => "watch_xpub",
             Self::WatchAddresses => "watch_addresses",
             Self::WatchHd => "watch_hd",
@@ -76,7 +71,6 @@ impl WalletKind {
 
     pub fn from_db_str(s: &str) -> Option<Self> {
         match s {
-            "signing" => Some(Self::Signing),
             "watch_xpub" => Some(Self::WatchXpub),
             "watch_addresses" => Some(Self::WatchAddresses),
             "watch_hd" => Some(Self::WatchHd),
@@ -88,8 +82,7 @@ impl WalletKind {
 /// One row of the `wallets` table.
 ///
 /// `id` is a `UUIDv4` generated when the wallet is added; it identifies
-/// the per-wallet directory (`wallets/<id>/`) and watch-state file
-/// (`watch-state/<id>.sqlite`).
+/// the watch-state file (`watch-state/<id>.sqlite`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WalletRecord {
     pub id: Uuid,
@@ -104,11 +97,12 @@ pub struct WalletRecord {
     pub network: String,
     /// Unix epoch seconds when the wallet was added.
     pub created_at_unix: i64,
-    /// `true` once the user has been shown the "same PIN as device"
-    /// warning banner. Prevents the banner from re-appearing every
-    /// time the user activates the wallet.
-    pub pins_warned: bool,
 }
+
+/// `wallets.kind` of the signing wallets written by builds before the
+/// watch-only rework. Never listed; see
+/// [`Registry::purge_legacy_signing_wallets`].
+const LEGACY_SIGNING_KIND: &str = "signing";
 
 /// Schema DDL kept as a single constant so versioning is explicit and
 /// migrations land here rather than scattered across `add_*` calls.
@@ -427,6 +421,22 @@ CREATE TABLE IF NOT EXISTS tracking_event_crypto_kind (\
     PRIMARY KEY (wallet_id, txid_or_payment_id)\
 )";
 
+/// v5 — per-transaction input of the BTC average-cost view: a fiat price
+/// per BTC the user typed in place of the day's market rate, and/or an
+/// exclusion from the calculation. Sparse: a transaction without a row
+/// uses the market rate of its day. The price is stored with its fiat
+/// currency because the view is computed in the display currency.
+const CREATE_TRACKING_EVENT_COST_BASIS_TABLE_SQL: &str = "\
+CREATE TABLE IF NOT EXISTS tracking_event_cost_basis (\
+    wallet_id           TEXT NOT NULL,\
+    txid_or_payment_id  TEXT NOT NULL,\
+    price_per_btc       REAL,\
+    currency            TEXT,\
+    excluded            INTEGER NOT NULL DEFAULT 0,\
+    updated_at_unix     INTEGER NOT NULL,\
+    PRIMARY KEY (wallet_id, txid_or_payment_id)\
+)";
+
 /// Phase 7.9 — sell event for an investment. Records the proceeds
 /// side of the transaction; the consumption of lots happens in
 /// `tracking_lot_disposals` (1 row per lot touched). Cascade delete
@@ -531,10 +541,12 @@ pub fn open_registry_in_memory(conn: Connection) -> Result<Registry, OnchainErro
 ///   Tracker sees a signing wallet only through that mirror). Removing
 ///   the signing wallet removes exactly the rows linked to it — no label
 ///   heuristic. Backfill is conservative, see [`backfill_mirror_links`].
+/// - v5: `tracking_event_cost_basis` — user price / exclusion per
+///   transaction for the BTC average-cost view. New table, no backfill.
 ///
 /// Not downgrade-compatible: an older build refuses a registry stamped
 /// with a higher version (see the L9 gate in `ensure_schema`).
-pub(crate) const SCHEMA_VERSION: i64 = 4;
+pub(crate) const SCHEMA_VERSION: i64 = 5;
 
 /// v4 — `wallets.mirror_of`: UUID of the signing wallet a watch row was
 /// created to mirror; `NULL` for user-added watch rows and signing rows.
@@ -621,6 +633,10 @@ fn ensure_schema(conn: &Connection) -> Result<(), OnchainError> {
         add_column_idempotent(&tx, ALTER_WALLETS_ADD_MIRROR_OF_SQL)?;
         backfill_mirror_links(&tx)?;
     }
+    if current_version < 5 {
+        tx.execute(CREATE_TRACKING_EVENT_COST_BASIS_TABLE_SQL, [])
+            .map_err(|e| OnchainError::Storage(e.to_string()))?;
+    }
 
     // R1 — stamp the schema version into the DB header. From the next
     // open onward, the version gate at the top short-circuits this whole
@@ -683,7 +699,7 @@ pub(crate) fn is_pairing_mirror_label(label: &str, signing_label: &str) -> bool 
 /// Account-level xpub of a registry `descriptor_pub`; `None` when it is
 /// not one of the single-key BIP-86/84/49 shapes (e.g. an address list).
 fn descriptor_account_xpub(descriptor_pub: &str) -> Option<String> {
-    crate::account::DescriptorBackup {
+    crate::common::DescriptorBackup {
         network: bhodl_core::Network::Mainnet,
         external: descriptor_pub.to_string(),
         internal: String::new(),
@@ -738,7 +754,7 @@ fn backfill_mirror_links(conn: &Connection) -> Result<(), OnchainError> {
     };
     let signing: Vec<&Row> = rows
         .iter()
-        .filter(|r| r.kind == WalletKind::Signing.as_db_str() && r.xpub.is_some())
+        .filter(|r| r.kind == LEGACY_SIGNING_KIND && r.xpub.is_some())
         .collect();
     // (watch id, its single possible signing id)
     let mut proposals: Vec<(&str, &str)> = Vec::new();
@@ -780,6 +796,7 @@ fn purge_wallet_rows(conn: &Connection, wid: &str) -> Result<bool, OnchainError>
     for sql in [
         "DELETE FROM tracking_categories WHERE wallet_id = ?1",
         "DELETE FROM tracking_event_crypto_kind WHERE wallet_id = ?1",
+        "DELETE FROM tracking_event_cost_basis WHERE wallet_id = ?1",
         "UPDATE tracking_savings_goals SET bucket_kind = 'manual', bucket_ref = NULL \
          WHERE bucket_kind = 'wallet' AND bucket_ref = ?1",
         "UPDATE tracking_savings_goals SET linked_wallet_id = NULL \
@@ -944,8 +961,8 @@ impl Registry {
         self.conn
             .execute(
                 "INSERT INTO wallets \
-                    (id, label, kind, descriptor_pub, network, created_at_unix, pins_warned) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                    (id, label, kind, descriptor_pub, network, created_at_unix) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                 (
                     record.id.to_string(),
                     &record.label,
@@ -953,7 +970,6 @@ impl Registry {
                     &record.descriptor_pub,
                     &record.network,
                     record.created_at_unix,
-                    i32::from(record.pins_warned),
                 ),
             )
             .map_err(|e| OnchainError::Storage(e.to_string()))?;
@@ -968,15 +984,14 @@ impl Registry {
         let mut stmt = self
             .conn
             .prepare(
-                "SELECT id, label, kind, descriptor_pub, network, created_at_unix, pins_warned \
-                 FROM wallets ORDER BY created_at_unix ASC",
+                "SELECT id, label, kind, descriptor_pub, network, created_at_unix \
+                 FROM wallets WHERE kind != ?1 ORDER BY created_at_unix ASC",
             )
             .map_err(|e| OnchainError::Storage(e.to_string()))?;
         let rows = stmt
-            .query_map([], |row| {
+            .query_map([LEGACY_SIGNING_KIND], |row| {
                 let id_str: String = row.get(0)?;
                 let kind_str: String = row.get(2)?;
-                let pins_warned: i64 = row.get(6)?;
                 Ok((
                     id_str,
                     row.get::<_, String>(1)?,
@@ -984,14 +999,13 @@ impl Registry {
                     row.get::<_, String>(3)?,
                     row.get::<_, String>(4)?,
                     row.get::<_, i64>(5)?,
-                    pins_warned != 0,
                 ))
             })
             .map_err(|e| OnchainError::Storage(e.to_string()))?;
 
         let mut out = Vec::new();
         for row in rows {
-            let (id_str, label, kind_str, descriptor_pub, network, created_at_unix, pins_warned) =
+            let (id_str, label, kind_str, descriptor_pub, network, created_at_unix) =
                 row.map_err(|e| OnchainError::Storage(e.to_string()))?;
             let id = Uuid::parse_str(&id_str)
                 .map_err(|e| OnchainError::Storage(format!("invalid UUID in registry row: {e}")))?;
@@ -1005,7 +1019,6 @@ impl Registry {
                 descriptor_pub,
                 network,
                 created_at_unix,
-                pins_warned,
             });
         }
         Ok(out)
@@ -1018,12 +1031,12 @@ impl Registry {
         let mut stmt = self
             .conn
             .prepare(
-                "SELECT id, label, kind, descriptor_pub, network, created_at_unix, pins_warned \
-                 FROM wallets WHERE id = ?1",
+                "SELECT id, label, kind, descriptor_pub, network, created_at_unix \
+                 FROM wallets WHERE id = ?1 AND kind != ?2",
             )
             .map_err(|e| OnchainError::Storage(e.to_string()))?;
         let mut rows = stmt
-            .query([id.to_string()])
+            .query((id.to_string(), LEGACY_SIGNING_KIND))
             .map_err(|e| OnchainError::Storage(e.to_string()))?;
         match rows
             .next()
@@ -1043,9 +1056,6 @@ impl Registry {
                 let kind = WalletKind::from_db_str(&kind_str).ok_or_else(|| {
                     OnchainError::Storage(format!("unknown wallet kind in registry: {kind_str}"))
                 })?;
-                let pins_warned: i64 = row
-                    .get(6)
-                    .map_err(|e| OnchainError::Storage(e.to_string()))?;
                 Ok(Some(WalletRecord {
                     id,
                     label: row
@@ -1061,7 +1071,6 @@ impl Registry {
                     created_at_unix: row
                         .get(5)
                         .map_err(|e| OnchainError::Storage(e.to_string()))?,
-                    pins_warned: pins_warned != 0,
                 }))
             }
         }
@@ -1070,8 +1079,8 @@ impl Registry {
     /// Delete one wallet by UUID. Returns `true` if a row was
     /// removed, `false` if no row matched.
     ///
-    /// **Does not delete the on-disk artefacts** under `wallets/<id>/`
-    /// or `watch-state/<id>.sqlite` — that is the caller's
+    /// **Does not delete the on-disk artefact**
+    /// `watch-state/<id>.sqlite` — that is the caller's
     /// responsibility because the registry layer should not be
     /// reaching outside its own DB file. The FFI / Kotlin side
     /// orchestrates the full delete sequence (close active wallet
@@ -1104,150 +1113,6 @@ impl Registry {
         Ok(removed)
     }
 
-    /// Like [`Registry::remove_wallet_with_metadata`], and additionally
-    /// removes every watch row explicitly linked to `id` as its mirror
-    /// (`wallets.mirror_of = id`, schema v4) — all in ONE transaction.
-    ///
-    /// Unlinked watch rows are never touched, whatever their label or
-    /// xpub: they are the user's own Tracker entries.
-    ///
-    /// Returns whether the wallet row existed and the UUIDs of the
-    /// removed mirrors (the caller deletes their `watch-state` files).
-    pub fn remove_wallet_and_mirrors(&self, id: &Uuid) -> Result<(bool, Vec<Uuid>), OnchainError> {
-        let wid = id.to_string();
-        let tx = self
-            .conn
-            .unchecked_transaction()
-            .map_err(|e| OnchainError::Storage(e.to_string()))?;
-        let mirror_ids: Vec<String> = {
-            let mut stmt = tx
-                .prepare("SELECT id FROM wallets WHERE mirror_of = ?1")
-                .map_err(|e| OnchainError::Storage(e.to_string()))?;
-            let rows = stmt
-                .query_map([&wid], |r| r.get::<_, String>(0))
-                .map_err(|e| OnchainError::Storage(e.to_string()))?;
-            rows.collect::<Result<_, _>>()
-                .map_err(|e| OnchainError::Storage(e.to_string()))?
-        };
-        let mut mirrors = Vec::with_capacity(mirror_ids.len());
-        for m in &mirror_ids {
-            let uuid = Uuid::parse_str(m)
-                .map_err(|e| OnchainError::Storage(format!("invalid UUID in registry row: {e}")))?;
-            purge_wallet_rows(&tx, m)?;
-            mirrors.push(uuid);
-        }
-        let removed = purge_wallet_rows(&tx, &wid)?;
-        tx.commit()
-            .map_err(|e| OnchainError::Storage(e.to_string()))?;
-        Ok((removed, mirrors))
-    }
-
-    /// Insert `record` as the watch-only mirror of signing wallet
-    /// `signing_id` (sets `wallets.mirror_of`, schema v4).
-    ///
-    /// Validated inside the insert transaction:
-    /// - `record` is a `watch_xpub` / `watch_hd` row;
-    /// - `signing_id` exists and is a `signing` row on the same network;
-    /// - both carry the same account xpub — a mirror can only ever be
-    ///   linked to the wallet whose public key it actually watches.
-    ///
-    /// # Errors
-    ///
-    /// - [`OnchainError::InvalidArgument`] — any check above fails.
-    /// - [`OnchainError::Storage`] — DB failure.
-    pub fn add_mirror_wallet(
-        &self,
-        record: &WalletRecord,
-        signing_id: &Uuid,
-    ) -> Result<(), OnchainError> {
-        if !matches!(record.kind, WalletKind::WatchXpub | WalletKind::WatchHd) {
-            return Err(OnchainError::InvalidArgument(
-                "a mirror must be an xpub / HD watch wallet".into(),
-            ));
-        }
-        let tx = self
-            .conn
-            .unchecked_transaction()
-            .map_err(|e| OnchainError::Storage(e.to_string()))?;
-        let signing: Option<(String, String, String)> = tx
-            .query_row(
-                "SELECT kind, descriptor_pub, network FROM wallets WHERE id = ?1",
-                [signing_id.to_string()],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-            )
-            .map(Some)
-            .or_else(|e| match e {
-                rusqlite::Error::QueryReturnedNoRows => Ok(None),
-                other => Err(OnchainError::Storage(other.to_string())),
-            })?;
-        let Some((kind, descriptor, network)) = signing else {
-            return Err(OnchainError::InvalidArgument(format!(
-                "signing wallet {signing_id} not found"
-            )));
-        };
-        if kind != WalletKind::Signing.as_db_str() {
-            return Err(OnchainError::InvalidArgument(format!(
-                "wallet {signing_id} is not a signing wallet"
-            )));
-        }
-        if network != record.network {
-            return Err(OnchainError::InvalidArgument(format!(
-                "mirror network {} does not match the signing wallet's {network}",
-                record.network
-            )));
-        }
-        let signing_xpub = descriptor_account_xpub(&descriptor);
-        if signing_xpub.is_none() || signing_xpub != descriptor_account_xpub(&record.descriptor_pub)
-        {
-            return Err(OnchainError::InvalidArgument(
-                "mirror xpub does not match the signing wallet's account xpub".into(),
-            ));
-        }
-        tx.execute(
-            "INSERT INTO wallets \
-                (id, label, kind, descriptor_pub, network, created_at_unix, pins_warned, \
-                 mirror_of) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-            rusqlite::params![
-                record.id.to_string(),
-                &record.label,
-                record.kind.as_db_str(),
-                &record.descriptor_pub,
-                &record.network,
-                record.created_at_unix,
-                i32::from(record.pins_warned),
-                signing_id.to_string(),
-            ],
-        )
-        .map_err(|e| OnchainError::Storage(e.to_string()))?;
-        tx.commit()
-            .map_err(|e| OnchainError::Storage(e.to_string()))?;
-        Ok(())
-    }
-
-    /// The signing wallet `id` is linked to as a mirror (schema v4), if
-    /// any. `Ok(None)` also when `id` is unknown.
-    pub fn mirror_of(&self, id: &Uuid) -> Result<Option<Uuid>, OnchainError> {
-        let linked: Option<String> = self
-            .conn
-            .query_row(
-                "SELECT mirror_of FROM wallets WHERE id = ?1",
-                [id.to_string()],
-                |r| r.get(0),
-            )
-            .or_else(|e| match e {
-                rusqlite::Error::QueryReturnedNoRows => Ok(None),
-                other => Err(OnchainError::Storage(other.to_string())),
-            })?;
-        linked
-            .map(|s| {
-                Uuid::parse_str(&s).map_err(|e| {
-                    OnchainError::Storage(format!("invalid UUID in registry row: {e}"))
-                })
-            })
-            .transpose()
-    }
-
     /// Rename a wallet. Returns `true` if the row exists, `false`
     /// otherwise.
     pub fn rename_wallet(&self, id: &Uuid, new_label: &str) -> Result<bool, OnchainError> {
@@ -1261,17 +1126,43 @@ impl Registry {
         Ok(affected > 0)
     }
 
-    /// Mark a wallet's `pins_warned` flag, suppressing future same-PIN
-    /// warnings for that wallet. Idempotent.
-    pub fn mark_pins_warned(&self, id: &Uuid) -> Result<bool, OnchainError> {
-        let affected = self
+    /// UUIDs of the signing wallets left by builds before the watch-only
+    /// rework (keys under `wallets/<uuid>/`). Empty on a clean install.
+    pub fn legacy_signing_wallet_ids(&self) -> Result<Vec<Uuid>, OnchainError> {
+        let mut stmt = self
             .conn
-            .execute(
-                "UPDATE wallets SET pins_warned = 1 WHERE id = ?1",
-                [id.to_string()],
-            )
+            .prepare("SELECT id FROM wallets WHERE kind = ?1")
             .map_err(|e| OnchainError::Storage(e.to_string()))?;
-        Ok(affected > 0)
+        let ids: Vec<String> = stmt
+            .query_map([LEGACY_SIGNING_KIND], |r| r.get(0))
+            .map_err(|e| OnchainError::Storage(e.to_string()))?
+            .collect::<Result<_, _>>()
+            .map_err(|e| OnchainError::Storage(e.to_string()))?;
+        ids.iter()
+            .map(|id| {
+                Uuid::parse_str(id).map_err(|e| {
+                    OnchainError::Storage(format!("invalid UUID in registry row: {e}"))
+                })
+            })
+            .collect()
+    }
+
+    /// Remove every legacy signing wallet row and the registry rows that
+    /// reference it, in one transaction. Watch rows that mirrored one of
+    /// them stay as ordinary watch wallets. Returns the removed UUIDs; the
+    /// caller deletes their `wallets/<uuid>/` directories.
+    pub fn purge_legacy_signing_wallets(&self) -> Result<Vec<Uuid>, OnchainError> {
+        let ids = self.legacy_signing_wallet_ids()?;
+        let tx = self
+            .conn
+            .unchecked_transaction()
+            .map_err(|e| OnchainError::Storage(e.to_string()))?;
+        for id in &ids {
+            purge_wallet_rows(&tx, &id.to_string())?;
+        }
+        tx.commit()
+            .map_err(|e| OnchainError::Storage(e.to_string()))?;
+        Ok(ids)
     }
 
     // -----------------------------------------------------------------------
@@ -1330,7 +1221,6 @@ impl Registry {
             descriptor_pub: desc_ext,
             network: network_as_db_str(network)?,
             created_at_unix: now_unix(),
-            pins_warned: false,
         };
         Ok(record)
     }
@@ -1396,7 +1286,6 @@ impl Registry {
             descriptor_pub,
             network: network_as_db_str(network)?,
             created_at_unix: now_unix(),
-            pins_warned: false,
         };
         Ok(record)
     }
@@ -1453,7 +1342,6 @@ impl Registry {
             descriptor_pub: desc_ext,
             network: network_as_db_str(network)?,
             created_at_unix: now_unix(),
-            pins_warned: false,
         };
         Ok(record)
     }
@@ -1725,6 +1613,104 @@ impl Registry {
     }
 
     // ----------------------------------------------------------------
+    // BTC average cost — per-transaction price / exclusion (schema v5)
+    // ----------------------------------------------------------------
+
+    /// Set the user's input for one transaction of the BTC average-cost
+    /// view. `price` is `(fiat per BTC, ISO currency)`; `None` means "use
+    /// the market rate of the day". `excluded` drops the transaction from
+    /// the calculation. With neither set the row is deleted, so a
+    /// transaction back on its defaults leaves nothing behind.
+    ///
+    /// # Errors
+    ///
+    /// - [`OnchainError::InvalidArgument`] — negative / non-finite price,
+    ///   or a currency that is not three ASCII letters.
+    /// - [`OnchainError::Storage`] — write failure.
+    pub fn set_event_cost_basis(
+        &self,
+        wallet_id: &str,
+        txid_or_payment_id: &str,
+        price: Option<(f64, &str)>,
+        excluded: bool,
+    ) -> Result<(), OnchainError> {
+        let price = match price {
+            Some((value, currency)) => {
+                if !value.is_finite() || value < 0.0 {
+                    return Err(OnchainError::InvalidArgument(format!(
+                        "price_per_btc must be a finite number >= 0, got {value}"
+                    )));
+                }
+                let currency = currency.trim().to_ascii_uppercase();
+                if currency.len() != 3 || !currency.bytes().all(|b| b.is_ascii_uppercase()) {
+                    return Err(OnchainError::InvalidArgument(format!(
+                        "currency must be a 3-letter ISO code, got {currency:?}"
+                    )));
+                }
+                Some((value, currency))
+            }
+            None => None,
+        };
+        if price.is_none() && !excluded {
+            self.conn
+                .execute(
+                    "DELETE FROM tracking_event_cost_basis \
+                     WHERE wallet_id = ?1 AND txid_or_payment_id = ?2",
+                    (wallet_id, txid_or_payment_id),
+                )
+                .map_err(|e| OnchainError::Storage(e.to_string()))?;
+            return Ok(());
+        }
+        let (value, currency) = price.unzip();
+        self.conn
+            .execute(
+                "INSERT OR REPLACE INTO tracking_event_cost_basis \
+                    (wallet_id, txid_or_payment_id, price_per_btc, currency, excluded, \
+                     updated_at_unix) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                (
+                    wallet_id,
+                    txid_or_payment_id,
+                    value,
+                    currency,
+                    i64::from(excluded),
+                    now_unix(),
+                ),
+            )
+            .map_err(|e| OnchainError::Storage(e.to_string()))?;
+        Ok(())
+    }
+
+    /// Every stored per-transaction input of the BTC average-cost view.
+    ///
+    /// # Errors
+    ///
+    /// - [`OnchainError::Storage`] — read failure.
+    pub fn list_event_cost_basis(&self) -> Result<Vec<EventCostBasis>, OnchainError> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT wallet_id, txid_or_payment_id, price_per_btc, currency, excluded \
+                 FROM tracking_event_cost_basis",
+            )
+            .map_err(|e| OnchainError::Storage(e.to_string()))?;
+        let rows = stmt
+            .query_map([], |row| {
+                let price: Option<f64> = row.get(2)?;
+                let currency: Option<String> = row.get(3)?;
+                Ok(EventCostBasis {
+                    wallet_id: row.get(0)?,
+                    txid_or_payment_id: row.get(1)?,
+                    price: price.zip(currency),
+                    excluded: row.get::<_, i64>(4)? != 0,
+                })
+            })
+            .map_err(|e| OnchainError::Storage(e.to_string()))?;
+        rows.collect::<Result<_, _>>()
+            .map_err(|e| OnchainError::Storage(e.to_string()))
+    }
+
+    // ----------------------------------------------------------------
     // Phase 3.8 — saved tracking views
     // ----------------------------------------------------------------
 
@@ -1833,6 +1819,8 @@ impl Registry {
         budgeted_sat: u64,
         period: &str,
     ) -> Result<(), OnchainError> {
+        validate_non_blank("budget category", category)?;
+        validate_budget_period(period)?;
         self.conn
             .execute(
                 "INSERT OR REPLACE INTO tracking_budgets \
@@ -1902,6 +1890,7 @@ impl Registry {
         due_day: u32,
         display_label: Option<&str>,
     ) -> Result<i64, OnchainError> {
+        validate_non_blank("bill name", name)?;
         validate_due_day(due_day)?;
         self.conn
             .execute(
@@ -1930,6 +1919,7 @@ impl Registry {
         due_day: u32,
         display_label: Option<&str>,
     ) -> Result<bool, OnchainError> {
+        validate_non_blank("bill name", name)?;
         validate_due_day(due_day)?;
         let n = self
             .conn
@@ -2225,6 +2215,7 @@ impl Registry {
         kind: &str,
         display_label: Option<&str>,
     ) -> Result<i64, OnchainError> {
+        validate_liability_kind(kind)?;
         self.conn
             .execute(
                 "INSERT INTO tracking_liabilities \
@@ -2251,6 +2242,7 @@ impl Registry {
         kind: &str,
         display_label: Option<&str>,
     ) -> Result<bool, OnchainError> {
+        validate_liability_kind(kind)?;
         let n = self
             .conn
             .execute(
@@ -2488,6 +2480,7 @@ impl Registry {
         enabled: bool,
     ) -> Result<i64, OnchainError> {
         validate_rule(condition_field, condition_op, condition_value, action_field)?;
+        validate_non_blank("rule action value", action_value)?;
         self.conn
             .execute(
                 "INSERT INTO tracking_rules \
@@ -2525,6 +2518,7 @@ impl Registry {
         enabled: bool,
     ) -> Result<bool, OnchainError> {
         validate_rule(condition_field, condition_op, condition_value, action_field)?;
+        validate_non_blank("rule action value", action_value)?;
         let n = self
             .conn
             .execute(
@@ -3838,6 +3832,17 @@ impl Registry {
     }
 }
 
+/// One row of `tracking_event_cost_basis` (see
+/// [`Registry::set_event_cost_basis`]).
+#[derive(Debug, Clone, PartialEq)]
+pub struct EventCostBasis {
+    pub wallet_id: String,
+    pub txid_or_payment_id: String,
+    /// `(fiat per BTC, ISO currency)` typed by the user; `None` = market rate.
+    pub price: Option<(f64, String)>,
+    pub excluded: bool,
+}
+
 /// One row of the `tracking_views` table.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SavedView {
@@ -4107,6 +4112,30 @@ pub struct LotSelection {
 /// class lands here AND in the UI together.
 const VALID_ASSET_TYPES: &[&str] = &["stock", "etf", "fund", "currency", "commodity", "manual"];
 
+/// Budget periods the UI can prorate (`budgetPeriodDays` in the desktop app).
+const VALID_BUDGET_PERIODS: &[&str] = &["weekly", "monthly", "yearly"];
+
+/// Reject an empty / whitespace-only user-facing text field.
+fn validate_non_blank(what: &str, value: &str) -> Result<(), OnchainError> {
+    if value.trim().is_empty() {
+        Err(OnchainError::InvalidArgument(format!(
+            "{what} must not be blank"
+        )))
+    } else {
+        Ok(())
+    }
+}
+
+fn validate_budget_period(period: &str) -> Result<(), OnchainError> {
+    if VALID_BUDGET_PERIODS.contains(&period) {
+        Ok(())
+    } else {
+        Err(OnchainError::InvalidArgument(format!(
+            "budget period must be one of {VALID_BUDGET_PERIODS:?}, got {period:?}"
+        )))
+    }
+}
+
 /// Reject `due_day` values outside the 1..=31 calendar range. A 0 or
 /// 32 silently breaks "paid this period" comparisons downstream
 /// because the calendar logic assumes the value is a real day-of-month.
@@ -4162,6 +4191,20 @@ pub(crate) const VALID_BUCKET_KINDS: &[&str] = &[
 ///    funding rate; the UI shows ON TRACK / BEHIND / AHEAD based on
 ///    progress vs schedule.
 pub(crate) const VALID_GOAL_KINDS: &[&str] = &["savings", "sinking"];
+
+/// Allowed values for `tracking_liabilities.kind`. The UI maps each one
+/// to a localized label; anything else would surface as a raw string.
+pub(crate) const VALID_LIABILITY_KINDS: &[&str] = &["mortgage", "loan", "credit-card", "other"];
+
+fn validate_liability_kind(t: &str) -> Result<(), OnchainError> {
+    if VALID_LIABILITY_KINDS.contains(&t) {
+        Ok(())
+    } else {
+        Err(OnchainError::InvalidArgument(format!(
+            "liability kind must be one of {VALID_LIABILITY_KINDS:?}, got {t:?}"
+        )))
+    }
+}
 
 /// Phase 8.6 — allowed values for
 /// `tracking_savings_goals.target_denomination`.
@@ -4449,6 +4492,9 @@ fn now_unix() -> i64 {
 }
 
 #[cfg(test)]
+mod uc_tracker_tests;
+
+#[cfg(test)]
 #[allow(
     clippy::float_cmp,
     reason = "tests assert exact, deterministically computed f64 values"
@@ -4465,11 +4511,10 @@ mod tests {
         WalletRecord {
             id: Uuid::new_v4(),
             label: label.to_string(),
-            kind: WalletKind::Signing,
+            kind: WalletKind::WatchXpub,
             descriptor_pub: "tr(xpub6Cabcdef.../0/*)".to_string(),
             network: "signet".to_string(),
             created_at_unix: 1_715_000_000,
-            pins_warned: false,
         }
     }
 
@@ -4536,32 +4581,6 @@ mod tests {
         assert_eq!(got.label, "New");
         // Unknown id returns false.
         assert!(!registry.rename_wallet(&Uuid::new_v4(), "X").unwrap());
-    }
-
-    #[test]
-    fn mark_pins_warned_flips_flag() {
-        let dir = TempDir::new().unwrap();
-        let path = dir.path().join(REGISTRY_FILE_NAME);
-        let registry = open_registry(&path, &fixture_key()).unwrap();
-        let record = fixture_record("First");
-        registry.add_wallet(&record).unwrap();
-        assert!(
-            !registry
-                .get_wallet(&record.id)
-                .unwrap()
-                .unwrap()
-                .pins_warned
-        );
-        assert!(registry.mark_pins_warned(&record.id).unwrap());
-        assert!(
-            registry
-                .get_wallet(&record.id)
-                .unwrap()
-                .unwrap()
-                .pins_warned
-        );
-        // Idempotent: still returns true the second time (row exists), value already 1.
-        assert!(registry.mark_pins_warned(&record.id).unwrap());
     }
 
     #[test]
@@ -4767,12 +4786,11 @@ mod tests {
     }
 
     #[test]
-    fn all_four_wallet_kinds_round_trip() {
+    fn all_three_wallet_kinds_round_trip() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join(REGISTRY_FILE_NAME);
         let registry = open_registry(&path, &fixture_key()).unwrap();
         for kind in [
-            WalletKind::Signing,
             WalletKind::WatchXpub,
             WalletKind::WatchAddresses,
             WalletKind::WatchHd,
@@ -4783,58 +4801,23 @@ mod tests {
             let got = registry.get_wallet(&record.id).unwrap().unwrap();
             assert_eq!(got.kind, kind);
         }
-        assert_eq!(registry.list_wallets().unwrap().len(), 4);
+        assert_eq!(registry.list_wallets().unwrap().len(), 3);
     }
 
     // -----------------------------------------------------------------------
     // Watch-wallet convenience constructor tests (≥ 12)
     // -----------------------------------------------------------------------
 
-    /// Canonical BIP-86 test-vector mnemonic (same as `watch.rs::tests`).
-    const BIP86_MNEMONIC: &str = "abandon abandon abandon abandon abandon abandon \
-         abandon abandon abandon abandon abandon about";
-
-    /// Extract the account-level tpub from the exported external descriptor for
-    /// the given network.
     fn xpub_from_mnemonic(network: bhodl_core::Network) -> String {
-        use crate::OnchainAccount;
-        let account = OnchainAccount::from_mnemonic(network, BIP86_MNEMONIC, "").unwrap();
-        let backup = account.export_descriptors();
-        let ext = &backup.external;
-        let after_bracket = ext.rsplit(']').next().expect("descriptor must contain ]");
-        after_bracket
-            .trim_end_matches(')')
-            .rsplit_once("/0/*")
-            .map_or_else(
-                || {
-                    after_bracket
-                        .split('/')
-                        .next()
-                        .expect("xpub must be non-empty")
-                        .to_string()
-                },
-                |(xpub, _)| xpub.to_string(),
-            )
+        crate::test_support::bip86_xpub(network)
     }
 
-    /// Return a valid signet P2TR address derived from the BIP-86 test mnemonic.
     fn signet_p2tr_address_at(index: u32) -> String {
-        use crate::OnchainAccount;
-        OnchainAccount::from_mnemonic(bhodl_core::Network::Signet, BIP86_MNEMONIC, "")
-            .unwrap()
-            .peek_taproot_address(index)
-            .unwrap()
-            .to_string()
+        crate::test_support::bip86_address(bhodl_core::Network::Signet, index)
     }
 
-    /// Return a valid mainnet P2TR address derived from the BIP-86 test mnemonic.
     fn mainnet_p2tr_address_at(index: u32) -> String {
-        use crate::OnchainAccount;
-        OnchainAccount::from_mnemonic(bhodl_core::Network::Mainnet, BIP86_MNEMONIC, "")
-            .unwrap()
-            .peek_taproot_address(index)
-            .unwrap()
-            .to_string()
+        crate::test_support::bip86_address(bhodl_core::Network::Mainnet, index)
     }
 
     // 1. add_watch_xpub inserts a WatchXpub row with a tr( descriptor.
@@ -6389,6 +6372,22 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let r = open_fresh_registry(&dir);
         assert!(!r.update_liability(9999, "X", 1, "other", None).unwrap());
+    }
+
+    #[test]
+    fn liability_kind_is_validated_on_add_and_update() {
+        let dir = TempDir::new().unwrap();
+        let r = open_fresh_registry(&dir);
+        assert!(matches!(
+            r.add_liability("Boat", 1, "boat", None),
+            Err(OnchainError::InvalidArgument(_))
+        ));
+        let id = r.add_liability("X", 1, "loan", None).unwrap();
+        assert!(matches!(
+            r.update_liability(id, "X", 1, "Credit-card", None),
+            Err(OnchainError::InvalidArgument(_))
+        ));
+        assert_eq!(r.list_liabilities().unwrap()[0].kind, "loan");
     }
 
     #[test]
@@ -8221,42 +8220,6 @@ mod tests {
     }
 
     // -----------------------------------------------------------------
-    // Schema v4 — explicit signing ↔ mirror link
-    // -----------------------------------------------------------------
-
-    /// Signet BIP-86 account xpub; a non-empty `passphrase` yields a
-    /// different, unrelated account.
-    fn signet_xpub(passphrase: &str) -> String {
-        use crate::OnchainAccount;
-        let account =
-            OnchainAccount::from_mnemonic(bhodl_core::Network::Signet, BIP86_MNEMONIC, passphrase)
-                .unwrap();
-        account.export_descriptors().account_xpub().unwrap()
-    }
-
-    fn signing_record(label: &str, xpub: &str) -> WalletRecord {
-        WalletRecord {
-            id: Uuid::new_v4(),
-            label: label.to_string(),
-            kind: WalletKind::Signing,
-            descriptor_pub: format!("tr([73c5da0a/86'/1'/0']{xpub}/0/*)"),
-            network: "signet".to_string(),
-            created_at_unix: 1_715_000_000,
-            pins_warned: false,
-        }
-    }
-
-    fn watch_record(label: &str, xpub: &str) -> WalletRecord {
-        Registry::build_watch_xpub_record(
-            label,
-            xpub,
-            bhodl_core::Network::Signet,
-            WatchBip::Taproot,
-        )
-        .unwrap()
-    }
-
-    // -----------------------------------------------------------------
     // Specific-ID sells
     // -----------------------------------------------------------------
 
@@ -8475,78 +8438,6 @@ mod tests {
     }
 
     #[test]
-    fn v4_migration_links_only_unambiguous_mirrors() {
-        let dir = TempDir::new().unwrap();
-        let x_main = signet_xpub("");
-        let x_savings = signet_xpub("savings");
-        let main = signing_record("Main", &x_main);
-        let savings = signing_record("Savings", &x_savings);
-        // Linked: app label + same xpub + unique on both sides.
-        let mirror = watch_record("Main (tracker)", &x_main);
-        // Not linked: user label, same xpub.
-        let user_row = watch_record("My cold storage", &x_main);
-        // Not linked: app label of a DIFFERENT signing wallet's name.
-        let wrong_label = watch_record("Other (tracker)", &x_main);
-        // Not linked: two candidates for the same signing wallet.
-        let amb_a = watch_record("Savings (tracker)", &x_savings);
-        let amb_b = watch_record("Savings \u{b7} tracker", &x_savings);
-        {
-            let r = open_fresh_registry(&dir);
-            for rec in [
-                &main,
-                &savings,
-                &mirror,
-                &user_row,
-                &wrong_label,
-                &amb_a,
-                &amb_b,
-            ] {
-                r.add_wallet(rec).unwrap();
-            }
-            // Roll the DB back to a v3 layout.
-            r.conn
-                .execute_batch(
-                    "ALTER TABLE wallets DROP COLUMN mirror_of; PRAGMA user_version = 3;",
-                )
-                .unwrap();
-        }
-        let r = open_fresh_registry(&dir);
-        let v: i64 = r
-            .conn
-            .query_row("PRAGMA user_version", [], |x| x.get(0))
-            .unwrap();
-        assert_eq!(v, SCHEMA_VERSION);
-        assert_eq!(r.mirror_of(&mirror.id).unwrap(), Some(main.id));
-        for unlinked in [&user_row, &wrong_label, &amb_a, &amb_b, &main, &savings] {
-            assert_eq!(
-                r.mirror_of(&unlinked.id).unwrap(),
-                None,
-                "{}",
-                unlinked.label
-            );
-        }
-
-        // Deleting `Main` removes exactly its linked mirror.
-        let (removed, mirrors) = r.remove_wallet_and_mirrors(&main.id).unwrap();
-        assert!(removed);
-        assert_eq!(mirrors, vec![mirror.id]);
-        // Deleting `Savings` (ambiguous mirrors) removes no watch row.
-        let (removed, mirrors) = r.remove_wallet_and_mirrors(&savings.id).unwrap();
-        assert!(removed);
-        assert!(mirrors.is_empty());
-        let mut left: Vec<Uuid> = r
-            .list_wallets()
-            .unwrap()
-            .into_iter()
-            .map(|w| w.id)
-            .collect();
-        left.sort();
-        let mut expected = vec![user_row.id, wrong_label.id, amb_a.id, amb_b.id];
-        expected.sort();
-        assert_eq!(left, expected);
-    }
-
-    #[test]
     fn downgrade_refusal_keeps_working_with_schema_v4() {
         let dir = TempDir::new().unwrap();
         {
@@ -8564,85 +8455,133 @@ mod tests {
         }
     }
 
-    #[test]
-    fn add_mirror_wallet_links_and_removal_follows_the_link() {
-        let dir = TempDir::new().unwrap();
-        let r = open_fresh_registry(&dir);
-        let x = signet_xpub("");
-        let signing = signing_record("Main", &x);
-        r.add_wallet(&signing).unwrap();
-        // The label is irrelevant once the link is explicit.
-        let mirror = watch_record("anything the user renames it to", &x);
-        r.add_mirror_wallet(&mirror, &signing.id).unwrap();
-        // A user row named exactly like an auto mirror is NOT linked.
-        let lookalike = watch_record("Main (tracker)", &x);
-        r.add_wallet(&lookalike).unwrap();
-        assert_eq!(r.mirror_of(&mirror.id).unwrap(), Some(signing.id));
-        assert_eq!(r.mirror_of(&lookalike.id).unwrap(), None);
-
-        let (removed, mirrors) = r.remove_wallet_and_mirrors(&signing.id).unwrap();
-        assert!(removed);
-        assert_eq!(mirrors, vec![mirror.id]);
-        let left: Vec<Uuid> = r
-            .list_wallets()
-            .unwrap()
-            .into_iter()
-            .map(|w| w.id)
-            .collect();
-        assert_eq!(left, vec![lookalike.id]);
-        let (removed, mirrors) = r.remove_wallet_and_mirrors(&signing.id).unwrap();
-        assert!(!removed);
-        assert!(mirrors.is_empty());
+    /// Insert a pre-rework `signing` row (raw SQL: the kind no longer
+    /// exists in [`WalletKind`]) plus a watch row mirroring it.
+    fn insert_legacy_signing(r: &Registry) -> (Uuid, Uuid) {
+        let signing = Uuid::new_v4();
+        let mirror = Uuid::new_v4();
+        r.conn
+            .execute(
+                "INSERT INTO wallets (id, label, kind, descriptor_pub, network, created_at_unix) \
+                 VALUES (?1, 'Main', 'signing', 'tr(tpubX/0/*)', 'signet', 1)",
+                [signing.to_string()],
+            )
+            .unwrap();
+        r.conn
+            .execute(
+                "INSERT INTO wallets \
+                    (id, label, kind, descriptor_pub, network, created_at_unix, mirror_of) \
+                 VALUES (?1, 'Main (tracker)', 'watch_xpub', 'tr(tpubX/0/*)', 'signet', 2, ?2)",
+                [mirror.to_string(), signing.to_string()],
+            )
+            .unwrap();
+        r.set_event_category(&signing, "tx1", Some("food")).unwrap();
+        (signing, mirror)
     }
 
     #[test]
-    fn add_mirror_wallet_rejects_mismatched_targets() {
+    fn legacy_signing_rows_are_hidden_from_listings() {
         let dir = TempDir::new().unwrap();
         let r = open_fresh_registry(&dir);
-        let x = signet_xpub("");
-        let signing = signing_record("Main", &x);
-        r.add_wallet(&signing).unwrap();
-        let other_watch = watch_record("W", &x);
-        r.add_wallet(&other_watch).unwrap();
-
-        // Different xpub.
-        let foreign = watch_record("F", &signet_xpub("other"));
-        assert!(matches!(
-            r.add_mirror_wallet(&foreign, &signing.id),
-            Err(OnchainError::InvalidArgument(_))
-        ));
-        // Target is not a signing wallet.
-        assert!(matches!(
-            r.add_mirror_wallet(&watch_record("M", &x), &other_watch.id),
-            Err(OnchainError::InvalidArgument(_))
-        ));
-        // Unknown signing wallet.
-        assert!(matches!(
-            r.add_mirror_wallet(&watch_record("M", &x), &Uuid::new_v4()),
-            Err(OnchainError::InvalidArgument(_))
-        ));
-        // Different network.
-        let mut wrong_net = watch_record("M", &x);
-        wrong_net.network = "mainnet".into();
-        assert!(matches!(
-            r.add_mirror_wallet(&wrong_net, &signing.id),
-            Err(OnchainError::InvalidArgument(_))
-        ));
-        // Nothing was inserted by the failed calls.
-        assert_eq!(r.list_wallets().unwrap().len(), 2);
+        let (signing, mirror) = insert_legacy_signing(&r);
+        let listed: Vec<Uuid> = r.list_wallets().unwrap().iter().map(|w| w.id).collect();
+        assert_eq!(listed, vec![mirror]);
+        assert!(r.get_wallet(&signing).unwrap().is_none());
+        assert_eq!(r.legacy_signing_wallet_ids().unwrap(), vec![signing]);
     }
 
     #[test]
-    fn plain_removal_of_signing_wallet_unlinks_but_keeps_mirror() {
+    fn purge_legacy_signing_wallets_keeps_mirrors_as_plain_watch_wallets() {
         let dir = TempDir::new().unwrap();
         let r = open_fresh_registry(&dir);
-        let x = signet_xpub("");
-        let signing = signing_record("Main", &x);
-        r.add_wallet(&signing).unwrap();
-        let mirror = watch_record("Main (tracker)", &x);
-        r.add_mirror_wallet(&mirror, &signing.id).unwrap();
-        assert!(r.remove_wallet_with_metadata(&signing.id).unwrap());
-        assert!(r.get_wallet(&mirror.id).unwrap().is_some());
-        assert_eq!(r.mirror_of(&mirror.id).unwrap(), None);
+        let (signing, mirror) = insert_legacy_signing(&r);
+        assert_eq!(r.purge_legacy_signing_wallets().unwrap(), vec![signing]);
+        assert!(r.legacy_signing_wallet_ids().unwrap().is_empty());
+        assert_eq!(r.get_event_category(&signing, "tx1").unwrap(), None);
+        let kept = r.get_wallet(&mirror).unwrap().expect("mirror survives");
+        assert_eq!(kept.kind, WalletKind::WatchXpub);
+        let linked: Option<String> = r
+            .conn
+            .query_row(
+                "SELECT mirror_of FROM wallets WHERE id = ?1",
+                [mirror.to_string()],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(linked, None);
+        // Idempotent.
+        assert!(r.purge_legacy_signing_wallets().unwrap().is_empty());
+    }
+    // ---------------------------------------------------------------
+    // v5 — BTC average cost per-transaction inputs
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn event_cost_basis_round_trip_and_reset() {
+        let dir = TempDir::new().unwrap();
+        let r = open_fresh_registry(&dir);
+        r.set_event_cost_basis("w1", "tx1", Some((42_000.5, "eur")), false)
+            .unwrap();
+        r.set_event_cost_basis("w1", "tx2", None, true).unwrap();
+        let mut rows = r.list_event_cost_basis().unwrap();
+        rows.sort_by(|a, b| a.txid_or_payment_id.cmp(&b.txid_or_payment_id));
+        assert_eq!(
+            rows,
+            vec![
+                EventCostBasis {
+                    wallet_id: "w1".into(),
+                    txid_or_payment_id: "tx1".into(),
+                    price: Some((42_000.5, "EUR".into())),
+                    excluded: false,
+                },
+                EventCostBasis {
+                    wallet_id: "w1".into(),
+                    txid_or_payment_id: "tx2".into(),
+                    price: None,
+                    excluded: true,
+                },
+            ]
+        );
+        // Back to defaults: the row disappears.
+        r.set_event_cost_basis("w1", "tx1", None, false).unwrap();
+        let rows = r.list_event_cost_basis().unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].txid_or_payment_id, "tx2");
+    }
+
+    #[test]
+    fn event_cost_basis_rejects_bad_input() {
+        let dir = TempDir::new().unwrap();
+        let r = open_fresh_registry(&dir);
+        for (price, ccy) in [(-1.0, "EUR"), (f64::NAN, "EUR"), (f64::INFINITY, "EUR")] {
+            assert!(matches!(
+                r.set_event_cost_basis("w", "tx", Some((price, ccy)), false),
+                Err(OnchainError::InvalidArgument(_))
+            ));
+        }
+        for ccy in ["", "EU", "EURO", "E1R"] {
+            assert!(matches!(
+                r.set_event_cost_basis("w", "tx", Some((1.0, ccy)), false),
+                Err(OnchainError::InvalidArgument(_))
+            ));
+        }
+        // A zero price is valid (e.g. a gift recorded at no cost).
+        r.set_event_cost_basis("w", "tx", Some((0.0, "EUR")), false)
+            .unwrap();
+        assert_eq!(r.list_event_cost_basis().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn removing_a_wallet_drops_its_cost_basis_rows() {
+        let dir = TempDir::new().unwrap();
+        let r = open_fresh_registry(&dir);
+        let (_signing, mirror) = insert_legacy_signing(&r);
+        let wid = mirror.to_string();
+        r.set_event_cost_basis(&wid, "tx1", None, true).unwrap();
+        r.set_event_cost_basis("other", "tx1", None, true).unwrap();
+        assert!(r.remove_wallet_with_metadata(&mirror).unwrap());
+        let rows = r.list_event_cost_basis().unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].wallet_id, "other");
     }
 }

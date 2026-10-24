@@ -16,8 +16,8 @@
 //!
 //! Paths covered:
 //! - Esplora (`esplora-client` / minreq) through the loopback
-//!   HTTP-CONNECT → SOCKS5 bridge in [`crate::tor`]: tip height, fee
-//!   estimates, a full BIP86 wallet scan, a `.onion` Esplora.
+//!   HTTP-CONNECT → SOCKS5 bridge in [`crate::tor`]: tip height, a full
+//!   BIP86 watch-wallet scan, a `.onion` Esplora.
 //! - Rate fetches (ureq SOCKS agent, [`crate::btc_rate_history`]).
 //! - Both paths are checked against `check.torproject.org/api/ip`
 //!   (`"IsTor": true`), i.e. traffic really exits through Tor.
@@ -30,10 +30,10 @@ use std::time::Duration;
 
 use bhodl_core::Network as BhodlNetwork;
 
-use crate::OnchainAccount;
-use crate::account::try_build_esplora_client;
 use crate::btc_rate_history::{BtcRateHistoryRepository as _, BtcRateRepo, rate_agent};
+use crate::common::try_build_esplora_client;
 use crate::tor::parse_socks_proxy;
+use crate::{WatchAccount, WatchBip};
 
 const SIGNET_ESPLORA: &str = "https://mempool.space/signet/api";
 /// Blockstream's Esplora onion service (signet).
@@ -46,8 +46,20 @@ const TOR_CHECK_API: &str = "https://check.torproject.org/api";
 /// Signet was past this height long before these tests were written.
 const MIN_SIGNET_HEIGHT: u32 = 200_000;
 
-const BIP86_MNEMONIC: &str = "abandon abandon abandon abandon abandon abandon \
-                              abandon abandon abandon abandon abandon about";
+/// Signet watch wallet over the BIP-86 "abandon … about" test account,
+/// in a temp dir (kept alive alongside the account).
+fn bip86_signet_watch() -> (tempfile::TempDir, WatchAccount) {
+    let dir = tempfile::TempDir::new().unwrap();
+    let account = WatchAccount::create_from_xpub(
+        BhodlNetwork::Signet,
+        &dir.path().join("tor_live.sqlite"),
+        &[0x42; crate::ENCRYPTION_KEY_LEN],
+        &crate::test_support::bip86_xpub(BhodlNetwork::Signet),
+        WatchBip::Taproot,
+    )
+    .unwrap();
+    (dir, account)
+}
 
 /// The SOCKS proxy to use, or `None` (after printing why) when Tor is
 /// not reachable and `BHODL_TOR_REQUIRED` is unset.
@@ -177,21 +189,9 @@ fn tor_live_esplora_tip_height_through_bridge() {
 }
 
 #[test]
-fn tor_live_esplora_fee_estimates_through_bridge() {
-    let Some(proxy) = tor_proxy() else { return };
-    let b = with_retries("signet fee estimates via Tor", || {
-        OnchainAccount::fetch_fee_estimates_from(SIGNET_ESPLORA, Some(&proxy))
-    });
-    assert!(b.economy_sat_per_vb >= 1, "{b:?}");
-    assert!(b.economy_sat_per_vb <= b.normal_sat_per_vb, "{b:?}");
-    assert!(b.normal_sat_per_vb <= b.priority_sat_per_vb, "{b:?}");
-}
-
-#[test]
 fn tor_live_esplora_full_wallet_sync_through_bridge() {
     let Some(proxy) = tor_proxy() else { return };
-    let mut account =
-        OnchainAccount::from_mnemonic(BhodlNetwork::Signet, BIP86_MNEMONIC, "").unwrap();
+    let (_dir, mut account) = bip86_signet_watch();
     with_retries("signet full scan via Tor", || {
         account.sync_with_esplora(SIGNET_ESPLORA, Some(&proxy))
     });
@@ -309,10 +309,6 @@ fn tor_live_esplora_fails_closed_with_dead_proxy() {
         client.get_height().is_err(),
         "must fail with the proxy down"
     );
-    assert!(
-        OnchainAccount::fetch_fee_estimates_from(&esplora, Some(&proxy)).is_err(),
-        "fee estimates must fail with the proxy down"
-    );
     std::thread::sleep(Duration::from_millis(300));
     assert!(
         !hit.load(Ordering::SeqCst),
@@ -340,8 +336,7 @@ fn tor_live_rate_agent_fails_closed_with_dead_proxy() {
 
 #[test]
 fn tor_live_wallet_sync_fails_closed_with_dead_proxy() {
-    let mut account =
-        OnchainAccount::from_mnemonic(BhodlNetwork::Signet, BIP86_MNEMONIC, "").unwrap();
+    let (_dir, mut account) = bip86_signet_watch();
     let proxy = format!("socks5h://127.0.0.1:{}", dead_port());
     assert!(
         account

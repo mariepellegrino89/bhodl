@@ -29,7 +29,7 @@ class PortfolioSheetTest {
 
     private val wallet = GroupedWallet(
         displayLabel = "Cold", kindLabel = "Watch", network = "signet",
-        balanceSat = 1_000_000UL, showNotActiveHint = false, memberIds = setOf("w1", "w1m"),
+        balanceSat = 1_000_000UL, memberIds = setOf("w1", "w1m"),
     )
 
     // 10 shares × 50 € = 500 € = 1,000,000 sat now; all bought before the window.

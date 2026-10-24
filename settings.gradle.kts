@@ -111,3 +111,59 @@ if (hasAndroidSdk) {
         }
     }
 }
+
+// Supply chain: force patched versions of vulnerable transitive libraries
+// that reach ONLY build-tooling and test classpaths — none of them ships in
+// the desktop / Android runtime classpath:
+//   - io.netty 4.1.93.Final  <- grpc-netty 1.57 <- AGP 8.9.3 (UTP proto);
+//     AGP 8.13.2 (latest 8.x) still pulls grpc-netty 1.69 -> netty 4.1.110.
+//   - org.bouncycastle *-jdk18on 1.79 <- AGP 8.9.3 sdk-common (also 1.79 in
+//     AGP 8.13.2); 1.80.2 <- kotlinBouncyCastleConfiguration (KGP);
+//     1.82 <- docker-java-core 3.7.1 (desktop jvmTest, Testcontainers).
+//   - org.freemarker 2.3.32  <- intellij coverage-report <- Kover 0.8.3
+//     (Kover 0.9.11, the latest, still pulls 2.3.32).
+// Bumping AGP / Kover does not remove any of them, so the floors below are
+// applied instead, to every project's buildscript (plugin) classpath and to
+// every project configuration. Rules only RAISE a version, never lower it;
+// drop an entry once upstream requires the floor (or newer) itself.
+// Verification hashes for the forced versions live in
+// gradle/verification-metadata.xml like any other dependency.
+// REVIEW BY 2026-12-31 (or on the next AGP / Kover / docker-java bump).
+val securityFloors: List<Triple<String, (String) -> Boolean, String>> = listOf(
+    // Whole netty 4.1 family, kept aligned (netty-tcnative versions differently).
+    Triple("io.netty", { name: String -> name.startsWith("netty-") && "tcnative" !in name }, "4.1.139.Final"),
+    // bcprov / bcpkix / bcutil / bcpg / bctls must stay on one version.
+    Triple("org.bouncycastle", { name: String -> name.endsWith("-jdk18on") }, "1.86"),
+    Triple("org.freemarker", { name: String -> name == "freemarker" }, "2.3.35"),
+)
+
+fun versionIsLower(candidate: String, floor: String): Boolean {
+    val a = candidate.split('.', '-').map { it.toIntOrNull() ?: 0 }
+    val b = floor.split('.', '-').map { it.toIntOrNull() ?: 0 }
+    for (i in 0 until maxOf(a.size, b.size)) {
+        val x = a.getOrElse(i) { 0 }
+        val y = b.getOrElse(i) { 0 }
+        if (x != y) return x < y
+    }
+    return false
+}
+
+val applySecurityFloors = Action<DependencyResolveDetails> {
+    val requested = requested
+    val version = requested.version ?: return@Action
+    for ((group, nameMatches, floor) in securityFloors) {
+        if (requested.group == group && nameMatches(requested.name) &&
+            // Same major line only (e.g. never move netty 4.2 / 5.x).
+            version.substringBefore('.') == floor.substringBefore('.') &&
+            versionIsLower(version, floor)
+        ) {
+            useVersion(floor)
+            because("security floor (settings.gradle.kts): vulnerable $version")
+        }
+    }
+}
+
+gradle.beforeProject {
+    buildscript.configurations.configureEach { resolutionStrategy.eachDependency(applySecurityFloors) }
+    configurations.configureEach { resolutionStrategy.eachDependency(applySecurityFloors) }
+}

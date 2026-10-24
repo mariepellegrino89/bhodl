@@ -21,13 +21,11 @@
 
     <!-- Wallet workspace (UX review 2026-10, items 5–8) -->
     <string name="wallet_tab_transactions">Transazioni</string>
-    <string name="wallet_tab_send">Invia</string>
     <string name="wallet_tab_receive">Ricevi</string>
     <string name="wallet_tab_addresses">Indirizzi</string>
     <string name="wallet_tab_utxos">UTXO</string>
     <string name="wallet_tab_settings">Impostazioni wallet</string>
     <string name="wallet_header_balance">Saldo</string>
-    <string name="wallet_header_signing">Wallet di firma</string>
     <string name="wallet_header_watch">Wallet in sola lettura</string>
     <string name="wallet_sync">Sincronizza</string>
     <string name="wallet_syncing">Sincronizzazione…</string>
@@ -36,13 +34,6 @@
     <string name="wallet_sync_failed">Sincronizzazione non riuscita</string>
     <string name="wallet_action_contacts">Contatti</string>
     <string name="wallet_action_lock">Blocca</string>
-    <string name="wallet_restoring_title">Ripristino del wallet</string>
-    <string name="wallet_restoring_body">Scansione della blockchain per le attività passate. Questa scansione completa, una tantum, può richiedere qualche minuto; saldo e storico compaiono al termine.</string>
-    <string name="wallet_tracker_banner_title">Seguire questo wallet nel tracker?</string>
-    <string name="wallet_tracker_banner_body">Aggiungi una copia solo-xpub così il tracker mostra saldo e storico di questo wallet senza il PIN di firma.</string>
-    <string name="wallet_tracker_banner_add">Aggiungi al tracker</string>
-    <string name="wallet_tracker_banner_adding">Aggiunta…</string>
-    <string name="wallet_tracker_banner_skip">Salta</string>
     <string name="wallet_tx_col_date">DATA</string>
     <string name="wallet_tx_col_label">ETICHETTA · CATEGORIA</string>
     <string name="wallet_tx_col_amount">IMPORTO</string>
@@ -57,9 +48,6 @@
     <string name="wallet_tx_status_pending">In attesa</string>
     <string name="wallet_tx_status_confirming">In conferma %1$d/6</string>
     <string name="wallet_tx_status_confirming_unknown">In conferma</string>
-    <string name="wallet_tx_fee_bumped">Fee aumentata</string>
-    <string name="wallet_tx_replaced">Sostituita</string>
-    <string name="wallet_tx_speed_up">Accelera</string>
     <string name="wallet_tx_empty">Ancora nessuna transazione. Sincronizza o attendi un pagamento in arrivo.</string>
     <string name="wallet_tx_no_match">Nessuna transazione corrisponde al filtro.</string>
     <string name="wallet_tx_loading">Caricamento transazioni…</string>
@@ -80,43 +68,7 @@
     <string name="wallet_txd_save">Salva</string>
     <string name="wallet_txd_saving">Salvataggio…</string>
     <string name="wallet_txd_clear">Cancella</string>
-    <string name="wallet_txd_speed_up_rbf">Sostituiscila con una fee più alta (RBF). Costo esatto del preset scelto:</string>
-    <string name="wallet_txd_speed_up_cpfp">Spendi la moneta in arrivo con una transazione figlia che paga per entrambe (CPFP). Costo esatto del preset scelto:</string>
-    <string name="wallet_txd_speed_up_cost">+%1$s a %2$d sat/vB · %3$s</string>
-    <string name="wallet_txd_speed_up_calculating">Calcolo del costo esatto…</string>
-    <string name="wallet_txd_speed_up_unavailable">Costo non disponibile: %1$s</string>
-    <string name="wallet_txd_speed_up_review">Rivedi accelerazione</string>
-    <string name="wallet_txd_cpfp_change">Accelera tramite resto (CPFP)</string>
-    <string name="wallet_txd_replaced_note">Sostituita da un aumento della fee — non verrà confermata.</string>
     <string name="wallet_txd_not_found">Transazione non trovata nello storico di questo wallet.</string>
-    <string name="wallet_fee_header">Fee</string>
-    <string name="wallet_fee_economy">Economica</string>
-    <string name="wallet_fee_normal">Normale</string>
-    <string name="wallet_fee_priority">Priorità</string>
-    <string name="wallet_fee_eta_minutes">~%1$d min</string>
-    <string name="wallet_fee_eta_hours">~%1$d h</string>
-    <string name="wallet_fee_total">≈ %1$s</string>
-    <string name="wallet_fee_estimate_note">I totali sono stime sulla dimensione di questo pagamento; la revisione mostra la fee esatta.</string>
-    <string name="wallet_fee_custom">Fee personalizzata</string>
-    <string name="wallet_fee_custom_hint">Usa una tua tariffa al posto dei preset.</string>
-    <string name="wallet_fee_custom_field">Tariffa (sat/vB)</string>
-    <string name="wallet_fee_custom_active">Tariffa personalizzata in uso</string>
-    <string name="wallet_send_recipient_header">Destinatario</string>
-    <string name="wallet_send_options_header">Opzioni</string>
-    <string name="wallet_send_address_field">Indirizzo del destinatario (o URI bitcoin:)</string>
-    <string name="wallet_send_from_book">Dalla rubrica</string>
-    <string name="wallet_send_loading">Caricamento…</string>
-    <string name="wallet_send_amount_field">Importo (satoshi)</string>
-    <string name="wallet_send_max">Invia tutto</string>
-    <string name="wallet_send_max_hint">Invia al destinatario ogni sat disponibile. Nessun resto.</string>
-    <string name="wallet_send_add_recipient">+ Aggiungi destinatario</string>
-    <string name="wallet_send_coin_control">Coin control</string>
-    <string name="wallet_send_coin_control_hint">Usa solo le UTXO scelte come input.</string>
-    <string name="wallet_send_review">Rivedi</string>
-    <string name="wallet_send_review_payjoin">Rivedi PayJoin</string>
-    <string name="wallet_send_building">Costruzione…</string>
-    <string name="wallet_send_contacting_payjoin">Contatto con il destinatario PayJoin…</string>
-    <string name="wallet_coin_control_auto">Viene usata la selezione automatica delle monete, a meno che tu non attivi il coin control.</string>
     <string name="wallet_rcv_step1_title">Prima etichetta questo pagamento</string>
     <string name="wallet_rcv_step1_body">Facoltativo. Etichetta e categoria del tracker impostate ora vengono applicate al pagamento appena arriva.</string>
     <string name="wallet_rcv_label">Etichetta (facoltativa)</string>
@@ -139,7 +91,7 @@
     <string name="wallet_rcv_labelled">Etichetta: %1$s</string>
     <string name="wallet_rcv_categorised">Categoria: %1$s</string>
     <string name="wallet_rcv_error">Impossibile derivare un indirizzo</string>
-    <string name="wallet_rcv_not_unlocked">Wallet non sbloccato</string>
+    <string name="wallet_rcv_not_unlocked">Nessun wallet aperto</string>
     <string name="wallet_addr_receive">Ricezione</string>
     <string name="wallet_addr_change">Resto</string>
     <string name="wallet_addr_col_index">#</string>
@@ -156,35 +108,15 @@
     <string name="wallet_utxo_col_type">TIPO</string>
     <string name="wallet_utxo_col_status">STATO</string>
     <string name="wallet_utxo_col_amount">IMPORTO</string>
-    <string name="wallet_utxo_freeze">Congela</string>
-    <string name="wallet_utxo_unfreeze">Scongela</string>
-    <string name="wallet_utxo_frozen">Congelata</string>
     <string name="wallet_utxo_confirmed">Confermata</string>
     <string name="wallet_utxo_unconfirmed">Non confermata</string>
     <string name="wallet_utxo_receive">Ricezione</string>
     <string name="wallet_utxo_change">Resto</string>
-    <string name="wallet_utxo_spend_selected">Invia selezionate (%1$d)</string>
-    <string name="wallet_utxo_summary">%1$d monete · %2$s · %3$d selezionate (%4$s)</string>
+    <string name="wallet_utxo_summary">%1$d monete · %2$s</string>
     <string name="wallet_utxo_empty">Ancora nessuna moneta.</string>
-    <string name="wallet_utxo_hint">Le monete congelate non vengono mai scelte dalla selezione automatica e non si possono spendere finché non le scongeli. Seleziona delle monete per spendere esattamente quelle (coin control).</string>
     <string name="wallet_utxo_failed">Impossibile aggiornare la moneta: %1$s</string>
-    <string name="wallet_settings_moved">Backup, etichette, frase di recupero, descrittore, rinomina ed eliminazione sono in Wallet › Impostazioni wallet.</string>
+    <string name="wallet_settings_moved">Etichette, esportazione del descrittore, rinomina e rimozione sono in Wallet › Impostazioni wallet.</string>
     <string name="wallet_settings_open">Apri impostazioni wallet</string>
-    <string name="wallet_review_title">Revisione</string>
-    <string name="wallet_review_subtitle">Conferma ciò che stai per trasmettere.</string>
-    <string name="wallet_review_diagram">Diagramma della transazione</string>
-    <string name="wallet_review_diagram_show">Mostra diagramma</string>
-    <string name="wallet_review_diagram_hide">Nascondi diagramma</string>
-    <string name="wallet_review_inputs">Input · %1$d</string>
-    <string name="wallet_review_role_recipient">destinatario</string>
-    <string name="wallet_review_role_change">resto · tuo</string>
-    <string name="wallet_review_role_self">a te stesso</string>
-    <string name="wallet_review_fee_node">Fee di rete</string>
-    <string name="wallet_review_diagram_a11y">Diagramma della transazione: input (%1$d) per un totale di %2$s vanno agli output (%3$d): %4$s. Fee di rete %5$s.</string>
-    <string name="wallet_review_output_a11y">%1$s a %2$s (%3$s)</string>
-    <string name="wallet_watch_readonly">Wallet in sola lettura: nessuna chiave di firma su questo dispositivo.</string>
-    <string name="wallet_watch_promote">Promuovi a wallet di firma (aggiungi seed)</string>
-    <string name="wallet_watch_back">Torna ai wallet</string>
     <!-- /Wallet workspace -->
 
 
@@ -222,7 +154,6 @@
 
     <string name="settings_esplora_section">Endpoint Esplora</string>
     <string name="settings_esplora_description">Sovrascrivi l’URL mempool.space di default — punta alla tua istanza electrs / mempool per privacy o self-hosting.</string>
-    <string name="settings_esplora_field_label">URL</string>
     <string name="settings_esplora_reset">Ripristina default</string>
     <string name="settings_esplora_active_default">Attivo: %1$s (default)</string>
     <string name="settings_esplora_active_override">Attivo: %1$s</string>
@@ -240,8 +171,6 @@
     <string name="tracker_refresh_balances">Aggiorna saldi</string>
     <string name="tracker_refreshing">Aggiornamento…</string>
     <string name="tracker_add_wallet">Aggiungi</string>
-    <string name="tracker_add_watch_xpub">Wallet in sola lettura (xpub)</string>
-    <string name="tracker_create_signing_wallet">Nuovo wallet di firma</string>
     <string name="tracker_net_worth_label">patrimonio netto</string>
     <string name="tracker_n_categories">%1$d categorie</string>
     <string name="tracker_kpi_inflow_exceeds">Entrate &gt; uscite</string>
@@ -302,4 +231,5 @@
     <string name="tracker_sheet_updated_today">oggi</string>
     <string name="tracker_sheet_updated_days">%1$d g fa</string>
     <string name="tracker_sheet_change_note">Variazione nel periodo selezionato, in bitcoin. Investimenti e beni manuali sono valutati al valore fiat di oggi e al cambio BTC di inizio periodo, come lo storico del patrimonio netto.</string>
+    <string name="android_placeholder_body">Questa alpha funziona sull'app desktop. L'interfaccia Android arriverà in una versione successiva.</string>
 </resources>

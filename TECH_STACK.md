@@ -5,6 +5,23 @@
 
 Documento riepilogativo di **tutte le tecnologie, librerie, protocolli, standard e servizi** previsti nel progetto.
 
+> **Aggiornamento 2026-10-23 — BHODL è watch-only.** Questo elenco è il piano di maggio
+> 2026 e non è stato riscritto. Dal 2026-10-23 BHODL non tiene chiavi private e non invia
+> bitcoin: tutto ciò che serve a firmare o spendere è **superato** per questa app —
+> PSBT build/sign/broadcast, coin selection, RBF/CPFP, PayJoin (rust-payjoin, BIP78/77),
+> invio Silent Payments, hardware wallet signing (§10: HWI, PSBT v2, BBQr/UR), backup e
+> recovery del seed (§11: BIP39, Codex32, SeedQR; `age` per l'export cifrato), e le parti
+> Lightning / Liquid / eCash che presuppongono di custodire fondi (§6–§9), da ripensare
+> come sola lettura. Rimossi dal codice: `age`, `secrecy`; `bip39` resta solo come
+> dev-dependency per i vettori di test.
+>
+> Stack effettivamente in uso oggi: Rust 1.88 + `bdk_wallet` / `bdk_esplora` (wallet
+> watch-only da xpub / descriptor / indirizzi), SQLCipher (`rusqlite` + OpenSSL vendored)
+> con chiave dati avvolta (XChaCha20-Poly1305, `chacha20poly1305`) da Argon2id del PIN del
+> dispositivo e, se creato, da un codice di recupero; Tor via proxy SOCKS5 locale, UniFFI 0.28.3
+> + fork KMP Ubique, Kotlin Multiplatform + Compose Multiplatform (desktop JVM). Vedi
+> `README.md` e `docs/handbook.md` per lo stato reale.
+
 **Convenzioni**:
 - Priorità: **P0** = MVP (mese 1-11), **P1** = post-MVP (12-15), **P2** = (16-22), **P3** = (23+).
 - Licenze: tutte verificate per compatibilità con distribuzione open-source MIT/Apache-2.0 del progetto.

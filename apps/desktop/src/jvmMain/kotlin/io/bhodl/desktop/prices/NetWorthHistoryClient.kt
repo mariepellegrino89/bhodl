@@ -133,6 +133,7 @@ public object NetWorthHistoryClient {
         val fromDay: Long,
         val toDay: Long,
         val events: List<PaymentEventLiteFfi>,
+        val dataVersion: Long,
     )
 
     private data class CacheEntry(
@@ -167,6 +168,18 @@ public object NetWorthHistoryClient {
         inFlight.clear()
     }
 
+    /**
+     * GAP-015 — forget every cached window (lock / wipe): the key carries
+     * no registry identity, so a new registry could otherwise be served
+     * the previous one's history.
+     */
+    public suspend fun clearCache() {
+        mutex.withLock {
+            cache.clear()
+            inFlight.clear()
+        }
+    }
+
     /** Number of cached windows. Test-only. */
     internal fun cacheSizeForTest(): Int = cache.size
 
@@ -180,7 +193,7 @@ public object NetWorthHistoryClient {
      * aligned to UTC days (the backend works at day resolution anyway).
      *
      * [events] must be the caller-aggregated list of on-chain payment
-     * events (watch wallets + signing wallets). Build each entry via
+     * events of every tracked wallet. Build each entry via
      * `PaymentEventLiteFfi(amountSat = ..., blockTimeUnix = ...)` where
      * `amountSat` is **signed** (positive for incoming, negative for
      * outgoing).
@@ -194,10 +207,13 @@ public object NetWorthHistoryClient {
         toUnix: Long,
         currency: FiatCurrency,
         events: List<PaymentEventLiteFfi> = emptyList(),
+        /** GAP-016 — registry data version: an edit to investments, manual
+         *  assets or liabilities must not be served the pre-edit history. */
+        dataVersion: Long = RegistryStore.dataVersion.value,
     ): List<NwSnapshot> {
         val fromDay = Math.floorDiv(fromUnix, SECS_PER_DAY)
         val toDay = Math.floorDiv(toUnix, SECS_PER_DAY)
-        val key = CacheKey(currency, fromDay, toDay, events)
+        val key = CacheKey(currency, fromDay, toDay, events, dataVersion)
         val rangeDays = (toDay - fromDay).toInt().coerceAtLeast(1)
         val ttlMs = ttlMsFor(rangeDays)
 

@@ -6,17 +6,15 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
-import kotlin.test.assertNotNull
+import kotlin.test.assertSame
 
 /**
- * Unit tests for [`WalletStore`].
- *
- * Most paths are exercised end-to-end by the *ScreenTest suites, but
- * the `txEpoch` reconciliation counter (introduced for the History
- * refresh-on-resume fix) earns its own dedicated coverage so a future
- * refactor can't silently break the History → action-screen
- * coordination.
+ * Unit tests for [`WalletStore`] — the process-lifetime holder of the
+ * open watch-only wallet. Most paths are exercised end-to-end by the
+ * *ScreenTest suites; this pins the handle lifecycle (close on replace /
+ * clear) that the Windows file-lock fix depends on.
  */
 class WalletStoreTest {
 
@@ -31,79 +29,53 @@ class WalletStoreTest {
     }
 
     @Test
-    fun `clear leaves no port and resets state`() {
-        WalletStore.set(FakeWalletPort(), Network.REGTEST)
-        WalletStore.markJustRestored()
-        WalletStore.markTxEpochAdvanced()
-        WalletStore.markTxEpochAdvanced()
+    fun `clear closes the port and resets state`() {
+        val fake = FakeWalletPort()
+        WalletStore.set(fake, Network.REGTEST, walletId = "w1", label = "Cold storage")
 
         WalletStore.clear()
 
         assertNull(WalletStore.current())
-        assertEquals(false, WalletStore.justRestored.value)
-        assertEquals(
-            0L,
-            WalletStore.txEpoch.value,
-            "txEpoch must reset to 0 so subsequent runs start clean",
-        )
-        // Default network bounces back to Signet (matches the
-        // production fallback when no NetworkPersistence file exists).
+        assertNull(WalletStore.activeWalletId())
+        assertNull(WalletStore.activeWalletLabel())
+        assertEquals(1, fake.closeCalls)
+        // Default network bounces back to Signet.
         assertEquals(Network.SIGNET, WalletStore.network())
     }
 
     @Test
-    fun `set with network records it`() {
+    fun `set records network, id and label`() {
         val fake = FakeWalletPort()
-        WalletStore.set(fake, Network.REGTEST)
+        WalletStore.set(fake, Network.REGTEST, walletId = "w1", label = "Savings")
         assertEquals(Network.REGTEST, WalletStore.network())
-        assertEquals(fake, WalletStore.current())
+        assertSame(fake, WalletStore.current())
+        assertSame(fake, WalletStore.require())
+        assertEquals("w1", WalletStore.activeWalletId())
+        assertEquals("Savings", WalletStore.activeWalletLabel())
     }
 
     @Test
     fun `set without network defaults to Signet`() {
         WalletStore.set(FakeWalletPort())
         assertEquals(Network.SIGNET, WalletStore.network())
-    }
-
-    // ----- txEpoch ----------------------------------------------------------
-
-    @Test
-    fun `txEpoch starts at zero on a fresh store`() {
-        assertEquals(0L, WalletStore.txEpoch.value)
+        assertNull(WalletStore.activeWalletId())
     }
 
     @Test
-    fun `markTxEpochAdvanced increments monotonically`() {
-        assertEquals(0L, WalletStore.txEpoch.value)
-        WalletStore.markTxEpochAdvanced()
-        assertEquals(1L, WalletStore.txEpoch.value)
-        WalletStore.markTxEpochAdvanced()
-        WalletStore.markTxEpochAdvanced()
-        assertEquals(3L, WalletStore.txEpoch.value)
+    fun `replacing the port closes the previous one exactly once`() {
+        val first = FakeWalletPort()
+        val second = FakeWalletPort()
+        WalletStore.set(first, Network.SIGNET, walletId = "a")
+        WalletStore.set(second, Network.SIGNET, walletId = "b")
+        assertEquals(1, first.closeCalls)
+        assertEquals(0, second.closeCalls)
+        // Re-setting the same port must not close it.
+        WalletStore.set(second, Network.SIGNET, walletId = "b")
+        assertEquals(0, second.closeCalls)
     }
 
     @Test
-    fun `txEpoch is a State observable for Compose`() {
-        // Compose screens read via `val x by WalletStore.txEpoch`. The
-        // type must be `State<Long>` so the LaunchedEffect key actually
-        // triggers recompositions when bumped. The simplest guard is
-        // to assert the value flips identity on bump — a plain Long
-        // assignment wouldn't notify Compose, and the test fixture
-        // would still pass but `LaunchedEffect(epoch)` would silently
-        // never re-fire in production.
-        val state = WalletStore.txEpoch
-        assertNotNull(state)
-        val before = state.value
-        WalletStore.markTxEpochAdvanced()
-        assertEquals(before + 1L, state.value)
-    }
-
-    @Test
-    fun `markJustRestored and markRestoreComplete flip the banner flag`() {
-        assertEquals(false, WalletStore.justRestored.value)
-        WalletStore.markJustRestored()
-        assertEquals(true, WalletStore.justRestored.value)
-        WalletStore.markRestoreComplete()
-        assertEquals(false, WalletStore.justRestored.value)
+    fun `require throws when no wallet is open`() {
+        assertFailsWith<IllegalStateException> { WalletStore.require() }
     }
 }

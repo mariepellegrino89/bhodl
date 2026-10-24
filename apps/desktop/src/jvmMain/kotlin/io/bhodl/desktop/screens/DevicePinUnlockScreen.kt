@@ -14,6 +14,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -37,6 +38,7 @@ import io.bhodl.desktop.wizard.localizedText
 import io.bhodl.ffi.RegistryHandle
 import io.bhodl.desktop.ui.userMessage
 import io.bhodl.ffi.WalletException
+import io.bhodl.ffi.registryHasRecoveryCode
 import io.bhodl.ui.theme.BhodlTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -49,6 +51,7 @@ import io.bhodl.shared.resources.onb_device_pin_wrong_wait
 import io.bhodl.shared.resources.onb_open_registry
 import io.bhodl.shared.resources.onb_opening
 import io.bhodl.shared.resources.onb_registry_open_failed
+import io.bhodl.shared.resources.pinrec_forgot
 import org.jetbrains.compose.resources.stringResource
 
 /**
@@ -59,15 +62,13 @@ import org.jetbrains.compose.resources.stringResource
  * (i.e. the previous process is gone, the SQLCipher key derived from
  * the device PIN is no longer in memory). User types the device PIN
  * once, the registry handle is opened on `Dispatchers.IO`, and
- * routing continues to the wallet picker / Unlock flow.
+ * routing continues to the tracker (or the one-time legacy cleanup).
  *
- * The screen is intentionally minimal — one field, one button, no
- * "I forgot my PIN" recovery affordance (a wrong device PIN simply
- * fails to decrypt the registry; SQLCipher's PRAGMA key probe rejects
- * the wrong key cheaply and we surface that as
- * `WalletException.Storage` → "Wrong device PIN."). Recovery for a
- * truly forgotten device PIN is the BIP-39 seed phrase + the
- * encrypted .age backup, not a UI affordance.
+ * One field, one button, and a "Forgot your PIN?" link that swaps the
+ * form for [ForgotPinPanel]: with the recovery code the user sets a new
+ * PIN and is let in; without it, the local data can be erased after an
+ * explanation of what is lost (BHODL holds no keys, so no funds are at
+ * stake — wallets come back from their xpubs).
  */
 /** Scope key for [io.bhodl.desktop.wizard.PinAttemptTracker]
  *  when counting wrong device-PIN attempts (registry unlock). */
@@ -77,11 +78,40 @@ private const val DEVICE_PIN_SCOPE: String = io.bhodl.desktop.wizard.PinScopes.D
 public fun DevicePinUnlockScreen(
     onUnlocked: () -> Unit,
     onBack: () -> Unit,
+    // Test seams: the data dir and the FFI open (Argon2id + SQLCipher).
+    dataDir: java.io.File = WalletPaths.defaultDataDir(),
+    openRegistry: (dataDir: String, pin: String) -> RegistryHandle =
+        { dir, pin -> RegistryHandle.createOrLoad(dataDir = dir, devicePin = pin) },
+    // PIN recovery seams (docs/pin-recovery.md).
+    hasRecoveryCode: (dataDir: java.io.File) -> Boolean =
+        { registryHasRecoveryCode(it.absolutePath) },
+    recoverRegistry: (dataDir: String, code: String, newPin: String) -> RegistryHandle =
+        { dir, code, pin -> RegistryHandle.unlockWithRecoveryCode(dir, code, pin) },
+    wipeLocalData: (java.io.File) -> io.bhodl.desktop.wizard.WalletPathsView.ResetResult =
+        { io.bhodl.desktop.wizard.LocalWipe.wipeAll(it) },
 ) {
     val scope = rememberCoroutineScope()
     var devicePin by remember { mutableStateOf("") }
     var working by remember { mutableStateOf(false) }
     var lastError: String? by remember { mutableStateOf(null) }
+    var forgot by remember { mutableStateOf(false) }
+
+    // Shared by the PIN and the recovery-code paths.
+    fun finishUnlock(handle: RegistryHandle) {
+        // T1-9 — clear the device-PIN failure history on a successful open.
+        io.bhodl.desktop.wizard.PinAttemptTracker.recordSuccess(DEVICE_PIN_SCOPE)
+        RegistryStore.set(handle)
+        // Open the device-PIN session (idle clock). Audit 2026-10: the PIN
+        // itself is no longer parked — background jobs use the
+        // RegistryHandle's derived key. Cleared by RegistryStore.clear().
+        io.bhodl.desktop.wizard.DevicePinSession.markUnlocked()
+        // Phase 8.3.1 — kick the BTC-at-time backfill in the background
+        // (idempotent; posts its state on a StateFlow). Audit 2026-10 —
+        // app-lifetime scope: this screen's scope is cancelled by the
+        // navigation right below.
+        io.bhodl.desktop.data.BackfillRunner.runIfNeeded(io.bhodl.desktop.AppScope.io)
+        onUnlocked()
+    }
 
     val pinFocus = remember { FocusRequester() }
     LaunchedEffect(Unit) {
@@ -112,6 +142,20 @@ public fun DevicePinUnlockScreen(
                 style = BhodlTheme.typography.titleMedium,
                 color = BhodlTheme.colors.textPrimary,
             )
+            if (forgot) {
+                ForgotPinPanel(
+                    dataDir = dataDir,
+                    hasRecoveryCode = remember(dataDir) {
+                        runCatching { hasRecoveryCode(dataDir) }.getOrDefault(false)
+                    },
+                    recover = recoverRegistry,
+                    wipe = wipeLocalData,
+                    onRecovered = ::finishUnlock,
+                    onWiped = onBack,
+                    onBack = { forgot = false },
+                )
+                return@Column
+            }
             Text(
                 text = stringResource(Res.string.onb_device_pin_unlock_body),
                 style = BhodlTheme.typography.bodyMedium,
@@ -141,6 +185,7 @@ public fun DevicePinUnlockScreen(
                     style = BhodlTheme.typography.bodyMedium,
                     color = BhodlTheme.colors.error,
                     textAlign = TextAlign.Center,
+                    modifier = Modifier.testTag(DevicePinUnlockTags.ERROR),
                 )
             }
 
@@ -156,42 +201,16 @@ public fun DevicePinUnlockScreen(
                     working = true
                     lastError = null
                     val attempted = devicePin
-                    val dataDir = WalletPaths.defaultDataDir().absolutePath
+                    val dir = dataDir.absolutePath
                     scope.launch {
                         runCatching {
                             withContext(Dispatchers.IO) {
-                                RegistryHandle.createOrLoad(
-                                    dataDir = dataDir,
-                                    devicePin = attempted,
-                                )
+                                openRegistry(dir, attempted)
                             }
                         }.fold(
                             onSuccess = { handle ->
-                                // T1-9 — clear the device-PIN failure
-                                // history on a successful open.
-                                io.bhodl.desktop.wizard.PinAttemptTracker
-                                    .recordSuccess(DEVICE_PIN_SCOPE)
-                                RegistryStore.set(handle)
-                                // Open the device-PIN session (idle
-                                // clock). Audit 2026-10: the PIN itself
-                                // is no longer parked — background jobs
-                                // use the RegistryHandle's derived key.
-                                // Cleared by RegistryStore.clear().
-                                io.bhodl.desktop.wizard.DevicePinSession.markUnlocked()
-                                // Phase 8.3.1 — kick the BTC-at-time
-                                // backfill in the background. Returns
-                                // immediately; the runner posts its
-                                // state on a StateFlow so the UI does
-                                // not freeze on first launch post-8.2.
-                                // Idempotent: the backend skips rows
-                                // already filled.
-                                // Audit 2026-10 — app-lifetime scope:
-                                // this screen's scope is cancelled by
-                                // the navigation right below.
-                                io.bhodl.desktop.data.BackfillRunner
-                                    .runIfNeeded(io.bhodl.desktop.AppScope.io)
                                 working = false
-                                onUnlocked()
+                                finishUnlock(handle)
                             },
                             onFailure = { e ->
                                 working = false
@@ -227,6 +246,13 @@ public fun DevicePinUnlockScreen(
                     else stringResource(Res.string.onb_open_registry),
                 )
             }
+            TextButton(
+                onClick = { forgot = true; lastError = null },
+                enabled = !working,
+                modifier = Modifier.testTag(DevicePinUnlockTags.FORGOT),
+            ) {
+                Text(stringResource(Res.string.pinrec_forgot))
+            }
         }
     }
 }
@@ -234,4 +260,6 @@ public fun DevicePinUnlockScreen(
 public object DevicePinUnlockTags {
     public const val PIN: String = "device-pin-unlock.pin"
     public const val UNLOCK: String = "device-pin-unlock.unlock"
+    public const val ERROR: String = "device-pin-unlock.error"
+    public const val FORGOT: String = "device-pin-unlock.forgot"
 }

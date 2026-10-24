@@ -59,7 +59,6 @@ import io.bhodl.desktop.ui.categoryDisplayName
 import io.bhodl.desktop.ui.displayAmount
 import io.bhodl.desktop.wizard.RegistryStore
 import io.bhodl.desktop.wizard.WalletStore
-import io.bhodl.ffi.WalletKindFfi
 import io.bhodl.ffi.WalletRecordFfi
 import io.bhodl.ui.theme.BhodlTheme
 import io.bhodl.shared.resources.Res
@@ -72,6 +71,12 @@ import io.bhodl.shared.resources.trk_cat_dialog_clear
 import io.bhodl.shared.resources.trk_cat_dialog_hint
 import io.bhodl.shared.resources.trk_cat_dialog_suggestions
 import io.bhodl.shared.resources.trk_cat_dialog_title
+import io.bhodl.shared.resources.trp_cb_dialog_exclude
+import io.bhodl.shared.resources.trp_cb_dialog_invalid
+import io.bhodl.shared.resources.trp_cb_dialog_market
+import io.bhodl.shared.resources.trp_cb_dialog_market_none
+import io.bhodl.shared.resources.trp_cb_dialog_price
+import io.bhodl.shared.resources.trp_cb_dialog_title
 import io.bhodl.shared.resources.trk_hist_add_category
 import io.bhodl.shared.resources.trk_hist_at_block
 import io.bhodl.shared.resources.trk_hist_empty
@@ -117,23 +122,8 @@ internal fun HistoryTabBody(
     // events (timestampUnix == null) are appended last with the
     // running tail as their balance (best-effort). Looking up the
     // running balance for a row is then O(1) by txid.
-    val runningBalance = remember(events) {
-        val confirmed = events
-            .filter { it.timestampUnix != null }
-            .sortedBy { it.timestampUnix!! }
-        val unconfirmed = events.filter { it.timestampUnix == null }
-        var running = 0L
-        val map = HashMap<String, Long>()
-        for (e in confirmed) {
-            // send_to_self legs only move the fee out of custody.
-            running += e.externalSignedNetSat()
-            map[e.txidOrPaymentId] = running
-        }
-        for (e in unconfirmed) {
-            map[e.txidOrPaymentId] = running
-        }
-        map
-    }
+    // send_to_self legs only move the fee out of custody.
+    val runningBalance = remember(events) { runningBalances(events) }
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -606,10 +596,26 @@ internal fun CategoryEditDialog(
      * that don't care.
      */
     onCryptoEventKindChange: (CryptoEventKind) -> Unit = {},
+    /**
+     * BTC average cost — when non-null the dialog also edits the price
+     * this transaction counts at and its exclusion; committed on Save
+     * together with the category, only when changed.
+     */
+    costBasis: CostBasisEditState? = null,
+    onCostBasisSave: (pricePerBtc: Double?, excluded: Boolean) -> Unit = { _, _ -> },
 ) {
     var input by remember(event.txidOrPaymentId) {
         mutableStateOf(event.category.orEmpty())
     }
+    val initialPriceText = remember(event.txidOrPaymentId, costBasis?.userPrice) {
+        costBasis?.userPrice?.let { io.bhodl.desktop.ui.money.formatDecimalInput(it, maxFractionDigits = 2) }.orEmpty()
+    }
+    var priceText by remember(event.txidOrPaymentId, initialPriceText) { mutableStateOf(initialPriceText) }
+    var excluded by remember(event.txidOrPaymentId, costBasis?.excluded) {
+        mutableStateOf(costBasis?.excluded ?: false)
+    }
+    val parsedPrice = priceText.takeIf { it.isNotBlank() }?.let { io.bhodl.desktop.ui.money.parseDecimalInput(it) }
+    val priceInvalid = priceText.isNotBlank() && (parsedPrice == null || parsedPrice < 0.0)
     var cryptoKind by remember(event.txidOrPaymentId) {
         mutableStateOf(CryptoEventKind.fromWire(event.cryptoEventKind))
     }
@@ -659,6 +665,54 @@ internal fun CategoryEditDialog(
                     },
                 )
 
+                if (costBasis != null) {
+                    Text(
+                        text = stringResource(Res.string.trp_cb_dialog_title),
+                        style = BhodlTheme.typography.labelMedium,
+                        color = BhodlTheme.colors.textSecondary,
+                    )
+                    Text(
+                        text = costBasis.marketPrice?.let {
+                            stringResource(
+                                Res.string.trp_cb_dialog_market,
+                                io.bhodl.desktop.ui.formatFiatWithCode(it, costBasis.currency),
+                            )
+                        } ?: stringResource(Res.string.trp_cb_dialog_market_none),
+                        style = BhodlTheme.typography.labelMedium,
+                        color = BhodlTheme.colors.textTertiary,
+                    )
+                    androidx.compose.material3.OutlinedTextField(
+                        value = priceText,
+                        onValueChange = { priceText = io.bhodl.desktop.ui.money.filterDecimalChars(it) },
+                        singleLine = true,
+                        enabled = !excluded,
+                        isError = priceInvalid,
+                        label = { Text(stringResource(Res.string.trp_cb_dialog_price, costBasis.currency)) },
+                        supportingText = if (priceInvalid) {
+                            { Text(stringResource(Res.string.trp_cb_dialog_invalid)) }
+                        } else {
+                            null
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag(TrackingTags.COST_BASIS_PRICE),
+                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { excluded = !excluded }
+                            .testTag(TrackingTags.COST_BASIS_EXCLUDE),
+                    ) {
+                        androidx.compose.material3.Checkbox(checked = excluded, onCheckedChange = null)
+                        Text(
+                            text = stringResource(Res.string.trp_cb_dialog_exclude),
+                            style = BhodlTheme.typography.bodyMedium,
+                            color = BhodlTheme.colors.textPrimary,
+                        )
+                    }
+                }
+
                 if (suggestions.isNotEmpty()) {
                     Text(
                         text = stringResource(Res.string.trk_cat_dialog_suggestions),
@@ -684,7 +738,16 @@ internal fun CategoryEditDialog(
         },
         confirmButton = {
             androidx.compose.material3.TextButton(
-                onClick = { onSave(input) },
+                onClick = {
+                    if (costBasis != null) {
+                        val newPrice = if (excluded) costBasis.userPrice else parsedPrice
+                        if (newPrice != costBasis.userPrice || excluded != costBasis.excluded) {
+                            onCostBasisSave(newPrice, excluded)
+                        }
+                    }
+                    onSave(input)
+                },
+                enabled = !priceInvalid,
                 modifier = Modifier.testTag(TrackingTags.CATEGORY_SAVE),
             ) { Text(stringResource(Res.string.action_save)) }
         },
@@ -703,6 +766,18 @@ internal fun CategoryEditDialog(
         },
     )
 }
+
+/**
+ * BTC average cost fields of [CategoryEditDialog]: the user's stored
+ * price for the transaction (null = market rate), its exclusion, and the
+ * market rate of its day shown as the default.
+ */
+internal data class CostBasisEditState(
+    val currency: String,
+    val userPrice: Double?,
+    val excluded: Boolean,
+    val marketPrice: Double?,
+)
 
 @Composable
 private fun formatEventTimestamp(

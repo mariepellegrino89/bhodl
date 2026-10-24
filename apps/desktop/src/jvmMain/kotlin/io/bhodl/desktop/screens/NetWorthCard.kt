@@ -26,6 +26,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import io.bhodl.desktop.ui.SlideOverPanel
 import io.bhodl.desktop.ui.displayAmount
+import io.bhodl.desktop.wizard.localizedText
 import io.bhodl.ffi.TrackingLiabilityFfi
 import io.bhodl.shared.resources.Res
 import io.bhodl.shared.resources.tracker_note_optional
@@ -126,7 +127,8 @@ internal fun LiabilityEditDialog(
                                     else BhodlTheme.colors.surface,
                                 )
                                 .clickable { kind = k }
-                                .padding(horizontal = 10.dp, vertical = 4.dp),
+                                .padding(horizontal = 10.dp, vertical = 4.dp)
+                                .testTag(LiabilityTags.kind(k)),
                         ) {
                             Text(
                                 text = liabilityKindLabel(k),
@@ -175,6 +177,7 @@ internal object LiabilityTags {
     const val INPUT_AMOUNT: String = "liability.input-amount"
     const val INPUT_LABEL: String = "liability.input-label"
     fun amount(id: Long): String = "liability.amount.$id"
+    fun kind(kind: String): String = "liability.kind.$kind"
 }
 
 /**
@@ -183,9 +186,18 @@ internal object LiabilityTags {
  * The note never stands in for the amount.
  */
 internal fun liabilitySubtitle(l: TrackingLiabilityFfi): String {
-    val kind = l.kind.replaceFirstChar { it.uppercaseChar() }
+    val kind = liabilityKindText(l.kind).replaceFirstChar { it.uppercaseChar() }
     val note = l.displayLabel?.trim()?.takeIf { it.isNotEmpty() }
     return if (note != null) "$kind · $note" else kind
+}
+
+/** Non-composable twin of [liabilityKindLabel]; unknown legacy kinds show as stored. */
+private fun liabilityKindText(kind: String): String = when (kind) {
+    "mortgage" -> localizedText(Res.string.trk_liability_kind_mortgage)
+    "loan" -> localizedText(Res.string.trk_liability_kind_loan)
+    "credit-card" -> localizedText(Res.string.trk_liability_kind_credit_card)
+    "other" -> localizedText(Res.string.trk_liability_kind_other)
+    else -> kind
 }
 
 /** Localized label of a liability kind chip (the wire value stays the key). */

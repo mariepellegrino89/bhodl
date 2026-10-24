@@ -1,6 +1,6 @@
 [package]
 name = "bhodl-uniffi"
-description = "UniFFI bindings for BHODL: exposes bhodl-core to Kotlin/Swift/Native via uniffi-rs."
+description = "UniFFI bindings for BHODL: exposes the watch-only wallet and the tracker registry to Kotlin/Swift via uniffi-rs."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -24,7 +24,7 @@ bhodl-core = { path = "../bhodl-core" }
 bhodl-wallet-onchain = { path = "../bhodl-wallet-onchain" }
 uniffi = { workspace = true, features = ["cli"] }
 thiserror = { workspace = true }
-# wallet.kdf.json — versioned salt + Argon2id params on disk so a future
+# registry.kdf.json — versioned salt + Argon2id params on disk so a future
 # parameter bump does not lock existing wallets out (see KdfFile in lib.rs).
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -35,12 +35,20 @@ uuid = { workspace = true }
 zeroize = { workspace = true }
 # T2-12 — HMAC-SHA256 over wallet.kdf.json content to detect tampering
 # (downgrade attack: attacker swaps salt + params to force a weaker KDF).
-# RustCrypto pure-Rust audited; both already transitive via age/rusqlite.
+# RustCrypto pure-Rust audited; both already transitive via rusqlite.
 hmac = "0.12"
 sha2 = "0.10"
+# PIN recovery — the data key is wrapped (XChaCha20-Poly1305, RustCrypto)
+# by the PIN-derived key and, separately, by the recovery-code key.
+chacha20poly1305 = { version = "0.10", default-features = false, features = ["alloc"] }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+# Test fixtures derive BIP-86 public keys from the spec mnemonic.
+bip39 = { workspace = true }
+bitcoin = { workspace = true }
+# Raw access to the registry DB to fabricate pre-rework rows.
+rusqlite = { workspace = true }
 
 [build-dependencies]
 uniffi = { workspace = true, features = ["build"] }

@@ -1,8 +1,10 @@
 # Security Policy
 
-BHODL is a self-custodial Bitcoin wallet. Issues affecting fund safety,
-key material confidentiality, or privacy guarantees are handled with
-priority over all other work.
+BHODL is a watch-only Bitcoin wallet and finance tracker: it never holds
+private keys and cannot send bitcoin. Issues affecting the confidentiality
+of the data it stores (xpubs, addresses, balances, labels, tracker data),
+its privacy guarantees, or the correctness of what it shows are handled
+with priority over all other work.
 
 ## Reporting a Vulnerability
 
@@ -18,8 +20,8 @@ Report it privately through GitHub's **private vulnerability reporting**:
 Only the maintainers can see the report. If that form is unavailable, open a public issue
 that says only that you need a private security contact, with no details.
 
-BHODL is alpha software and runs on test networks only, but treat key-handling,
-encryption and signing bugs as real: they will reach mainnet if not fixed.
+BHODL is alpha software and has not been audited. Watch-only wallets work on
+mainnet, so treat encryption, key-derivation and privacy bugs as real.
 
 We will acknowledge receipt within 72 hours, and provide a triage
 classification within 7 days. We commit to keeping you informed of
@@ -40,22 +42,24 @@ In scope:
 Out of scope:
 
 - The user's own infrastructure (self-hosted nodes, hardware wallet
-  vendors, the user's mobile OS).
+  vendors, the user's mobile OS) and the user's signing wallet, which
+  BHODL never talks to.
 - Third-party Bitcoin libraries we depend on (BDK, rust-bitcoin, SQLCipher,
   etc.) — we route reports to upstream maintainers.
-- Theoretical attacks that require key material we never store
-  (e.g. attacks on the BIP39 seed once it has been entered: the user is
-  responsible for not exposing the seed phrase).
+- Attacks on private keys or seed phrases: BHODL never asks for, stores
+  or derives them.
 
 ## What Counts as a Vulnerability
 
 Any path that could lead to:
 
-- Loss of funds (incorrect signatures, broken descriptors, fee
-  miscalculation that prevents spending).
-- Disclosure of seed material, descriptor, or private keys.
+- Disclosure of the stored xpubs / descriptors, addresses, labels,
+  contacts or tracker data without the device PIN.
+- Wrong data that could mislead the user into losing funds: a receive
+  address that does not belong to the watched wallet (wrong derivation,
+  wrong network, broken descriptor parsing), or incorrect balances.
 - Disclosure of metadata that breaks BHODL's privacy guarantees
-  (Tor routing, PayJoin, privacy mode, no telemetry) when those features are enabled.
+  (Tor routing, privacy mode, no telemetry) when those features are enabled.
 - Bypass of the on-disk encryption layer (SQLCipher AES-256).
 - Bypass of platform secure storage when integrated (Keystore on
   Android, Secure Enclave on iOS, OS keyring on desktop).
@@ -86,22 +90,33 @@ the advisory unless they prefer to stay anonymous.
 
 ## Encryption and Key Derivation
 
-- **SQLCipher**: AES-256-CBC encryption at rest. Encryption key is
-  the 32-byte output of `Argon2id(pin, salt)`.
-- **Argon2id**: OWASP 2024 strong baseline (m=64 MiB, t=3, p=4).
-  Previous wallets used legacy params (m=19 MiB, t=2, p=1).
-- **KDF migration**: Wallets without `wallet.kdf.json` (created pre-hardening)
-  are auto-upgraded on next unlock. FFI reads salt, derives key with legacy
-  params, opens DB, writes `wallet.kdf.json` with current params, calls
-  `PRAGMA rekey` to re-encrypt the DB in-place. No downgrade vector.
-- **BIP-39 passphrase** (optional): Entered on setup (Advanced toggle),
-  stored encrypted at rest in the `bhodl_seed` table alongside the mnemonic.
-  The threat model is identical to the mnemonic itself: an attacker with the
-  SQLCipher file + salt + PIN can read both. Incorrect passphrase silently
-  derives a different wallet (standard BIP-39 behavior).
-- **Backup export**: age encryption (age-cli compatible format). Encrypted
-  blob + user password. Restore flow decrypts to plaintext mnemonic
-  (held in memory, zeroized on drop).
+- **No private keys**: wallets are added from xpubs, output descriptors or
+  address lists. There is no seed generation, import, storage or backup.
+  Builds before 2026-10-23 could hold seeds; the current build lists any
+  such wallet left on disk and deletes it (keys included) only after the
+  user confirms they have its recovery phrase.
+- **Device PIN**: the only secret you type. A 32-byte data key is the
+  SQLCipher key for `registry.sqlite` (wallet list + tracker tables) and
+  every `watch-state/<uuid>.sqlite` (wallet state, labels, contacts). The
+  data key is stored only wrapped (XChaCha20-Poly1305) by
+  `Argon2id(pin, salt)` in `registry.kdf.json` (v3). Stores created
+  before v3 keep their existing key (the old `Argon2id(pin, salt)` output)
+  and are re-wrapped on the first unlock, without re-encrypting any file.
+- **Recovery code (optional)**: 24 Crockford base32 symbols (~120 bits)
+  from the OS CSPRNG, shown once and never stored. It wraps the same data
+  key in `registry.recovery.json` under its own Argon2id salt. The AEAD
+  binds salt, parameters and purpose (PIN vs code) as associated data, so
+  one file cannot stand in for the other. With the code a forgotten PIN is
+  reset; without PIN and code the tracker data cannot be decrypted. Wrong
+  codes and wrong current PINs (change-PIN) share the persistent lockout.
+- **SQLCipher**: AES-256-CBC encryption at rest with the data key.
+- **Argon2id**: OWASP 2024 strong baseline (m=64 MiB, t=3, p=4) for new
+  data. A descriptor with parameters below the legacy floor (m=19 MiB, t=2,
+  p=1) or above the built-in caps is rejected before deriving.
+- **KDF descriptor**: `registry.kdf.json` (salt + params + wrapped key)
+  is authenticated by the AEAD tag (v3; v1/v2 used an HMAC) and rewritten
+  only after the database has accepted the key; a descriptor written by a
+  newer build is refused rather than guessed. No downgrade vector.
 
 ## Supply Chain
 
@@ -128,10 +143,10 @@ Planned:
 ## Privacy & Network
 
 - **No telemetry**: BHODL does not phone home.
-- **Default endpoint**: `mempool.space/signet` for signet testing.
-  Overridable in Settings.
-- **Tor support**: Opt-in SOCKS5 proxy for all Esplora requests
-  (sync, fee estimates, broadcast) and PayJoin endpoints. Requires a local
-  Tor daemon.
-- **Future mainnet**: Auto-sync will be gated behind explicit user consent,
-  and self-hosted / Tor-only endpoints will be promoted before launch.
+- **Default endpoint**: mempool.space's public Esplora for the wallet's
+  network. Overridable per network in Settings (e.g. a self-hosted Esplora).
+- **Tor support**: Opt-in SOCKS5 proxy for all Esplora requests (sync) and
+  price / historical-rate requests. Requires a local Tor daemon. Adding a
+  mainnet wallet without Tor shows a warning first: without Tor or a
+  self-hosted endpoint, the Esplora server can link every address of the
+  xpub to the user's IP address.

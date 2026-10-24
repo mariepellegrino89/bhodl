@@ -9,8 +9,7 @@ import io.bhodl.desktop.wizard.DevicePinSession
  * The previous watcher only armed when the registry was open
  * (`RegistryStore.current() != null`) and only pointer events counted
  * as activity. That meant:
- *  - a legacy / registry-less signing wallet open in [WalletStore]
- *    never auto-locked;
+ *  - a session without a device-PIN clock never auto-locked;
  *  - a user typing (keyboard only) got locked out mid-form;
  *  - minimising the window kept the wallet unlocked indefinitely.
  *
@@ -32,6 +31,9 @@ public object IdleLock {
     @Volatile
     private var minimizedSinceNanos: Long? = null
 
+    /** Last recorded activity ([System.nanoTime]). Test-only. */
+    internal fun lastActivityNanosForTest(): Long = lastActivityNanos
+
     /** Record user activity (pointer / key event). */
     public fun touch(nowNanos: Long = System.nanoTime()) {
         lastActivityNanos = nowNanos
@@ -47,8 +49,8 @@ public object IdleLock {
     /**
      * Pure decision function.
      *
-     * @param sessionOpen a signing wallet ([io.bhodl.desktop.wizard.WalletStore])
-     *   or the registry ([io.bhodl.desktop.wizard.RegistryStore]) is open.
+     * @param sessionOpen the registry ([io.bhodl.desktop.wizard.RegistryStore])
+     *   or a wallet ([io.bhodl.desktop.wizard.WalletStore]) is open.
      * @param registryOpen the registry specifically is open; then a missing
      *   / expired [DevicePinSession] also forces the lock.
      * @param devicePinExpired `DevicePinSession.isExpired()`.

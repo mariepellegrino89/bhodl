@@ -66,8 +66,6 @@ import io.bhodl.desktop.ui.bhodlCard
 import io.bhodl.desktop.ui.displayAmount
 import io.bhodl.desktop.wizard.RegistryStore
 import io.bhodl.desktop.wizard.WalletStore
-import io.bhodl.ffi.WalletKindFfi
-import io.bhodl.ffi.WalletRecordFfi
 import io.bhodl.ui.theme.BhodlTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -93,6 +91,7 @@ import io.bhodl.shared.resources.trk_err_reorder_rules
 import io.bhodl.shared.resources.trk_err_save_bill
 import io.bhodl.shared.resources.trk_err_save_budget
 import io.bhodl.shared.resources.trk_err_save_category
+import io.bhodl.shared.resources.trp_cb_err_save
 import io.bhodl.shared.resources.trk_err_save_event_kind
 import io.bhodl.shared.resources.trk_err_save_goal
 import io.bhodl.shared.resources.trk_err_save_investment
@@ -136,11 +135,9 @@ public fun TrackingScreen(
     section: TrackerSection = TrackerSection.HOME,
     /** Navigate to another tracker section (rail/keyboard/palette/drill-down). */
     onSectionChange: (TrackerSection) -> Unit = {},
-    /** Phase 6.0 affordances merged from the old TrackerHome landing. */
-    onUnlockWallet: (walletId: String) -> Unit = {},
-    onActivateWatch: (walletId: String) -> Unit = {},
+    /** A wallet row was clicked: open its workspace. */
+    onOpenWallet: (walletId: String) -> Unit = {},
     onAddWatch: () -> Unit = {},
-    onCreateWallet: () -> Unit = {},
     onOpenModules: () -> Unit = {},
     /** UX review 2026-10 (item 14) — footer shield → Security Hub. */
     onOpenSecurityHub: (() -> Unit)? = null,
@@ -154,7 +151,6 @@ public fun TrackingScreen(
     // values fresh regardless of which tab is showing.
     val wallets by TrackerCache.wallets
     val watchBalances by TrackerCache.watchBalances
-    val signingBalance by TrackerCache.signingBalance
     val refreshing by TrackerCache.refreshing
     val cacheError by TrackerCache.lastError
     val events by TrackerCache.events
@@ -274,9 +270,7 @@ public fun TrackingScreen(
     // BEFORE the cache has been populated (rare: TrackerHome usually
     // populates it first), we trigger a refresh ourselves.
     LaunchedEffect(Unit) {
-        if (!TrackerCache.hasLoadedOnce.value) {
-            TrackerCache.refresh(syncEsplora = true)
-        }
+        TrackerCache.coldLoad()
     }
     // Phase 3.13 — request initial focus on the screen root so
     // `onPreviewKeyEvent` fires without the user clicking somewhere
@@ -285,18 +279,11 @@ public fun TrackingScreen(
         runCatching { rootFocusRequester.requestFocus() }
     }
 
-    // Group registry rows once and reuse the result for both the
-    // Total card and the per-row list. Each group already picks the
-    // freshest available balance for its logical wallet (active
-    // signing's live balance OR mirror's last-synced balance), so
-    // summing across groups produces a correct total even when the
-    // watch mirror hasn't been re-synced after a fresh signing-side
-    // receive (2026-05-14 — stale-mirror dedup bug).
+    // Group registry rows once (rows sharing an xpub are one wallet)
+    // and reuse the result for both the Total card and the per-row list.
     val groupedWallets = groupWalletsByXpub(
         wallets = wallets,
         watchBalances = watchBalances,
-        signingBalance = signingBalance,
-        activeSigningId = WalletStore.activeWalletId(),
     )
     // Phase 3.14 — drop groups whose ALL member IDs the user has
     // excluded from totals. The full list still renders in the
@@ -327,7 +314,12 @@ public fun TrackingScreen(
     // see only the included wallets' activity. The History tab below
     // intentionally still receives the full event list because the
     // user is reading them as a ledger, not as an aggregation.
-    val includedEvents = events.filter { it.walletId !in excludedWalletIds }
+    // Exclusion runs on the per-wallet legs, BEFORE the txid dedupe:
+    // a tx shared with an excluded wallet stays for the included one.
+    val eventLegs by TrackerCache.eventLegs
+    val includedEvents = remember(events, eventLegs, excludedWalletIds) {
+        io.bhodl.desktop.screens.includedEvents(events, eventLegs, excludedWalletIds)
+    }
 
     // Phase 3.4 — apply the active category filter to the events
     // that drive the History list and the CSV export. The Total
@@ -335,47 +327,13 @@ public fun TrackingScreen(
     // they describe wallets, not transactions, and a category filter
     // there would be misleading.
     val filteredEvents = remember(events, categoryFilter, timeRangeFilter) {
-        val byCategory = when (val f = categoryFilter) {
-            null -> events
-            "" -> events.filter { it.category.isNullOrBlank() }
-            else -> events.filter { it.category == f }
-        }
-        val range = timeRangeFilter
-        if (range == null) {
-            byCategory
-        } else {
-            byCategory.filter { ev ->
-                val ts = ev.timestampUnix?.toLong() ?: return@filter false
-                ts in range.first..range.second
-            }
-        }
+        filterLedger(events, categoryFilter, timeRangeFilter)
     }
     // Per-category breakdown card. Treats `null`/blank as the implicit
     // "Uncategorised" bucket so the user sees what hasn't been tagged
-    // yet. SelfTransfer is not counted as in/out (the net flow is just
-    // the fee, which we already report on the row).
-    val breakdown = remember(events) {
-        events.groupBy { it.category?.takeIf(String::isNotBlank) }
-            .mapValues { (_, evs) ->
-                val incoming = evs
-                    .filter { it.direction == io.bhodl.ffi.PaymentDirection.INCOMING }
-                    .sumOf { it.amountSat }
-                val outgoing = evs
-                    .filter { it.direction == io.bhodl.ffi.PaymentDirection.OUTGOING }
-                    .sumOf { it.amountSat }
-                CategoryTotals(
-                    incomingSat = incoming,
-                    outgoingSat = outgoing,
-                    count = evs.size,
-                )
-            }
-            .toList()
-            .sortedWith(
-                compareByDescending<Pair<String?, CategoryTotals>> {
-                    it.second.incomingSat + it.second.outgoingSat
-                },
-            )
-    }
+    // yet. Internal transfers (SELF_TRANSFER, send_to_self) are not
+    // income or spending: only a send_to_self's fee counts as outflow.
+    val breakdown = remember(events) { categoryBreakdown(events) }
 
     // Phase 3.13 — keyboard shortcut handler. Uses `onKeyEvent` (post-
     // handler) rather than `onPreviewKeyEvent` so any focused text
@@ -438,7 +396,8 @@ public fun TrackingScreen(
             .background(BhodlTheme.colors.background)
             .focusRequester(rootFocusRequester)
             .focusable()
-            .onKeyEvent(onKey),
+            .onKeyEvent(onKey)
+            .testTag(TrackingTags.ROOT),
         contentAlignment = Alignment.TopCenter,
     ) {
         // Phase 3.6 — split the layout into a fixed header (title +
@@ -501,18 +460,18 @@ public fun TrackingScreen(
                 OutlinedButton(
                     onClick = {
                         scope.launch {
-                            val saved = exportEventsAsCsv(events, labelByWalletIdForExport)
+                            val saved = csvExportAction(filteredEvents, labelByWalletIdForExport)
                             if (saved != null) lastError = saved
                         }
                     },
-                    enabled = !refreshing && events.isNotEmpty(),
+                    enabled = !refreshing && filteredEvents.isNotEmpty(),
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag(TrackingTags.EXPORT_CSV),
                 ) {
                     Text(
-                        if (events.isEmpty()) stringResource(Res.string.trk_export_csv_empty)
-                        else stringResource(Res.string.trk_export_csv_n, events.size),
+                        if (filteredEvents.isEmpty()) stringResource(Res.string.trk_export_csv_empty)
+                        else stringResource(Res.string.trk_export_csv_n, filteredEvents.size),
                     )
                 }
 
@@ -523,12 +482,10 @@ public fun TrackingScreen(
                 SavedViewsBar(
                     views = views,
                     onApply = { v ->
-                        period = TrackingPeriod.entries.firstOrNull { it.name == v.period }
-                            ?: TrackingPeriod.D30
-                        categoryFilter = v.categoryFilter
-                        timeRangeFilter = if (v.timeRangeStart != null && v.timeRangeEnd != null)
-                            v.timeRangeStart!! to v.timeRangeEnd!!
-                        else null
+                        val sel = applySavedView(v)
+                        period = sel.period
+                        categoryFilter = sel.categoryFilter
+                        timeRangeFilter = sel.timeRange
                         onSectionChange(TrackerSection.TRANSACTIONS)
                     },
                     onSave = { showSaveDialog = true },
@@ -546,7 +503,7 @@ public fun TrackingScreen(
                 )
             }
 
-            val totalWatchCount = wallets.count { it.kind != WalletKindFfi.SIGNING }
+            val totalWatchCount = wallets.size
             DataStateStrip(
                 lastSyncUnix = lastSyncUnix,
                 staleCount = staleWalletIds.size,
@@ -596,6 +553,7 @@ public fun TrackingScreen(
                 // content; the mode selects which cards appear.
                 val dashboardTab: @Composable (TrackingTabMode) -> Unit = { tabMode ->
                     TrackingDashboardTab(
+                        onEditEvent = { event -> editing = event },
                         events = includedEvents,
                         period = period,
                         onPeriodChange = { period = it },
@@ -681,18 +639,7 @@ public fun TrackingScreen(
                             scope.launch {
                                 runCatching {
                                     withContext(Dispatchers.IO) {
-                                        // Walk every PaymentEvent in the cache; for those
-                                        // without a category, run the matcher and persist.
-                                        val enabled = rules.filter { it.enabled }
-                                        val labelById = wallets.associate { it.id to it.label }
-                                        for (ev in events) {
-                                            if (ev.category != null) continue
-                                            val match = applyRules(enabled, ev) { labelById[it.walletId] }
-                                                ?: continue
-                                            registry.setEventCategory(
-                                                ev.walletId, ev.txidOrPaymentId, match,
-                                            )
-                                        }
+                                        reapplyRules(registry, events, rules, walletLabelById)
                                     }
                                 }.onFailure { e ->
                                     lastError = e.message ?: getString(Res.string.trk_err_reapply_rules)
@@ -764,10 +711,9 @@ public fun TrackingScreen(
                         // synthesis. Everything else lives on its own
                         // section page now.
                         TrackerHomeSection(
-                            onUnlockWallet = onUnlockWallet,
-                            onActivateWatch = onActivateWatch,
+                            onOpenReports = { onSectionChange(TrackerSection.REPORTS) },
+                            onOpenWallet = onOpenWallet,
                             onAddWatch = onAddWatch,
-                            onCreateWallet = onCreateWallet,
                         )
                         dashboardTab(TrackingTabMode.HOME)
                     }
@@ -867,12 +813,10 @@ public fun TrackingScreen(
                                 // managed via the lots UI, where the aggregate
                                 // is genuinely derived.
                                 val lots = investmentLotsByInvestmentId[editingNow.id].orEmpty()
-                                if (lots.size == 1 && quantity > 0.0) {
+                                singleLotResync(lots, quantity, costBasis)?.let { resync ->
                                     val lot = lots.first()
-                                    val pricePerUnit =
-                                        (costBasis - lot.feesFiat).coerceAtLeast(0.0) / quantity
                                     registry.updateInvestmentLot(
-                                        lot.id, quantity, pricePerUnit,
+                                        lot.id, resync.quantity, resync.pricePerUnit,
                                         lot.feesFiat, purchaseUnix, lot.notes,
                                     )
                                     lotToResolve = lot.id
@@ -887,7 +831,7 @@ public fun TrackingScreen(
                             runCatching {
                                 registry.setInvestmentCostBasisMethod(targetId, costBasisMethod)
                             }
-                            if (editingNow == null && quantity > 0 && costBasis > 0) {
+                            if (editingNow == null && shouldSeedLotOnCreate(quantity, costBasis)) {
                                 runCatching {
                                     lotToResolve = registry.seedInvestmentLotFromAggregate(targetId)
                                 }
@@ -1307,22 +1251,9 @@ public fun TrackingScreen(
         } else {
             scope.launch {
                 runCatching {
-                    withContext(Dispatchers.IO) {
-                        // Estimate due_day from next_estimated_unix.
-                        val day = java.time.Instant.ofEpochSecond(candidate.nextEstimatedUnix)
-                            .atZone(java.time.ZoneId.systemDefault())
-                            .dayOfMonth
-                        registry.addBill(
-                            candidate.displayName,
-                            candidate.avgAmountSat,
-                            day.toUInt(),
-                            null,
-                        )
-                        // Also dismiss the recurring so it stops
-                        // suggesting after acceptance — the bill is
-                        // the authoritative record now.
-                        registry.dismissRecurring(candidate.payeeKey)
-                    }
+                    // The bill is the authoritative record now: the
+                    // suggestion is dismissed in the same step.
+                    withContext(Dispatchers.IO) { acceptRecurringAsBill(registry, candidate) }
                 }.onFailure { e ->
                     lastError = e.message ?: getString(Res.string.trk_err_accept_as_bill)
                 }
@@ -1620,7 +1551,7 @@ public fun TrackingScreen(
                 keywords = listOf("export", "csv", "esporta", "download"),
                 invoke = {
                     scope.launch {
-                        val saved = exportEventsAsCsv(events, labelByWalletIdForExport)
+                        val saved = csvExportAction(filteredEvents, labelByWalletIdForExport)
                         if (saved != null) lastError = saved
                     }
                 },
@@ -1673,9 +1604,57 @@ public fun TrackingScreen(
 
     val editingEvent = editing
     if (editingEvent != null) {
+        // BTC average cost — price / exclusion of this transaction, for
+        // mainnet wallets once a fiat currency is chosen.
+        val fiatNow by SettingsStore.fiatCurrency
+        val costBasisInputs by TrackerCache.costBasisInputs
+        val costBasisRates by io.bhodl.desktop.data.BtcCostBasisRates.rates
+        val costBasisInput = costBasisInputs[editingEvent.txidOrPaymentId]
+        val editingDay = editingEvent.timestampUnix?.let { io.bhodl.desktop.domain.utcDay(it.toLong()) }
+        val costBasisEnabled = fiatNow != io.bhodl.desktop.prices.FiatCurrency.NONE &&
+            editingEvent.walletId in costBasisWalletIds(wallets, emptySet())
+        LaunchedEffect(editingEvent.txidOrPaymentId, fiatNow) {
+            if (costBasisEnabled && editingDay != null) {
+                io.bhodl.desktop.data.BtcCostBasisRates.ensure(setOf(editingDay), fiatNow.code)
+            }
+        }
         CategoryEditDialog(
             event = editingEvent,
             knownCategories = categories,
+            costBasis = if (costBasisEnabled) {
+                CostBasisEditState(
+                    currency = fiatNow.code,
+                    userPrice = costBasisInput?.pricePerBtc
+                        ?.takeIf { costBasisInput.currency.equals(fiatNow.code, ignoreCase = true) },
+                    excluded = costBasisInput?.excluded ?: false,
+                    marketPrice = editingDay?.let { costBasisRates[it to fiatNow.code] },
+                )
+            } else {
+                null
+            },
+            onCostBasisSave = { price, excludedTx ->
+                val registry = RegistryStore.current() ?: return@CategoryEditDialog
+                // Keep writing the row the cache already has for this txid
+                // (it may sit on the other leg of the transaction).
+                val walletId = costBasisInput?.walletId ?: editingEvent.walletId
+                val currency = fiatNow.code
+                scope.launch {
+                    runCatching {
+                        withContext(Dispatchers.IO) {
+                            registry.setEventCostBasis(
+                                walletId = walletId,
+                                txidOrPaymentId = editingEvent.txidOrPaymentId,
+                                pricePerBtc = price,
+                                currency = price?.let { currency },
+                                excluded = excludedTx,
+                            )
+                        }
+                    }.onFailure { e ->
+                        lastError = e.message ?: getString(Res.string.trp_cb_err_save)
+                    }
+                    RegistryStore.bumpDataVersion()
+                }
+            },
             onDismiss = { editing = null },
             onSave = { newCategory ->
                 val registry = RegistryStore.current()
@@ -1697,11 +1676,7 @@ public fun TrackingScreen(
                 scope.launch {
                     val saved = runCatching {
                         withContext(Dispatchers.IO) {
-                            registry.setEventCategory(
-                                walletId = editingEvent.walletId,
-                                txidOrPaymentId = editingEvent.txidOrPaymentId,
-                                category = newCategory.trim().ifBlank { null },
-                            )
+                            saveEventCategory(registry, editingEvent, newCategory)
                         }
                     }.onFailure { e ->
                         lastError = e.message ?: getString(Res.string.trk_err_save_category)
@@ -1789,6 +1764,10 @@ public object TrackingTags {
     public const val CATEGORY_INPUT: String = "tracking.category-input"
     /** Inline category editor dialog (save button). */
     public const val CATEGORY_SAVE: String = "tracking.category-save"
+    /** Inline editor — BTC average-cost price field. */
+    public const val COST_BASIS_PRICE: String = "tracking.cost-basis-price"
+    /** Inline editor — "exclude from BTC average cost" toggle. */
+    public const val COST_BASIS_EXCLUDE: String = "tracking.cost-basis-exclude"
     /** Inline category editor dialog (clear button). */
     public const val CATEGORY_CLEAR: String = "tracking.category-clear"
     /** Filter chip — "Tutte" entry above History. */
@@ -1819,4 +1798,6 @@ public object TrackingTags {
     /** Phase 9.0 — header bar affordances (merged TrackerHome rail). */
     public const val HEADER_MODULES: String = "tracking.header-modules"
     public const val HEADER_LOCK: String = "tracking.header-lock"
+    /** Focusable root receiving the keyboard shortcuts. */
+    public const val ROOT: String = "tracking.root"
 }

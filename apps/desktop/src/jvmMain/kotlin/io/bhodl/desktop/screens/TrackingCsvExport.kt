@@ -57,8 +57,6 @@ import io.bhodl.desktop.ui.bhodlCard
 import io.bhodl.desktop.ui.displayAmount
 import io.bhodl.desktop.wizard.RegistryStore
 import io.bhodl.desktop.wizard.WalletStore
-import io.bhodl.ffi.WalletKindFfi
-import io.bhodl.ffi.WalletRecordFfi
 import io.bhodl.ui.theme.BhodlTheme
 import io.bhodl.shared.resources.privacy_export_body
 import io.bhodl.shared.resources.privacy_export_title
@@ -99,38 +97,19 @@ import org.jetbrains.compose.resources.getString
 internal suspend fun exportEventsAsCsv(
     events: List<io.bhodl.ffi.PaymentEvent>,
     labelByWalletId: Map<String, String>,
-): String? {
-    if (events.isEmpty()) return null
-    val dialogTitleText = getString(Res.string.trk_csv_dialog_title)
-    val filterText = getString(Res.string.trk_csv_filter)
-    val confirmTitle = getString(Res.string.trk_csv_overwrite_title)
     // UX review 2026-10 (item 13) — the CSV always carries real amounts
     // (a masked export would be useless); with the privacy mode on, ask
     // first so a shared screen / screen recording doesn't get a file
     // dialog full of numbers by surprise.
-    if (!confirmExportWhilePrivate()) return null
-    val chooser = javax.swing.JFileChooser().apply {
-        dialogTitle = dialogTitleText
-        selectedFile = java.io.File("bhodl-tracking.csv")
-        fileFilter = javax.swing.filechooser.FileNameExtensionFilter(
-            filterText,
-            "csv",
-        )
-    }
-    val result = chooser.showSaveDialog(null)
-    if (result != javax.swing.JFileChooser.APPROVE_OPTION) return null
-    val chosen = chooser.selectedFile ?: return null
+    confirmPrivate: suspend () -> Boolean = { confirmExportWhilePrivate() },
+    chooseTarget: suspend () -> java.io.File? = ::chooseCsvTarget,
+    confirmOverwrite: suspend (java.io.File) -> Boolean = ::confirmCsvOverwrite,
+): String? {
+    if (events.isEmpty()) return null
+    if (!confirmPrivate()) return null
+    val chosen = chooseTarget() ?: return null
     val target = withCsvExtension(chosen)
-    if (target.exists()) {
-        val answer = javax.swing.JOptionPane.showConfirmDialog(
-            null,
-            getString(Res.string.trk_csv_overwrite_body, target.name),
-            confirmTitle,
-            javax.swing.JOptionPane.YES_NO_OPTION,
-            javax.swing.JOptionPane.WARNING_MESSAGE,
-        )
-        if (answer != javax.swing.JOptionPane.YES_OPTION) return null
-    }
+    if (target.exists() && !confirmOverwrite(target)) return null
     val content = buildEventsCsv(events, labelByWalletId)
     return withContext(Dispatchers.IO) {
         runCatching {
@@ -141,6 +120,33 @@ internal suspend fun exportEventsAsCsv(
         }
     }
 }
+
+/** Export entry point used by [TrackingScreen]. Test seam. */
+internal var csvExportAction: suspend (List<io.bhodl.ffi.PaymentEvent>, Map<String, String>) -> String? =
+    { events, labels -> exportEventsAsCsv(events, labels) }
+
+/** Native save dialog; `null` when cancelled. Runs on the calling (UI) thread. */
+private suspend fun chooseCsvTarget(): java.io.File? {
+    val chooser = javax.swing.JFileChooser().apply {
+        dialogTitle = getString(Res.string.trk_csv_dialog_title)
+        selectedFile = java.io.File("bhodl-tracking.csv")
+        fileFilter = javax.swing.filechooser.FileNameExtensionFilter(
+            getString(Res.string.trk_csv_filter),
+            "csv",
+        )
+    }
+    if (chooser.showSaveDialog(null) != javax.swing.JFileChooser.APPROVE_OPTION) return null
+    return chooser.selectedFile
+}
+
+private suspend fun confirmCsvOverwrite(target: java.io.File): Boolean =
+    javax.swing.JOptionPane.showConfirmDialog(
+        null,
+        getString(Res.string.trk_csv_overwrite_body, target.name),
+        getString(Res.string.trk_csv_overwrite_title),
+        javax.swing.JOptionPane.YES_NO_OPTION,
+        javax.swing.JOptionPane.WARNING_MESSAGE,
+    ) == javax.swing.JOptionPane.YES_OPTION
 
 /**
  * `true` when the export may proceed: privacy mode off, or the user

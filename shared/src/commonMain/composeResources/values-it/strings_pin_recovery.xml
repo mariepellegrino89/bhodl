@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Recupero PIN, codice di recupero, cambio PIN (docs/pin-recovery.md). -->
+    <string name="pinrec_forgot">Hai dimenticato il PIN?</string>
+    <string name="pinrec_title">PIN del dispositivo dimenticato</string>
+    <string name="pinrec_have_code">Ho il codice di recupero</string>
+    <string name="pinrec_no_code">Non ho il codice di recupero</string>
+    <string name="pinrec_code_label">Codice di recupero</string>
+    <string name="pinrec_code_hint">24 caratteri, trattini e spazi facoltativi</string>
+    <string name="pinrec_new_pin">Nuovo PIN del dispositivo</string>
+    <string name="pinrec_confirm_pin">Conferma il nuovo PIN del dispositivo</string>
+    <string name="pinrec_reset">Imposta il nuovo PIN e apri</string>
+    <string name="pinrec_checking">Verifica in corso…</string>
+    <string name="pinrec_err_code_format">Un codice di recupero ha 24 caratteri (cifre e lettere).</string>
+    <string name="pinrec_err_code_wrong">Codice di recupero errato.</string>
+    <string name="pinrec_err_code_wrong_wait">Codice di recupero errato. Attendi %1$d s prima di riprovare.</string>
+    <string name="pinrec_no_file">Su questo dispositivo non è stato creato un codice di recupero.</string>
+    <string name="pinrec_no_code_body">Senza il PIN o il codice di recupero i dati del tracker su questo dispositivo non si possono decifrare, nemmeno dagli sviluppatori di BHODL. Puoi cancellare i dati locali e ripartire.\n\nRestano: i tuoi bitcoin e i tuoi wallet. Li aggiungi di nuovo dal loro xpub, e saldi e storico tornano dalla blockchain.\n\nSi perdono: categorie, regole, budget, investimenti e lotti, vendite, asset manuali, debiti, obiettivi, etichette, contatti e prezzi personalizzati del costo medio.</string>
+
+    <string name="rc_title">Codice di recupero</string>
+    <string name="rc_intro">Se dimentichi il PIN del dispositivo, questo codice è l’unico modo per riaprire i dati del tracker. Viene mostrato una sola volta e non viene salvato: scrivilo su carta o tienilo in un password manager, lontano da questo computer.</string>
+    <string name="rc_create">Crea codice di recupero</string>
+    <string name="rc_regenerate">Crea un nuovo codice</string>
+    <string name="rc_regenerate_warning">Esiste già un codice di recupero. Uno nuovo lo sostituisce e il codice attuale smette di funzionare.</string>
+    <string name="rc_lose_both">Perdere sia il PIN sia questo codice significa perdere i dati del tracker su questo dispositivo.</string>
+    <string name="rc_confirm_group">Per confermare di averlo salvato, scrivi il gruppo %1$d del codice:</string>
+    <string name="rc_group_label">Gruppo %1$d</string>
+    <string name="rc_done">L’ho salvato</string>
+    <string name="rc_saved">Codice di recupero salvato. Puoi crearne uno nuovo dall’Hub sicurezza quando vuoi.</string>
+    <string name="rc_failed">Impossibile creare il codice di recupero: %1$s</string>
+
+    <string name="cp_title">Cambia PIN del dispositivo</string>
+    <string name="cp_current">PIN attuale del dispositivo</string>
+    <string name="cp_save">Cambia PIN</string>
+    <string name="cp_done">PIN del dispositivo cambiato.</string>
+    <string name="cp_failed">Impossibile cambiare il PIN: %1$s</string>
+
+    <string name="security_row_recovery">Codice di recupero</string>
+    <string name="security_recovery_set">Creato: la via per rientrare se dimentichi il PIN del dispositivo.</string>
+    <string name="security_recovery_missing">Non creato: dimenticare il PIN del dispositivo significherebbe perdere i dati del tracker.</string>
+    <string name="security_recovery_no_pin">Disponibile quando esiste il PIN del dispositivo.</string>
+    <string name="security_action_create">Crea</string>
+    <string name="security_action_manage">Gestisci</string>
+    <string name="security_action_change">Cambia</string>
+</resources>

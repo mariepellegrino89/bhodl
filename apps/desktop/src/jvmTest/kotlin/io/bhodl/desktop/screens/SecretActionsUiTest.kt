@@ -1,10 +1,8 @@
 package io.bhodl.desktop.screens
 
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
-import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -19,11 +17,12 @@ import androidx.compose.ui.test.waitUntilDoesNotExist
 import io.bhodl.desktop.settings.SettingsStore
 import io.bhodl.desktop.wallet.FakeWalletPort
 import io.bhodl.desktop.wizard.PinAttemptTracker
-import io.bhodl.desktop.wizard.SetupSecrets
+import io.bhodl.desktop.wizard.RegistryStore
 import io.bhodl.desktop.wizard.WalletPaths
 import io.bhodl.desktop.wizard.WalletPathsView
 import io.bhodl.desktop.wizard.WalletStore
-import io.bhodl.ffi.WalletException
+import io.bhodl.ffi.Network
+import io.bhodl.ffi.RegistryHandle
 import io.bhodl.ui.theme.BhodlTheme
 import java.io.File
 import kotlin.test.AfterTest
@@ -36,16 +35,15 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * Test-book §14b / §15 / §40 — the secret-revealing and destructive
- * actions, driven through the UI:
- *  - wallet-PIN re-auth (seed reveal, backup export): wrong PIN denied
- *    and counted, lockout after 3, storage errors not counted, Cancel
- *    reveals nothing;
+ * Test-book §14b / §15 / §40 — the sensitive and destructive actions,
+ * driven through the UI:
+ *  - the watch-only descriptor (account xpub) is exported only on
+ *    request; address-list wallets report "no descriptor";
+ *  - "Remove this wallet" is two-tap armed;
  *  - typed "DELETE" wipe: wrong text keeps the button disabled, Cancel
  *    touches nothing, the confirmed wipe empties the (temp) data dir.
  *
- * No real Argon2 / SQLCipher: the PIN check goes through the
- * [LocalWalletPinCheck] seam and every wipe targets a temp dir.
+ * Every wipe targets a temp dir.
  */
 @OptIn(ExperimentalTestApi::class)
 class SecretActionsUiTest {
@@ -64,264 +62,70 @@ class SecretActionsUiTest {
         SettingsStore.reset()
         PinAttemptTracker.reset()
         WalletStore.clear()
-        SetupSecrets.wipeAll()
         tmp.deleteRecursively()
     }
 
-    /** "123456" is the right PIN; counts every check. */
-    private class CountingPinCheck(var failure: Throwable? = null) : WalletPinCheck {
-        val checks = mutableListOf<String>()
-        override fun scope(): String = SCOPE
-        override fun check(pin: String): Boolean {
-            checks += pin
-            failure?.let { throw it }
-            return pin == "123456"
-        }
-    }
-
-    // ---- WalletPinReauthDialog ------------------------------------------------
+    // ---- Wallet settings: descriptor + remove ---------------------------------
 
     @Test
-    fun `re-auth locks out after three wrong PINs and stops calling the check`() =
-        runDesktopComposeUiTest {
-            val check = CountingPinCheck()
-            var verified = 0
-            setContent {
-                BhodlTheme {
-                    CompositionLocalProvider(LocalWalletPinCheck provides check) {
-                        WalletPinReauthDialog(
-                            purpose = "reveal the recovery phrase",
-                            onVerified = { verified++ },
-                            onDismiss = {},
-                        )
-                    }
-                }
-            }
-            waitUntilAtLeastOneExists(hasTestTag(WalletPinReauthTags.PIN))
-            for (attempt in 1..3) {
-                onNodeWithTag(WalletPinReauthTags.PIN).performTextInput("000000")
-                onNodeWithTag(WalletPinReauthTags.CONFIRM).performClick()
-                waitUntil(timeoutMillis = 2_000) { check.checks.size == attempt }
-                waitUntilAtLeastOneExists(hasTestTag(WalletPinReauthTags.ERROR))
-            }
-            assertEquals(3, PinAttemptTracker.failureCount(SCOPE))
-            onNodeWithTag(WalletPinReauthTags.ERROR)
-                .assertTextContains("Too many wrong PINs", substring = true)
-
-            // Even the right PIN is refused while the cooldown runs.
-            onNodeWithTag(WalletPinReauthTags.PIN).performTextInput("123456")
-            onNodeWithTag(WalletPinReauthTags.CONFIRM).performClick()
-            waitForIdle()
-            assertEquals(3, check.checks.size, "no check during the lockout")
-            assertEquals(0, verified)
-        }
-
-    @Test
-    fun `re-auth storage failure is reported and not counted`() = runDesktopComposeUiTest {
-        val check = CountingPinCheck(
-            failure = WalletException.Storage(detail = "database is locked"),
-        )
-        var verified = 0
-        setContent {
-            BhodlTheme {
-                CompositionLocalProvider(LocalWalletPinCheck provides check) {
-                    WalletPinReauthDialog(
-                        purpose = "export an encrypted backup",
-                        onVerified = { verified++ },
-                        onDismiss = {},
-                    )
-                }
-            }
-        }
-        waitUntilAtLeastOneExists(hasTestTag(WalletPinReauthTags.PIN))
-        onNodeWithTag(WalletPinReauthTags.PIN).performTextInput("123456")
-        onNodeWithTag(WalletPinReauthTags.CONFIRM).performClick()
-        waitUntilAtLeastOneExists(hasText("could not be read", substring = true))
-        assertEquals(0, PinAttemptTracker.failureCount(SCOPE))
-        assertEquals(0, verified)
-    }
-
-    @Test
-    fun `re-auth Cancel dismisses without verifying`() = runDesktopComposeUiTest {
-        val check = CountingPinCheck()
-        var verified = 0
-        var dismissed = 0
-        setContent {
-            BhodlTheme {
-                CompositionLocalProvider(LocalWalletPinCheck provides check) {
-                    WalletPinReauthDialog(
-                        purpose = "reveal the recovery phrase",
-                        onVerified = { verified++ },
-                        onDismiss = { dismissed++ },
-                    )
-                }
-            }
-        }
-        waitUntilAtLeastOneExists(hasTestTag(WalletPinReauthTags.CANCEL))
-        onNodeWithTag(WalletPinReauthTags.CONFIRM).assertIsNotEnabled()
-        onNodeWithTag(WalletPinReauthTags.PIN).performTextInput("123456")
-        onNodeWithTag(WalletPinReauthTags.CANCEL).performClick()
-        waitUntil(timeoutMillis = 1_000) { dismissed == 1 }
-        assertEquals(0, verified)
-        assertTrue(check.checks.isEmpty())
-    }
-
-    // ---- Settings: seed reveal / backup export --------------------------------
-
-    @Test
-    fun `backup export with a wrong wallet PIN exports nothing and counts the failure`() =
-        runDesktopComposeUiTest {
-            val fake = FakeWalletPort().apply { exportBackupBlobBuilder = { "blob" } }
-            WalletStore.set(fake)
-            val check = CountingPinCheck()
-            setContent {
-                BhodlTheme {
-                    CompositionLocalProvider(LocalWalletPinCheck provides check) {
-                        WalletSettingsTab(onWalletWiped = {}, onSwitchSigningWallet = {})
-                    }
-                }
-            }
-            waitUntilAtLeastOneExists(hasTestTag(SettingsTags.BACKUP_PASSWORD))
-            onNodeWithTag(SettingsTags.BACKUP_PASSWORD).performScrollTo()
-                .performTextInput("backup-password-long")
-            onNodeWithTag(SettingsTags.BACKUP_PASSWORD_CONFIRM).performScrollTo()
-                .performTextInput("backup-password-long")
-            onNodeWithTag(SettingsTags.BACKUP_EXPORT).performScrollTo().performClick()
-            waitUntilAtLeastOneExists(hasTestTag(WalletPinReauthTags.PIN))
-            onNodeWithTag(WalletPinReauthTags.PIN).performTextInput("654321")
-            onNodeWithTag(WalletPinReauthTags.CONFIRM).performClick()
-            waitUntilAtLeastOneExists(hasTestTag(WalletPinReauthTags.ERROR))
-            assertEquals(1, PinAttemptTracker.failureCount(SCOPE))
-            assertTrue(fake.exportBackupCalls.isEmpty(), "wrong PIN must not export")
-            assertEquals(0, onAllNodesWithTag(SettingsTags.BACKUP_BLOB).fetchSemanticsNodes().size)
-        }
-
-    @Test
-    fun `backup export is blocked while the password is empty or unconfirmed`() =
-        runDesktopComposeUiTest {
-            WalletStore.set(FakeWalletPort())
-            setContent {
-                BhodlTheme { WalletSettingsTab(onWalletWiped = {}, onSwitchSigningWallet = {}) }
-            }
-            waitUntilAtLeastOneExists(hasTestTag(SettingsTags.BACKUP_EXPORT))
-            onNodeWithTag(SettingsTags.BACKUP_EXPORT).performScrollTo().assertIsNotEnabled()
-            onNodeWithTag(SettingsTags.BACKUP_PASSWORD_HINT, useUnmergedTree = true).assertExists()
-            onNodeWithTag(SettingsTags.BACKUP_PASSWORD).performScrollTo()
-                .performTextInput("backup-password-long")
-            onNodeWithTag(SettingsTags.BACKUP_PASSWORD_CONFIRM).performScrollTo()
-                .performTextInput("backup-password-lonG")
-            onNodeWithTag(SettingsTags.BACKUP_EXPORT).performScrollTo().assertIsNotEnabled()
-        }
-
-    @Test
-    fun `cancelling the seed-reveal re-auth reveals nothing`() = runDesktopComposeUiTest {
+    fun `watch-only descriptor is exported only on request`() = runDesktopComposeUiTest {
         val fake = FakeWalletPort()
         WalletStore.set(fake)
-        val check = CountingPinCheck()
         setContent {
             BhodlTheme {
-                CompositionLocalProvider(LocalWalletPinCheck provides check) {
-                    WalletSettingsTab(onWalletWiped = {}, onSwitchSigningWallet = {})
-                }
-            }
-        }
-        waitUntilAtLeastOneExists(hasTestTag(SettingsTags.RECOVERY_REVEAL))
-        onNodeWithTag(SettingsTags.RECOVERY_REVEAL).performScrollTo().performClick()
-        onNodeWithTag(SettingsTags.RECOVERY_REVEAL).performScrollTo().performClick()
-        waitUntilAtLeastOneExists(hasTestTag(WalletPinReauthTags.CANCEL))
-        onNodeWithTag(WalletPinReauthTags.CANCEL).performClick()
-        waitUntilDoesNotExist(hasTestTag(WalletPinReauthTags.PIN))
-        assertTrue(fake.peekMnemonicCalls.isEmpty())
-        assertTrue(check.checks.isEmpty())
-        assertEquals(0, onAllNodesWithTag(SettingsTags.RECOVERY_PHRASE).fetchSemanticsNodes().size)
-    }
-
-    @Test
-    fun `watch-only descriptor is shown only after the wallet PIN`() = runDesktopComposeUiTest {
-        val fake = FakeWalletPort()
-        WalletStore.set(fake)
-        val check = CountingPinCheck()
-        setContent {
-            BhodlTheme {
-                CompositionLocalProvider(LocalWalletPinCheck provides check) {
-                    WalletSettingsTab(onWalletWiped = {}, onSwitchSigningWallet = {})
-                }
+                WalletSettingsTab(onWalletRemoved = {})
             }
         }
         waitUntilAtLeastOneExists(hasTestTag(SettingsTags.WATCH_DESC_REVEAL))
-        onNodeWithTag(SettingsTags.WATCH_DESC_REVEAL).performScrollTo().performClick()
-        waitUntilAtLeastOneExists(hasTestTag(WalletPinReauthTags.CANCEL))
-        onNodeWithTag(WalletPinReauthTags.CANCEL).performClick()
-        waitUntilDoesNotExist(hasTestTag(WalletPinReauthTags.PIN))
-        assertTrue(fake.exportPublicDescriptorCalls.isEmpty(), "cancel exports nothing")
+        waitForIdle()
+        assertTrue(fake.exportPublicDescriptorCalls.isEmpty(), "nothing is exported on open")
+        assertEquals(0, onAllNodesWithTag(SettingsTags.WATCH_DESC_XPUB).fetchSemanticsNodes().size)
 
         onNodeWithTag(SettingsTags.WATCH_DESC_REVEAL).performScrollTo().performClick()
-        waitUntilAtLeastOneExists(hasTestTag(WalletPinReauthTags.PIN))
-        onNodeWithTag(WalletPinReauthTags.PIN).performTextInput("123456")
-        onNodeWithTag(WalletPinReauthTags.CONFIRM).performClick()
         waitUntilAtLeastOneExists(hasTestTag(SettingsTags.WATCH_DESC_XPUB), timeoutMillis = 2_000)
         assertEquals(1, fake.exportPublicDescriptorCalls.size)
     }
 
     @Test
-    fun `delete this wallet asks for the wallet PIN after the two-tap arm`() = runDesktopComposeUiTest {
-        // Real registry in the temp dir; only the CANCEL path is driven,
-        // so nothing on disk is ever deleted.
-        val registry = io.bhodl.ffi.RegistryHandle.createOrLoad(tmp.absolutePath, "482916")
-        io.bhodl.desktop.wizard.RegistryStore.set(registry)
+    fun `address-list wallet reports that it has no descriptor`() = runDesktopComposeUiTest {
+        val fake = FakeWalletPort(addressList = true).apply { exportPublicDescriptorResult = null }
+        WalletStore.set(fake)
+        setContent {
+            BhodlTheme {
+                WalletSettingsTab(onWalletRemoved = {})
+            }
+        }
+        waitUntilAtLeastOneExists(hasTestTag(SettingsTags.WATCH_DESC_REVEAL))
+        onNodeWithTag(SettingsTags.WATCH_DESC_REVEAL).performScrollTo().performClick()
+        waitUntilAtLeastOneExists(hasText("no descriptor", substring = true), timeoutMillis = 2_000)
+        assertEquals(0, onAllNodesWithTag(SettingsTags.WATCH_DESC_XPUB).fetchSemanticsNodes().size)
+    }
+
+    @Test
+    fun `remove this wallet needs a second tap`() = runDesktopComposeUiTest {
+        // Real registry in the temp dir; only the first (arming) tap is
+        // driven, so nothing on disk is ever deleted.
+        val registry = RegistryHandle.createOrLoad(tmp.absolutePath, "482916")
+        RegistryStore.set(registry)
         try {
             val fake = FakeWalletPort()
-            WalletStore.set(fake, io.bhodl.ffi.Network.SIGNET, "00000000-0000-4000-8000-000000000001")
-            var deleted = 0
+            WalletStore.set(fake, Network.SIGNET, "00000000-0000-4000-8000-000000000001")
+            var removed = 0
             setContent {
                 BhodlTheme {
-                    CompositionLocalProvider(LocalWalletPinCheck provides CountingPinCheck()) {
-                        WalletSettingsTab(onWalletWiped = { deleted++ }, onSwitchSigningWallet = {})
-                    }
+                    WalletSettingsTab(onWalletRemoved = { removed++ })
                 }
             }
             waitUntilAtLeastOneExists(hasTestTag(SettingsTags.DELETE_THIS_WALLET))
             onNodeWithTag(SettingsTags.DELETE_THIS_WALLET).performScrollTo().performClick()
-            onNodeWithTag(SettingsTags.DELETE_THIS_WALLET).performScrollTo().performClick()
-            waitUntilAtLeastOneExists(hasTestTag(WalletPinReauthTags.CANCEL))
-            onNodeWithTag(WalletPinReauthTags.CANCEL).performClick()
-            waitUntilDoesNotExist(hasTestTag(WalletPinReauthTags.PIN))
+            waitUntilAtLeastOneExists(hasText("Tap again", substring = true))
             waitForIdle()
-            assertEquals(0, deleted)
-            assertNotNull(WalletStore.current(), "the wallet stays open after cancel")
+            assertEquals(0, removed)
+            assertNotNull(WalletStore.current(), "the wallet stays open after the first tap")
+            assertEquals(0, fake.closeCalls)
         } finally {
-            io.bhodl.desktop.wizard.RegistryStore.clear()
+            RegistryStore.clear()
         }
-    }
-
-    @Test
-    fun `revealed seed and passphrase are hidden again by Hide`() = runDesktopComposeUiTest {
-        val fake = FakeWalletPort().apply {
-            peekMnemonicResult = io.bhodl.ffi.MnemonicReveal(
-                mnemonic = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu",
-                passphrase = "thirteenth",
-            )
-        }
-        WalletStore.set(fake)
-        setContent {
-            BhodlTheme {
-                CompositionLocalProvider(LocalWalletPinCheck provides CountingPinCheck()) {
-                    WalletSettingsTab(onWalletWiped = {}, onSwitchSigningWallet = {})
-                }
-            }
-        }
-        waitUntilAtLeastOneExists(hasTestTag(SettingsTags.RECOVERY_REVEAL))
-        onNodeWithTag(SettingsTags.RECOVERY_REVEAL).performScrollTo().performClick()
-        onNodeWithTag(SettingsTags.RECOVERY_REVEAL).performScrollTo().performClick()
-        waitUntilAtLeastOneExists(hasTestTag(WalletPinReauthTags.PIN))
-        onNodeWithTag(WalletPinReauthTags.PIN).performTextInput("123456")
-        onNodeWithTag(WalletPinReauthTags.CONFIRM).performClick()
-        waitUntilAtLeastOneExists(hasTestTag(SettingsTags.RECOVERY_PHRASE), timeoutMillis = 2_000)
-        waitUntilAtLeastOneExists(hasTestTag(SettingsTags.RECOVERY_PASSPHRASE))
-        onNodeWithTag(SettingsTags.RECOVERY_HIDE).performScrollTo().performClick()
-        waitUntilDoesNotExist(hasTestTag(SettingsTags.RECOVERY_PHRASE))
-        assertEquals(0, onAllNodesWithTag(SettingsTags.RECOVERY_PASSPHRASE).fetchSemanticsNodes().size)
-        onNodeWithTag(SettingsTags.RECOVERY_REVEAL).performScrollTo()
     }
 
     // ---- Typed DELETE wipe -----------------------------------------------------
@@ -370,11 +174,10 @@ class SecretActionsUiTest {
     }
 
     @Test
-    fun `confirmed wipe empties the data dir and drops PIN history and parked seeds`() =
+    fun `confirmed wipe empties the data dir and drops PIN history`() =
         runDesktopComposeUiTest {
             val files = seedDataDir()
             PinAttemptTracker.recordFailure(SCOPE)
-            SetupSecrets.put("abandon ".repeat(11) + "about")
             var finished: WalletPathsView.ResetResult? = null
             setContent {
                 BhodlTheme {
@@ -390,7 +193,6 @@ class SecretActionsUiTest {
             assertTrue(result.failed.isEmpty(), "failed: ${result.failed}")
             files.forEach { assertFalse(it.exists(), "${it.name} must be wiped") }
             assertEquals(0, PinAttemptTracker.failureCount(SCOPE))
-            assertEquals(0, SetupSecrets.size())
         }
 
     @Test
@@ -400,9 +202,7 @@ class SecretActionsUiTest {
         setContent {
             BhodlTheme {
                 WelcomeScreen(
-                    onCreateWallet = {},
-                    onUnlock = {},
-                    onRestore = {},
+                    onGetStarted = {},
                     onResetComplete = { resetComplete++ },
                     dataDir = tmp,
                 )
@@ -420,8 +220,10 @@ class SecretActionsUiTest {
         files.forEach { assertFalse(it.exists(), "${it.name} must be wiped") }
     }
 
-    /** Creates a minimal legacy single-wallet layout in [tmp]. */
+    /** Creates a minimal data-dir layout in [tmp]. */
     private fun seedDataDir(): List<File> = listOf(
+        File(tmp, WalletPaths.REGISTRY_FILE_NAME),
+        File(tmp, WalletPaths.REGISTRY_KDF_FILE_NAME),
         File(tmp, WalletPaths.WALLET_DB_FILE_NAME),
         File(tmp, WalletPaths.KDF_FILE_NAME),
         File(tmp, WalletPaths.NETWORK_FILE_NAME),

@@ -174,14 +174,20 @@ pub enum KeyDerivationError {
 /// the same value on every subsequent unlock; it is not a secret in
 /// itself, but losing it is equivalent to losing the wallet.
 pub fn generate_salt() -> Result<[u8; SALT_LEN], KeyDerivationError> {
-    let mut salt = [0u8; SALT_LEN];
-    // OsRng instead of `rand::rng()` so the call works from JVM threads
-    // crossing the UniFFI boundary — see mnemonic.rs comment for the
-    // ThreadRng / TLS rationale.
+    random_bytes()
+}
+
+/// `N` bytes from the OS CSPRNG (data keys, nonces, recovery codes).
+///
+/// `OsRng` instead of `rand::rng()` so the call works from JVM threads
+/// crossing the `UniFFI` boundary (a `ThreadRng` lives in thread-local
+/// storage).
+pub fn random_bytes<const N: usize>() -> Result<[u8; N], KeyDerivationError> {
+    let mut out = [0u8; N];
     rand::rngs::OsRng
-        .try_fill_bytes(&mut salt)
+        .try_fill_bytes(&mut out)
         .map_err(|e| KeyDerivationError::Rng(e.to_string()))?;
-    Ok(salt)
+    Ok(out)
 }
 
 /// Enforce the PIN policy for paths that CREATE a new secret store

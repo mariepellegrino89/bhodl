@@ -26,6 +26,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -41,18 +44,22 @@ import io.bhodl.desktop.ui.BhodlTopBar
 import io.bhodl.desktop.wizard.WalletPaths
 import io.bhodl.desktop.wizard.WalletStore
 import io.bhodl.ffi.Network
-import io.bhodl.ffi.WalletKindFfi
 import io.bhodl.shared.resources.Res
+import io.bhodl.shared.resources.rc_saved
+import io.bhodl.shared.resources.security_action_change
+import io.bhodl.shared.resources.security_action_create
+import io.bhodl.shared.resources.security_action_manage
+import io.bhodl.shared.resources.security_action_wallets
+import io.bhodl.shared.resources.security_recovery_missing
+import io.bhodl.shared.resources.security_recovery_no_pin
+import io.bhodl.shared.resources.security_recovery_set
+import io.bhodl.shared.resources.security_row_recovery
 import io.bhodl.shared.resources.security_action_settings
-import io.bhodl.shared.resources.security_action_verify
 import io.bhodl.shared.resources.security_action_wallet_settings
 import io.bhodl.shared.resources.security_autolock_value
 import io.bhodl.shared.resources.security_backup_no_wallet
-import io.bhodl.shared.resources.security_backup_not_verified
-import io.bhodl.shared.resources.security_backup_verified
 import io.bhodl.shared.resources.security_exported_on
 import io.bhodl.shared.resources.security_hub_intro
-import io.bhodl.shared.resources.security_hub_open
 import io.bhodl.shared.resources.security_hub_score
 import io.bhodl.shared.resources.security_hub_title
 import io.bhodl.shared.resources.security_network_clearnet
@@ -60,11 +67,7 @@ import io.bhodl.shared.resources.security_network_tor
 import io.bhodl.shared.resources.security_never_exported
 import io.bhodl.shared.resources.security_pin_device_missing
 import io.bhodl.shared.resources.security_pin_device_set
-import io.bhodl.shared.resources.security_reminder_backup
-import io.bhodl.shared.resources.security_reminder_later
 import io.bhodl.shared.resources.security_row_autolock
-import io.bhodl.shared.resources.security_row_backup
-import io.bhodl.shared.resources.security_row_encrypted_backup
 import io.bhodl.shared.resources.security_row_labels
 import io.bhodl.shared.resources.security_row_network
 import io.bhodl.shared.resources.security_row_pin
@@ -86,49 +89,46 @@ import java.time.format.DateTimeFormatter
  *
  * Every row is derived by the pure [securityChecks] from facts the app
  * already has (wallet registry, Tor flag, idle-lock policy) plus the
- * non-sensitive dates persisted in `settings.json`
- * ([SettingsStore.backupVerifiedAt], `backupExportedAt`,
- * `labelsExportedAt`). No secret is read to render this screen.
+ * non-sensitive labels-export date persisted in `settings.json`
+ * ([SettingsStore.labelsExportedAt]). BHODL holds no keys, so there is
+ * no seed backup to check; the one thing worth backing up is the PIN
+ * recovery code, created and changed from here ([RecoveryCodePanel],
+ * [ChangePinPanel]). No secret is read to render this screen.
  */
 
 /** Check result. [INFO] rows are facts, not counted in the score. */
 public enum class SecurityStatus { OK, ATTENTION, INFO }
 
-public enum class SecurityCheck { BACKUP, ENCRYPTED_BACKUP, PIN, AUTO_LOCK, NETWORK, WALLETS, LABELS }
+public enum class SecurityCheck { PIN, RECOVERY, AUTO_LOCK, NETWORK, WALLETS, LABELS }
 
 /** Inputs of [securityChecks]; every field is a plain, already-known fact. */
 public data class SecurityFacts(
-    /** Loaded signing wallet, or null (tracker-only session). */
+    /** Wallet open in the workspace, or null (tracker-only session). */
     val activeWalletId: String?,
-    val backupVerifiedAtUnix: Long?,
-    val backupExportedAtUnix: Long?,
     val labelsExportedAtUnix: Long?,
     /** The multi-wallet registry (device PIN) exists on disk. */
     val devicePinSet: Boolean,
     val torEnabled: Boolean,
     val network: Network,
-    val signingWallets: Int,
     val watchWallets: Int,
+    /** A PIN recovery code exists (`registry.recovery.json`). */
+    val recoveryCodeSet: Boolean = false,
 )
 
 public data class SecurityRow(val check: SecurityCheck, val status: SecurityStatus)
 
 /** Pure status per row, in display order. */
 public fun securityChecks(f: SecurityFacts): List<SecurityRow> = listOf(
+    SecurityRow(SecurityCheck.PIN, if (f.devicePinSet) SecurityStatus.OK else SecurityStatus.INFO),
+    // Without a code, a forgotten PIN means losing the tracker data.
     SecurityRow(
-        SecurityCheck.BACKUP,
+        SecurityCheck.RECOVERY,
         when {
-            f.activeWalletId == null -> SecurityStatus.INFO
-            f.backupVerifiedAtUnix != null -> SecurityStatus.OK
+            !f.devicePinSet -> SecurityStatus.INFO
+            f.recoveryCodeSet -> SecurityStatus.OK
             else -> SecurityStatus.ATTENTION
         },
     ),
-    SecurityRow(
-        SecurityCheck.ENCRYPTED_BACKUP,
-        // Optional extra: the phrase is the primary backup.
-        if (f.activeWalletId != null && f.backupExportedAtUnix != null) SecurityStatus.OK else SecurityStatus.INFO,
-    ),
-    SecurityRow(SecurityCheck.PIN, if (f.devicePinSet) SecurityStatus.OK else SecurityStatus.INFO),
     // Fixed policy (IdleLock), always armed while a wallet is open.
     SecurityRow(SecurityCheck.AUTO_LOCK, SecurityStatus.OK),
     SecurityRow(
@@ -152,34 +152,9 @@ public fun securityScore(rows: List<SecurityRow>): Pair<Int, Int> {
     return counted.count { it.status == SecurityStatus.OK } to counted.size
 }
 
-/**
- * Spaced, dismissible reminders (BDG security guidance): shown only
- * when the loaded signing wallet's phrase is unverified, NEVER inside a
- * send flow, and after "Remind me later" snoozed for 1, 3, 7, then 30
- * days. Pure so the timing rules are pinned by tests.
- */
-public object SecurityReminderPolicy {
-
-    public val SNOOZE_DAYS: List<Long> = listOf(1L, 3L, 7L, 30L)
-
-    /** Snooze length for the next dismissal, given the dismissals so far. */
-    public fun snoozeSeconds(dismissCount: Int): Long =
-        SNOOZE_DAYS[dismissCount.coerceIn(0, SNOOZE_DAYS.lastIndex)] * 86_400L
-
-    public fun shouldShow(
-        activeWalletId: String?,
-        backupVerified: Boolean,
-        inSendFlow: Boolean,
-        nowUnix: Long,
-        snoozedUntilUnix: Long,
-    ): Boolean = activeWalletId != null && !backupVerified && !inSendFlow && nowUnix >= snoozedUntilUnix
-}
-
 /** Snapshot of [SecurityFacts] from the live stores (composable: subscribes). */
 @Composable
 internal fun rememberSecurityFacts(dataDir: java.io.File = WalletPaths.defaultDataDir()): SecurityFacts {
-    val verified by SettingsStore.backupVerifiedAt
-    val exported by SettingsStore.backupExportedAt
     val labels by SettingsStore.labelsExportedAt
     val tor by SettingsStore.torEnabled
     val wallets by TrackerCache.wallets
@@ -187,29 +162,39 @@ internal fun rememberSecurityFacts(dataDir: java.io.File = WalletPaths.defaultDa
     val devicePin = androidx.compose.runtime.remember(dataDir) {
         runCatching { WalletPaths.from(dataDir).registryExists() }.getOrDefault(false)
     }
+    val recoveryCode = androidx.compose.runtime.remember(dataDir) {
+        runCatching { io.bhodl.ffi.registryHasRecoveryCode(dataDir.absolutePath) }.getOrDefault(false)
+    }
     return SecurityFacts(
         activeWalletId = walletId,
-        backupVerifiedAtUnix = walletId?.let { verified[it] },
-        backupExportedAtUnix = walletId?.let { exported[it] },
         labelsExportedAtUnix = walletId?.let { labels[it] },
         devicePinSet = devicePin,
         torEnabled = tor,
         network = WalletStore.network(),
-        signingWallets = wallets.count { it.kind == WalletKindFfi.SIGNING }
-            .coerceAtLeast(if (walletId != null) 1 else 0),
-        watchWallets = wallets.count { it.kind != WalletKindFfi.SIGNING },
+        watchWallets = wallets.size,
+        recoveryCodeSet = recoveryCode,
     )
 }
 
 @Composable
 public fun SecurityHubScreen(
     onBack: () -> Unit,
-    onVerifyBackup: () -> Unit,
-    onOpenWalletSettings: () -> Unit,
+    onOpenWallets: () -> Unit,
     onOpenSettings: () -> Unit,
+    /** Wallet › Wallet settings of the open wallet; `null` without one. */
+    onOpenWalletSettings: (() -> Unit)? = null,
     facts: SecurityFacts = rememberSecurityFacts(),
+    // PIN recovery seams (tests): default to the open registry.
+    createRecoveryCode: (() -> String)? = null,
+    changeDevicePin: ((old: String, new: String) -> Boolean)? = null,
 ) {
-    val rows = securityChecks(facts)
+    // The code created in this session flips the row without a re-read.
+    var createdNow by remember { mutableStateOf(false) }
+    val shownFacts = if (createdNow) facts.copy(recoveryCodeSet = true) else facts
+    var showRecovery by remember { mutableStateOf(false) }
+    var showChangePin by remember { mutableStateOf(false) }
+    var notice: String? by remember { mutableStateOf(null) }
+    val rows = securityChecks(shownFacts)
     val (ok, counted) = securityScore(rows)
     Box(
         modifier = Modifier.fillMaxSize().background(BhodlTheme.colors.background),
@@ -243,7 +228,9 @@ public fun SecurityHubScreen(
             ) {
                 rows.forEachIndexed { i, row ->
                     val (title, value, action) = rowContent(
-                        row.check, facts, onVerifyBackup, onOpenWalletSettings, onOpenSettings,
+                        row.check, shownFacts, onOpenWallets, onOpenWalletSettings, onOpenSettings,
+                        onRecovery = { notice = null; showRecovery = true },
+                        onChangePin = { notice = null; showChangePin = true },
                     )
                     SecurityRowView(
                         check = row.check,
@@ -255,6 +242,38 @@ public fun SecurityHubScreen(
                     )
                 }
             }
+            notice?.let {
+                Text(
+                    text = it,
+                    style = BhodlTheme.typography.bodyMedium,
+                    color = BhodlTheme.colors.financialPositive,
+                    modifier = Modifier.testTag(SecurityHubTags.NOTICE),
+                )
+            }
+        }
+    }
+    if (showRecovery) {
+        val saved = stringResource(Res.string.rc_saved)
+        val onSaved = {
+            showRecovery = false
+            createdNow = true
+            notice = saved
+        }
+        if (createRecoveryCode != null) {
+            RecoveryCodePanel(shownFacts.recoveryCodeSet, { showRecovery = false }, onSaved, createRecoveryCode)
+        } else {
+            RecoveryCodePanel(shownFacts.recoveryCodeSet, { showRecovery = false }, onSaved)
+        }
+    }
+    if (showChangePin) {
+        val onChanged = { message: String ->
+            showChangePin = false
+            notice = message
+        }
+        if (changeDevicePin != null) {
+            ChangePinPanel({ showChangePin = false }, onChanged, changeDevicePin)
+        } else {
+            ChangePinPanel({ showChangePin = false }, onChanged)
         }
     }
 }
@@ -265,34 +284,38 @@ private data class RowText(val title: String, val value: String, val action: Pai
 private fun rowContent(
     check: SecurityCheck,
     f: SecurityFacts,
-    onVerifyBackup: () -> Unit,
-    onOpenWalletSettings: () -> Unit,
+    onOpenWallets: () -> Unit,
+    onOpenWalletSettings: (() -> Unit)?,
     onOpenSettings: () -> Unit,
+    onRecovery: () -> Unit,
+    onChangePin: () -> Unit,
 ): RowText {
-    val walletSettings = stringResource(Res.string.security_action_wallet_settings) to onOpenWalletSettings
+    val walletSettings = onOpenWalletSettings?.let {
+        stringResource(Res.string.security_action_wallet_settings) to it
+    }
     val hasWallet = f.activeWalletId != null
     return when (check) {
-        SecurityCheck.BACKUP -> RowText(
-            stringResource(Res.string.security_row_backup),
-            when {
-                !hasWallet -> stringResource(Res.string.security_backup_no_wallet)
-                f.backupVerifiedAtUnix != null ->
-                    stringResource(Res.string.security_backup_verified, formatSecurityDate(f.backupVerifiedAtUnix))
-                else -> stringResource(Res.string.security_backup_not_verified)
-            },
-            if (hasWallet) stringResource(Res.string.security_action_verify) to onVerifyBackup else null,
-        )
-        SecurityCheck.ENCRYPTED_BACKUP -> RowText(
-            stringResource(Res.string.security_row_encrypted_backup),
-            exportedText(hasWallet, f.backupExportedAtUnix),
-            if (hasWallet) walletSettings else null,
-        )
         SecurityCheck.PIN -> RowText(
             stringResource(Res.string.security_row_pin),
             stringResource(
                 if (f.devicePinSet) Res.string.security_pin_device_set else Res.string.security_pin_device_missing,
             ),
-            null,
+            if (f.devicePinSet) stringResource(Res.string.security_action_change) to onChangePin else null,
+        )
+        SecurityCheck.RECOVERY -> RowText(
+            stringResource(Res.string.security_row_recovery),
+            stringResource(
+                when {
+                    !f.devicePinSet -> Res.string.security_recovery_no_pin
+                    f.recoveryCodeSet -> Res.string.security_recovery_set
+                    else -> Res.string.security_recovery_missing
+                },
+            ),
+            when {
+                !f.devicePinSet -> null
+                f.recoveryCodeSet -> stringResource(Res.string.security_action_manage) to onRecovery
+                else -> stringResource(Res.string.security_action_create) to onRecovery
+            },
         )
         SecurityCheck.AUTO_LOCK -> RowText(
             stringResource(Res.string.security_row_autolock),
@@ -314,8 +337,8 @@ private fun rowContent(
         }
         SecurityCheck.WALLETS -> RowText(
             stringResource(Res.string.security_row_wallets),
-            stringResource(Res.string.security_wallets_value, f.signingWallets, f.watchWallets),
-            null,
+            stringResource(Res.string.security_wallets_value, f.watchWallets),
+            stringResource(Res.string.security_action_wallets) to onOpenWallets,
         )
         SecurityCheck.LABELS -> RowText(
             stringResource(Res.string.security_row_labels),
@@ -403,70 +426,11 @@ private fun statusVisual(status: SecurityStatus): Triple<androidx.compose.ui.gra
 internal fun formatSecurityDate(unix: Long): String =
     DateTimeFormatter.ofPattern("yyyy-MM-dd").withZone(ZoneId.systemDefault()).format(Instant.ofEpochSecond(unix))
 
-/**
- * The spaced backup reminder. Hosts pass [inSendFlow] = true on every
- * send surface so a reminder never interrupts a payment.
- */
-@Composable
-internal fun SecurityReminderBanner(
-    inSendFlow: Boolean,
-    onOpenHub: () -> Unit,
-    nowUnix: Long = System.currentTimeMillis() / 1000L,
-) {
-    val verified by SettingsStore.backupVerifiedAt
-    val snoozedUntilByWallet by SettingsStore.securityReminderSnoozedUntil
-    val dismissCountByWallet by SettingsStore.securityReminderDismissCount
-    val walletId = WalletStore.activeWalletId()
-    val show = SecurityReminderPolicy.shouldShow(
-        activeWalletId = walletId,
-        backupVerified = walletId != null && verified[walletId] != null,
-        inSendFlow = inSendFlow,
-        nowUnix = nowUnix,
-        snoozedUntilUnix = walletId?.let { snoozedUntilByWallet[it] } ?: 0L,
-    )
-    if (!show || walletId == null) return
-    val message = stringResource(Res.string.security_reminder_backup)
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .background(BhodlTheme.colors.financialPending.copy(alpha = 0.10f))
-            .border(1.dp, BhodlTheme.colors.financialPending.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
-            .padding(horizontal = 12.dp, vertical = 6.dp)
-            .semantics { contentDescription = message }
-            .testTag(SecurityHubTags.REMINDER),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Icon(Icons.Filled.Shield, contentDescription = null, tint = BhodlTheme.colors.financialPending, modifier = Modifier.size(18.dp))
-        Text(
-            text = message,
-            style = BhodlTheme.typography.bodyMedium,
-            color = BhodlTheme.colors.textPrimary,
-            modifier = Modifier.weight(1f),
-        )
-        OutlinedButton(onClick = onOpenHub, modifier = Modifier.testTag(SecurityHubTags.REMINDER_OPEN)) {
-            Text(stringResource(Res.string.security_hub_open))
-        }
-        TextButton(
-            onClick = {
-                SettingsStore.snoozeSecurityReminder(
-                    walletId,
-                    nowUnix + SecurityReminderPolicy.snoozeSeconds(dismissCountByWallet[walletId] ?: 0),
-                )
-            },
-            modifier = Modifier.testTag(SecurityHubTags.REMINDER_LATER),
-        ) { Text(stringResource(Res.string.security_reminder_later)) }
-    }
-}
-
 public object SecurityHubTags {
     public const val ROOT: String = "security-hub.root"
     public const val SCORE: String = "security-hub.score"
-    public const val REMINDER: String = "security-hub.reminder"
-    public const val REMINDER_OPEN: String = "security-hub.reminder.open"
-    public const val REMINDER_LATER: String = "security-hub.reminder.later"
     public const val SETTINGS_ENTRY: String = "security-hub.settings-entry"
+    public const val NOTICE: String = "security-hub.notice"
     public fun row(c: SecurityCheck): String = "security-hub.row.${c.name.lowercase()}"
     public fun value(c: SecurityCheck): String = "security-hub.value.${c.name.lowercase()}"
     public fun status(c: SecurityCheck): String = "security-hub.status.${c.name.lowercase()}"

@@ -65,7 +65,7 @@
     <string name="trk_liability_kind">Kind</string>
     <string name="trk_liability_kind_mortgage">mortgage</string>
     <string name="trk_liability_kind_loan">loan</string>
-    <string name="trk_liability_kind_credit_card">credit-card</string>
+    <string name="trk_liability_kind_credit_card">credit card</string>
     <string name="trk_liability_kind_other">other</string>
     <string name="trk_breakdown_wallets">Wallets (BTC)</string>
     <string name="trk_breakdown_investments">Investments (fiat)</string>
@@ -84,12 +84,9 @@
     <string name="trk_wallets_total_nw">Total net worth</string>
     <string name="trk_wallets_across_one">Across 1 wallet</string>
     <string name="trk_wallets_across_many">Across %1$d wallets</string>
-    <string name="trk_wallet_kind_signing_tracked">Signing (tracked)</string>
-    <string name="trk_wallet_kind_signing">Signing</string>
     <string name="trk_wallet_kind_watch_xpub">Watch (xpub)</string>
     <string name="trk_wallet_kind_watch_addresses">Watch (addresses)</string>
     <string name="trk_wallet_kind_watch_hd">Watch (HD)</string>
-    <string name="trk_wallet_not_active_hint">Not active — to track this wallet when it’s not unlocked, mirror it as a watch-only entry (add its xpub).</string>
     <string name="trk_wallet_included">Included</string>
     <string name="trk_wallet_excluded">Excluded</string>
     <string name="trk_chart_balance">Balance · %1$s</string>
@@ -123,7 +120,7 @@
     <string name="trk_kpi_balance">Balance</string>
     <string name="trk_hist_wallets">Wallets</string>
     <string name="trk_hist_history">History</string>
-    <string name="trk_hist_empty">No transactions across any wallet yet. Sync a watch wallet from its dashboard, or broadcast / receive from the active signing wallet, to populate the history.</string>
+    <string name="trk_hist_empty">No transactions across any wallet yet. Refresh balances or open a wallet and sync it to populate the history.</string>
     <string name="trk_hist_no_match">No transactions match the active filter.</string>
     <string name="trk_hist_unknown_wallet">(unknown wallet)</string>
     <string name="trk_hist_showing_50">Showing 50 of %1$d. Use Export CSV to dump the full list.</string>
@@ -188,4 +185,8 @@
     <string name="trk_csv_overwrite_body">“%1$s” already exists. Overwrite it?</string>
     <string name="trk_csv_save_failed">Save failed: %1$s</string>
     <string name="trk_chart_activity_scatter">Activity distribution (age × amount)</string>
+    <string name="trk_cache_err_registry_closed">Registry not open.</string>
+    <string name="trk_cache_err_sync">Sync failed for %1$d wallet(s) — showing cached data. %2$s</string>
+    <string name="trk_cache_err_sync_unknown">sync failed</string>
+    <string name="trk_cache_err_refresh">Failed to refresh tracker.</string>
 </resources>

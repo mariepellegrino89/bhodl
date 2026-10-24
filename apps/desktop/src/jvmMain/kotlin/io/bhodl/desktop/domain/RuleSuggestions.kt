@@ -90,8 +90,8 @@ internal fun ruleDraftFromEdit(
  * Existing events the draft would categorise: uncategorised (category
  * null or blank), matching the draft, excluding the [edited]
  * transaction. The exclusion is by txid — the same key the tracker
- * dedupes a signing wallet and its watch mirror on — so the mirror row
- * of the edited transaction is neither counted nor written. One entry
+ * dedupes wallet rows sharing an account on — so a duplicate row of the
+ * edited transaction is neither counted nor written. One entry
  * per `(wallet, txid)` row — the unit the registry stores a category
  * on — so applying writes each row exactly once.
  */
@@ -113,7 +113,7 @@ internal fun ruleDraftMatches(
 
 /**
  * The count shown as "applies to N existing transactions": distinct
- * transactions (a signing wallet and its watch mirror see the same txid
+ * transactions (two rows tracking the same account see the same txid
  * twice; the user sees one transaction).
  */
 internal fun ruleDraftPreviewCount(matches: List<PaymentEvent>): Int =

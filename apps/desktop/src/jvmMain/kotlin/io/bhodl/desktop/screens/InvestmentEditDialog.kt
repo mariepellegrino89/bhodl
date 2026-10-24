@@ -188,7 +188,8 @@ internal fun InvestmentEditDialog(
                                     else BhodlTheme.colors.surface,
                                 )
                                 .clickable { assetType = k }
-                                .padding(horizontal = 10.dp, vertical = 4.dp),
+                                .padding(horizontal = 10.dp, vertical = 4.dp)
+                                .testTag(InvestmentTags.assetTypeTag(k)),
                         ) {
                             Text(
                                 text = investmentTypeLabel(k),

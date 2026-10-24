@@ -1,69 +1,65 @@
 package io.bhodl.ffi
 
+import java.io.File
 import java.nio.file.Files
+import kotlin.test.AfterTest
+import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
  * Cheap JVM smoke harness for the UniFFI bridge.
  *
- * Runs in seconds (no Compose, no JavaFX, no boot guard, no wizard) and
- * exercises the FFI call paths that have been fragile during the Phase-1
- * RustBuffer / cross-DLL allocator investigation. If a future change to
- * `crates/bhodl-uniffi/`, `crates/bhodl-wallet-onchain/`, the cargo profile,
- * or the `:shared` UniFFI plugin wiring breaks the FFI ABI, this is the
- * file that should fail first — not the desktop app at runtime.
+ * Runs in seconds (no Compose, no boot guard) and exercises the FFI call
+ * paths that have been fragile during the Phase-1 RustBuffer /
+ * cross-DLL allocator investigation. If a future change to
+ * `crates/bhodl-uniffi/`, `crates/bhodl-wallet-onchain/`, the cargo
+ * profile, or the `:shared` UniFFI plugin wiring breaks the FFI ABI,
+ * this is the file that should fail first — not the desktop app at
+ * runtime.
+ *
+ * Windows ABI note (docs/uniffi-runtime.md): with uniffi 0.28.3 + the
+ * Ubique KMP fork only the FIRST `#[uniffi::Object]` declared in the
+ * Rust file can safely return `Result<String, _>`; on any other Object
+ * the `RustBuffer.free` of the lifted string crashes. BHODL is
+ * watch-only and `WatchHandle` is now declared first, so its
+ * `Result<String, _>` methods (`peekAddressAt`, `nextUnusedReceiveAddress`,
+ * `nextReceiveAddress`, `exportLabelsJsonl`) are exactly what this test
+ * must keep proving.
  *
  * Run with `./gradlew :shared:jvmTest --tests "io.bhodl.ffi.UniffiSmokeTest"`.
  */
 class UniffiSmokeTest {
 
-    /**
-     * Workaround for the uniffi 0.28.3 + Ubique KMP fork ABI bug on
-     * Windows: only `WalletHandle` methods survive the FFI roundtrip;
-     * methods on any other `#[uniffi::Object]` type and free functions
-     * with `Result<String, _>` returns crash on `RustBuffer.free`.
-     * `WalletHandle.generateRandomMnemonic` works around this by living
-     * on the only Object the bindgen handles correctly.
-     */
-    @Test
-    fun `WalletHandle generate_random_mnemonic returns 12 BIP39 words`() {
-        val temp = WalletHandle.fromMnemonic(
-            network = Network.SIGNET,
-            mnemonic = TEST_MNEMONIC,
-            passphrase = "",
-        )
-        val phrase = temp.generateRandomMnemonic(WORD_COUNT_12)
-        val words = phrase.trim().split(Regex("\\s+"))
-        assertEquals(12, words.size, "expected 12 words, got: $phrase")
-        assertTrue(
-            words.all { it.all { c -> c in 'a'..'z' } },
-            "non-ascii-lowercase token: $phrase",
-        )
+    private lateinit var dir: File
+    private var registry: RegistryHandle? = null
+    private val opened = mutableListOf<WatchHandle>()
+
+    @BeforeTest
+    fun setUp() {
+        dir = Files.createTempDirectory("bhodl-smoke-").toFile()
     }
 
-    /**
-     * Method on `WalletHandle` returning `String`. Exercises the same
-     * `RustBuffer.lift -> RustBufferHelper.free` path but through a method
-     * symbol (`uniffi_*_fn_method_*`) instead of a free function symbol
-     * (`uniffi_*_fn_func_*`). If `generate_mnemonic` crashes but this passes,
-     * the bug is specific to the free-function code path; if both crash the
-     * problem is the cross-DLL allocator handoff in general.
-     */
-    @Test
-    fun `peek_address_at returns a non-empty taproot address`() {
-        val wallet = WalletHandle.fromMnemonic(
-            network = Network.SIGNET,
-            mnemonic = TEST_MNEMONIC,
-            passphrase = "",
-        )
-        val address = wallet.peekAddressAt(0u)
-        assertTrue(
-            address.startsWith("tb1p"),
-            "expected signet taproot prefix tb1p, got: $address",
-        )
+    @AfterTest
+    fun tearDown() {
+        // Release the SQLCipher file locks first (Windows cannot delete
+        // an open file), then the temp dir.
+        opened.forEach { runCatching { it.destroy() } }
+        registry?.let { runCatching { it.destroy() } }
+        dir.deleteRecursively()
+    }
+
+    private fun registry(): RegistryHandle =
+        registry ?: RegistryHandle.createOrLoad(dir.absolutePath, DEVICE_PIN).also { registry = it }
+
+    private fun openBip86Watch(label: String = "smoke"): WatchHandle {
+        val record = registry().addWatchXpub(label, BIP86_SIGNET_TPUB, Network.SIGNET, WatchBipFfi.TAPROOT)
+        return registry().openWatch(record.id).also { opened += it }
     }
 
     /**
@@ -78,157 +74,111 @@ class UniffiSmokeTest {
         assertTrue(rendered.isNotEmpty(), "format_sat returned empty string")
     }
 
+    @Test
+    fun `watch xpub derives the BIP-86 signet receive addresses`() {
+        val watch = openBip86Watch()
+        assertFalse(watch.isAddressList())
+        assertEquals(BIP86_SIGNET_ADDRESS_0, watch.peekAddressAt(0u))
+        assertEquals(BIP86_SIGNET_ADDRESS_1, watch.peekAddressAt(1u))
+    }
+
     /**
-     * Send-flow FFI smoke: an invalid address must surface as a typed
-     * `WalletException` (NOT a JNA `java.lang.Error`). Catches both an
-     * accidental ABI regression on the new `Result<String, _>` methods
-     * and a plain validation regression in `build_send_tx`.
+     * `Result<String, _>` method on `WatchHandle` (the Windows ABI case
+     * above). On a fresh wallet the lowest unused receive address is
+     * index 0, and asking again does not burn a new index.
      */
     @Test
-    fun `build_send_tx rejects invalid address with WalletException`() {
-        val wallet = WalletHandle.fromMnemonic(
-            network = Network.SIGNET,
-            mnemonic = TEST_MNEMONIC,
-            passphrase = "",
-        )
+    fun `next_unused_receive_address returns index 0 and is stable`() {
+        val watch = openBip86Watch()
+        assertEquals(BIP86_SIGNET_ADDRESS_0, watch.nextUnusedReceiveAddress())
+        assertEquals(BIP86_SIGNET_ADDRESS_0, watch.nextUnusedReceiveAddress())
+        // The explicit "New address" advances.
+        assertEquals(BIP86_SIGNET_ADDRESS_1, watch.nextReceiveAddress())
+    }
+
+    /** `Result<String, _>` method on `WatchHandle`, empty and non-empty. */
+    @Test
+    fun `export_labels_jsonl round-trips a tx label`() {
+        val watch = openBip86Watch()
+        assertEquals("", watch.exportLabelsJsonl().trim())
+
+        val txid = "ab".repeat(32)
+        watch.setTxLabel(txid, "Salary")
+        assertEquals("Salary", watch.getTxLabel(txid))
+        val jsonl = watch.exportLabelsJsonl()
+        assertTrue(txid in jsonl && "Salary" in jsonl, "unexpected export: $jsonl")
+
+        // Import into a second wallet of the same registry.
+        val other = registry().addWatchAddresses("import", listOf(BIP86_SIGNET_ADDRESS_0), Network.SIGNET)
+        val otherWatch = registry().openWatch(other.id).also { opened += it }
+        assertEquals(1UL, otherWatch.importLabelsJsonl(jsonl))
+        assertEquals("Salary", otherWatch.getTxLabel(txid))
+    }
+
+    @Test
+    fun `public descriptor carries the registered account xpub`() {
+        val bundle = assertNotNull(openBip86Watch().exportPublicDescriptor())
+        assertEquals(BIP86_SIGNET_TPUB, bundle.accountXpub)
+        assertTrue(bundle.externalDescriptor.startsWith("tr("), bundle.externalDescriptor)
+    }
+
+    @Test
+    fun `address-list wallet has no descriptor and is flagged`() {
+        val record = registry().addWatchAddresses("list", listOf(BIP86_SIGNET_ADDRESS_0), Network.SIGNET)
+        val watch = registry().openWatch(record.id).also { opened += it }
+        assertTrue(watch.isAddressList())
+        assertNull(watch.exportPublicDescriptor())
+        assertEquals(0UL, watch.balanceSat())
+        assertTrue(watch.listUtxos().isEmpty())
+    }
+
+    @Test
+    fun `fresh registry has no legacy signing wallets`() {
+        assertEquals(0u, registry().legacySigningWalletCount())
+        assertEquals(0u, registry().purgeLegacySigningWallets())
+    }
+
+    @Test
+    fun `invalid xpub is rejected with a typed WalletException`() {
         val ex = assertFailsWith<WalletException> {
-            wallet.buildSendTx(
-                toAddress = "this-is-not-an-address",
-                amountSat = 1000UL,
-                feeRateSatVb = 1UL,
-                allowHighFee = false,
-            )
+            registry().addWatchXpub("bad", "tpub-not-a-key", Network.SIGNET, WatchBipFfi.TAPROOT)
         }
-        assertTrue(
-            !ex.message.isNullOrEmpty(),
-            "expected populated error message, got: ${ex.message}",
-        )
+        assertTrue(!ex.message.isNullOrEmpty(), "expected populated error message, got: ${ex.message}")
     }
 
     /**
-     * `psbt_fee_sat` is the only new method whose body does not lock the
-     * wallet for write — important because the review screen calls it
-     * concurrently with the user typing. An invalid PSBT must produce a
-     * typed exception, never a crash.
+     * Round-trip: register a watch wallet, drop every handle, reopen the
+     * registry with the device PIN and the wallet by id — the returning
+     * user path of the desktop app.
      */
     @Test
-    fun `psbt_fee_sat rejects garbage PSBT with WalletException`() {
-        val wallet = WalletHandle.fromMnemonic(
-            network = Network.SIGNET,
-            mnemonic = TEST_MNEMONIC,
-            passphrase = "",
-        )
-        val ex = assertFailsWith<WalletException> {
-            wallet.psbtFeeSat("not-a-psbt")
-        }
-        assertTrue(!ex.message.isNullOrEmpty())
-    }
+    fun `registry reopens a watch wallet after every handle is dropped`() {
+        val first = openBip86Watch()
+        val id = registry().listWallets().single().id
+        first.destroy()
+        opened.clear()
+        registry!!.destroy()
+        registry = null
 
-    /**
-     * Fee-estimates FFI smoke. Hits the live signet Esplora endpoint, so
-     * it requires network — `@Ignore`d by default to keep the offline
-     * build deterministic. Un-ignore locally to verify the bucket
-     * mapping and the Record round-trip work end-to-end.
-     */
-    @kotlin.test.Ignore
-    @Test
-    fun `fetch_fee_estimates round-trips three buckets from mempool space`() {
-        val wallet = WalletHandle.fromMnemonic(
-            network = Network.SIGNET,
-            mnemonic = TEST_MNEMONIC,
-            passphrase = "",
-        )
-        val est = wallet.fetchFeeEstimates("https://mempool.space/signet/api", proxyUrl = null)
-        // Basic sanity: every bucket clamped to >= 1 sat/vB and
-        // monotone economy <= normal <= priority.
-        assertTrue(est.economySatPerVb >= 1u)
-        assertTrue(est.normalSatPerVb >= est.economySatPerVb)
-        assertTrue(est.prioritySatPerVb >= est.normalSatPerVb)
-    }
-
-    /**
-     * Round-trip: create a persistent wallet via `createOrLoadPersistent`,
-     * release it, then reopen via `unlockPersistent` (no mnemonic). The
-     * unlock-without-mnemonic path is what the desktop UnlockScreen relies
-     * on; if BDK ever changes the descriptor-load semantics, this test is
-     * the early warning.
-     */
-    @Test
-    fun `unlock_persistent reopens an existing wallet without a mnemonic`() {
-        val tempDir = Files.createTempDirectory("bhodl-smoke-")
-        try {
-            // 1) Create a fresh persistent wallet.
-            WalletHandle.createOrLoadPersistent(
-                dbDir = tempDir.toAbsolutePath().toString(),
-                network = Network.SIGNET,
-                mnemonic = TEST_MNEMONIC,
-                passphrase = "",
-                pin = "123456",
-            )
-            // 2) Reopen it without supplying a mnemonic.
-            val reopened = WalletHandle.unlockPersistent(
-                dbDir = tempDir.toAbsolutePath().toString(),
-                network = Network.SIGNET,
-                pin = "123456",
-            )
-            // 3) Smoke: derive an address — proves BDK rebuilt a working
-            //    wallet from the descriptors persisted in the encrypted DB.
-            val address = reopened.peekAddressAt(0u)
-            assertTrue(
-                address.startsWith("tb1p"),
-                "expected tb1p taproot address, got: $address",
-            )
-        } finally {
-            tempDir.toFile().deleteRecursively()
-        }
-    }
-
-    /**
-     * Wrong PIN ought to surface as a typed `WalletException`. As of
-     * 2026-05-07 it surfaces as a `java.lang.NullPointerException`
-     * because BDK's `Wallet::load` panics inside the cdylib when
-     * SQLCipher rejects the encryption key, and uniffi-rs does not
-     * `catch_unwind` at the FFI seam — the constructor returns a null
-     * pointer without populating the error status, then the generated
-     * Kotlin `!!` turns that into an NPE. Tracked as a follow-up:
-     * either patch `OnchainAccount::load_persistent` to do its own
-     * `catch_unwind` and remap to `OnchainError::Storage`, or wait for
-     * upstream uniffi to grow proper unwinding support. Test stays as
-     * documentation; un-ignore once one of those lands.
-     */
-    @kotlin.test.Ignore
-    @Test
-    fun `unlock_persistent rejects wrong PIN with WalletException`() {
-        val tempDir = Files.createTempDirectory("bhodl-smoke-wrongpin-")
-        try {
-            WalletHandle.createOrLoadPersistent(
-                dbDir = tempDir.toAbsolutePath().toString(),
-                network = Network.SIGNET,
-                mnemonic = TEST_MNEMONIC,
-                passphrase = "",
-                pin = "246802",
-            )
-            val ex = assertFailsWith<WalletException> {
-                WalletHandle.unlockPersistent(
-                    dbDir = tempDir.toAbsolutePath().toString(),
-                    network = Network.SIGNET,
-                    pin = "135791",
-                )
-            }
-            assertTrue(!ex.message.isNullOrEmpty())
-        } finally {
-            tempDir.toFile().deleteRecursively()
-        }
+        val reopened = registry().openWatch(id).also { opened += it }
+        assertEquals(BIP86_SIGNET_ADDRESS_0, reopened.peekAddressAt(0u))
     }
 
     private companion object {
-        const val WORD_COUNT_12: UInt = 12u
+        const val DEVICE_PIN: String = "482916"
 
-        // Test vector from BIP86 §Test vectors. Keep in sync with the same
-        // constant used by `apps/desktop/.../DashboardScreen.kt` so this
-        // smoke test mirrors what the dashboard does on first composition.
-        const val TEST_MNEMONIC: String =
-            "abandon abandon abandon abandon abandon abandon " +
-                "abandon abandon abandon abandon abandon about"
+        /**
+         * Account tpub at `m/86'/1'/0'` of the BIP-86 test mnemonic
+         * ("abandon" x 11 + "about"); derivation as in
+         * `crates/bhodl-wallet-onchain/src/test_support.rs`.
+         */
+        const val BIP86_SIGNET_TPUB: String =
+            "tpubDDfvzhdVV4unsoKt5aE6dcsNsfeWbTgmLZPi8LQDYU2xixrYemMfWJ3BaVneH3u7DBQePdTwhpybaKRU95pi6PMUtLPBJLVQRpzEnjfjZzX"
+
+        /** `m/86'/1'/0'/0/0` and `/0/1` of that account on signet. */
+        const val BIP86_SIGNET_ADDRESS_0: String =
+            "tb1p8wpt9v4frpf3tkn0srd97pksgsxc5hs52lafxwru9kgeephvs7rqlqt9zj"
+        const val BIP86_SIGNET_ADDRESS_1: String =
+            "tb1p90h6z3p36n9hrzy7580h5l429uwchyg8uc9sz4jwzhdtuhqdl5eqmpwq6n"
     }
 }

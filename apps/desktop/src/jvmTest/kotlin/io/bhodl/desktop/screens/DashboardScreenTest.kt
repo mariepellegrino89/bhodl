@@ -4,7 +4,9 @@ import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertTextEquals
-import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.isSelectable
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -92,7 +94,7 @@ class DashboardScreenTest {
     // -----------------------------------------------------------------
 
     @Test
-    fun `sub-tabs switch between Transactions, Send, Receive, Addresses, UTXOs and Wallet settings`() =
+    fun `sub-tabs switch between Transactions, Receive, Addresses, UTXOs and Wallet settings`() =
         runDesktopComposeUiTest {
             val fake = FakeWalletPort()
             WalletStore.set(fake)
@@ -103,7 +105,6 @@ class DashboardScreenTest {
             onNodeWithTag(DashboardTags.tab(WalletTab.TRANSACTIONS)).assertIsSelected()
 
             val expected = listOf(
-                WalletTab.SEND to SendTags.REVIEW,
                 WalletTab.RECEIVE to ReceiveTags.REQUEST_STEP,
                 WalletTab.ADDRESSES to WalletTabTags.ADDR_TABLE,
                 WalletTab.UTXOS to WalletTabTags.UTXO_TABLE,
@@ -129,29 +130,6 @@ class DashboardScreenTest {
     }
 
     @Test
-    fun `Send tab Review hands the PSBT to onReviewSend`() = runDesktopComposeUiTest {
-        val fake = FakeWalletPort(unsignedPsbtBuilder = { "psbt-from-tab" })
-        WalletStore.set(fake)
-        var reviewed: String? = null
-        setContent {
-            BhodlTheme {
-                DashboardScreen(
-                    initialTab = WalletTab.SEND,
-                    onReviewSend = { psbt, _, _, _ -> reviewed = psbt },
-                )
-            }
-        }
-        waitUntilAtLeastOneExists(hasTestTag(SendTags.REVIEW))
-        onNodeWithTag(SendTags.ADDRESS).performTextInput(
-            "tb1pqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq",
-        )
-        onNodeWithTag(SendTags.AMOUNT).performTextInput("1000")
-        onNodeWithTag(SendTags.REVIEW).performScrollTo().performClick()
-        waitUntil(timeoutMillis = 2_000) { reviewed != null }
-        assertEquals("psbt-from-tab", reviewed)
-    }
-
-    @Test
     fun `Contacts header action fires onAddressBookClicked`() = runDesktopComposeUiTest {
         val fake = FakeWalletPort()
         WalletStore.set(fake)
@@ -174,28 +152,53 @@ class DashboardScreenTest {
     }
 
     @Test
-    fun `UTXOs tab freezes a coin and sends a selection through coin control`() = runDesktopComposeUiTest {
-        val a = UtxoRecord("aa".repeat(32) + ":0", 50_000u, "tb1pcoina", false, true, false)
-        val b = UtxoRecord("bb".repeat(32) + ":1", 20_000u, "tb1pcoinb", true, true, false)
+    fun `UTXOs tab lists coins read-only with a count and total`() = runDesktopComposeUiTest {
+        val a = UtxoRecord("aa".repeat(32) + ":0", 50_000u, "tb1pcoina", false, true)
+        val b = UtxoRecord("bb".repeat(32) + ":1", 20_000u, "tb1pcoinb", true, false)
         val fake = FakeWalletPort().apply { utxos += listOf(a, b) }
         WalletStore.set(fake)
         setContent { BhodlTheme { DashboardScreen(initialTab = WalletTab.UTXOS) } }
         waitUntilAtLeastOneExists(hasTestTag(WalletTabTags.utxoRow(a.outpoint)))
+        onNodeWithTag(WalletTabTags.utxoRow(b.outpoint)).assertExists()
+        onNodeWithTag(WalletTabTags.UTXO_SUMMARY).assertTextContains("2 coins", substring = true)
+        onNodeWithTag(WalletTabTags.UTXO_SUMMARY).assertTextContains("70,000", substring = true)
 
-        onNodeWithTag(WalletTabTags.utxoFreeze(b.outpoint)).performClick()
-        waitUntil(timeoutMillis = 2_000) { fake.setFrozenCalls.isNotEmpty() }
-        assertEquals(b.outpoint to true, fake.setFrozenCalls.single())
-        waitUntil(timeoutMillis = 2_000) {
-            onAllNodesWithTag(WalletTabTags.utxoFrozen(b.outpoint), useUnmergedTree = true)
-                .fetchSemanticsNodes().isNotEmpty()
+        // Read-only: a row is not a selectable / clickable control.
+        assertTrue(
+            onAllNodes(hasTestTag(WalletTabTags.utxoRow(a.outpoint)) and hasClickAction())
+                .fetchSemanticsNodes().isEmpty(),
+            "UTXO rows must not be clickable",
+        )
+        assertTrue(
+            onAllNodes(hasTestTag(WalletTabTags.utxoRow(a.outpoint)) and isSelectable())
+                .fetchSemanticsNodes().isEmpty(),
+            "UTXO rows carry no selection state",
+        )
+    }
+
+    @Test
+    fun `address-list wallet hides the Receive tab`() = runDesktopComposeUiTest {
+        val fake = FakeWalletPort(addressList = true)
+        WalletStore.set(fake)
+        setContent { BhodlTheme { DashboardScreen(initialTab = WalletTab.RECEIVE) } }
+        waitForReady(fake)
+        // A RECEIVE initialTab falls back to Transactions.
+        waitUntilAtLeastOneExists(hasTestTag(HistoryTags.TABLE))
+        onNodeWithTag(DashboardTags.tab(WalletTab.TRANSACTIONS)).assertIsSelected()
+        onNodeWithTag(DashboardTags.tab(WalletTab.RECEIVE)).assertDoesNotExist()
+        for (tab in listOf(WalletTab.ADDRESSES, WalletTab.UTXOS, WalletTab.SETTINGS)) {
+            onNodeWithTag(DashboardTags.tab(tab)).assertExists()
         }
+        assertTrue(fake.nextReceiveCalls.isEmpty() && fake.nextUnusedCalls.isEmpty())
+    }
 
-        onNodeWithTag(WalletTabTags.utxoRow(a.outpoint)).performClick()
-        onNodeWithTag(WalletTabTags.UTXO_SPEND_SELECTED).performClick()
-        // Send tab, coin control on, exactly that coin selected.
-        waitUntilAtLeastOneExists(hasTestTag(SendTags.REVIEW))
-        waitUntilAtLeastOneExists(hasText("Selected: 1 of 2"), timeoutMillis = 3_000)
-        onNodeWithTag(DashboardTags.tab(WalletTab.SEND)).assertIsSelected()
+    @Test
+    fun `xpub wallet shows the Receive tab`() = runDesktopComposeUiTest {
+        val fake = FakeWalletPort(addressList = false)
+        WalletStore.set(fake)
+        setContent { BhodlTheme { DashboardScreen() } }
+        waitForReady(fake)
+        onNodeWithTag(DashboardTags.tab(WalletTab.RECEIVE)).assertExists()
     }
 
     @Test
@@ -228,49 +231,6 @@ class DashboardScreenTest {
         waitUntil(timeoutMillis = 2_000) { fake.applyReceiveLabelsCalls == 1 }
         onNodeWithTag(DashboardTags.SYNC).performClick()
         waitUntil(timeoutMillis = 2_000) { fake.applyReceiveLabelsCalls == 2 }
-    }
-
-    @Test
-    fun `restore banner is rendered when WalletStore_justRestored is true`() =
-        runDesktopComposeUiTest {
-            WalletStore.markJustRestored()
-            val fake = FakeWalletPort(balance = 0u).apply {
-                // Block the auto-sync path so the banner stays up
-                // and we can assert its presence deterministically.
-                failSync = WalletException.EsploraSync(detail = "blocked-on-purpose")
-            }
-            WalletStore.set(fake)
-            setContent {
-                BhodlTheme {
-                    DashboardScreen(
-                        onAddressBookClicked = {},
-                        onLockClicked = {},
-                    )
-                }
-            }
-            waitUntilAtLeastOneExists(hasTestTag(DashboardTags.RESTORE_BANNER))
-            onNodeWithTag(DashboardTags.RESTORE_BANNER).assertIsDisplayed()
-        }
-
-    @Test
-    fun `restore banner clears once the first auto-sync succeeds`() = runDesktopComposeUiTest {
-        WalletStore.markJustRestored()
-        val fake = FakeWalletPort(balance = 12_345u)
-        WalletStore.set(fake)
-        setContent {
-            BhodlTheme {
-                DashboardScreen(
-                    onAddressBookClicked = {},
-                    onLockClicked = {},
-                )
-            }
-        }
-        // First the banner is rendered, then the sync settles and
-        // markRestoreComplete fires from runBackgroundSync.onSuccess
-        // -> the banner disappears.
-        waitUntil(timeoutMillis = 2_000) { fake.syncCalls.isNotEmpty() }
-        waitUntil(timeoutMillis = 2_000) { !WalletStore.justRestored.value }
-        assertEquals(false, WalletStore.justRestored.value)
     }
 
     @Test

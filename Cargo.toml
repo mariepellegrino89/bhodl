@@ -25,9 +25,8 @@ uniffi = { version = "0.28.3", default-features = false }
 # Use only the std + rand-std features we actually need; no `serde` here
 # (serialisation lives in the per-crate boundary if/when needed).
 bitcoin = { version = "0.32", default-features = false, features = ["std", "rand-std"] }
-# BIP39 mnemonic <-> seed. v2 has a stable API and no JSON dependencies.
-# `zeroize` makes `Mnemonic` ZeroizeOnDrop so parsed word indices are
-# wiped when the value drops.
+# BIP39 mnemonic <-> seed. Dev-dependency only: test fixtures derive the
+# BIP-86 spec xpub / addresses (BHODL itself never handles seeds).
 bip39 = { version = "2", default-features = false, features = ["std", "zeroize"] }
 # BDK 3.x: descriptor-driven wallet engine (MIT OR Apache-2.0).
 # `rusqlite` feature enables the BDK PersistedWallet pattern via the
@@ -55,37 +54,35 @@ argon2 = { version = "0.5", default-features = false, features = ["alloc", "pass
 rand = "0.9"
 # Used in #[cfg(test)] only; kept here as a dev-shared workspace pin.
 tempfile = "3"
-# Property-based testing — used for PayJoin URI parser fuzzing and
+# Property-based testing — used for the BIP-329 label round trip and
 # any future generative test. Heavyweight, but dev-dep only so it
 # does not affect runtime artefacts.
 proptest = { version = "1", default-features = false, features = ["std"] }
-# Blocking HTTP client for PayJoin (BIP-78) sender. Same family BDK
-# Esplora pulls in transitively, so the rustls TLS stack stays
-# unified.  rustls + native-certs feature so we don't hard-link
-# OpenSSL.
+# Blocking HTTP client for the BTC rate-history fetchers. Same family
+# BDK Esplora pulls in transitively, so the rustls TLS stack stays
+# unified; rustls so we don't hard-link OpenSSL.
 # Feature "tls" in ureq 2.x uses rustls (NOT native-tls/OpenSSL) — see Cargo.lock.
 # This aligns the TLS stack with bdk_esplora which also uses rustls.
-# `socks-proxy` lets the PayJoin sender reach the receiver through the
-# user's Tor SOCKS port. ureq's `socks5://` sends hostnames to the
+# `socks-proxy` routes rate fetches through the user's Tor SOCKS port. ureq's `socks5://` sends hostnames to the
 # proxy unresolved (ATYP=DOMAINNAME), i.e. socks5h semantics — see
 # ureq-2.x src/stream.rs `connect_socks`.
 ureq = { version = "2", default-features = false, features = ["tls", "json", "socks-proxy"] }
-# WHATWG URL parser — the same crate ureq uses internally, so the host
-# the PayJoin SSRF guard vets is byte-for-byte the host ureq connects to.
+# WHATWG URL parser — extracts the Esplora host:port the Tor bridge is
+# restricted to.
 url = "2"
 # UUIDv4 for multi-wallet identity (Phase 3). v4 RFC 4122 from CSPRNG,
 # serde for JSON wire format. Pinned to a recent stable.
 uuid = { version = "1", default-features = false, features = ["v4", "std", "serde"] }
 # Best-effort memory wipe for secret material that crosses the
-# heap-allocated String / Vec<u8> boundary (xpriv format strings,
-# serde_json intermediate buffers, device_key copies on the FFI
-# RegistryHandle). v1.x is the pure-Rust audited implementation
+# heap-allocated String / Vec<u8> boundary (device PIN, device_key
+# copies on the FFI RegistryHandle, the SQLCipher key literal). v1.x is the pure-Rust audited implementation
 # used transitively by `secrecy` and `age`.
 zeroize = { version = "1.8", features = ["derive"] }
 # bdk_testenv is declared per-crate behind `[target.'cfg(unix)'.dev-dependencies]`
-# rather than as a workspace dep: its electrsd build script is Unix-only
-# (uses `std::os::unix::fs::PermissionsExt::from_mode`) and would fail
-# the workspace-wide `cargo check --tests` on Windows hosts.
+# rather than as a workspace dep: the regtest harness (electrsd signals
+# electrs via SIGUSR1; electrs has no Windows build) is Unix-only. Its
+# `download` feature stays off (zip 0.6 advisories) — see that crate's
+# Cargo.toml and scripts/regtest-binaries.sh.
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

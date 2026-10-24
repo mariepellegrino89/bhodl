@@ -48,26 +48,17 @@ import io.bhodl.desktop.wallet.WalletPort
 import io.bhodl.desktop.wizard.RegistryStore
 import io.bhodl.desktop.wizard.WalletStore
 import io.bhodl.ffi.Network
-import io.bhodl.ffi.WalletHandle
 import io.bhodl.shared.resources.Res
-import io.bhodl.shared.resources.wview_err_pairing
+import io.bhodl.shared.resources.wallet_header_watch
 import io.bhodl.shared.resources.wview_unknown_error
 import io.bhodl.shared.resources.wallet_action_contacts
 import io.bhodl.shared.resources.wallet_action_lock
 import io.bhodl.shared.resources.wallet_header_balance
-import io.bhodl.shared.resources.wallet_header_signing
 import io.bhodl.shared.resources.wallet_not_synced
-import io.bhodl.shared.resources.wallet_restoring_body
-import io.bhodl.shared.resources.wallet_restoring_title
 import io.bhodl.shared.resources.wallet_sync
 import io.bhodl.shared.resources.wallet_sync_failed
 import io.bhodl.shared.resources.wallet_synced_at
 import io.bhodl.shared.resources.wallet_syncing
-import io.bhodl.shared.resources.wallet_tracker_banner_add
-import io.bhodl.shared.resources.wallet_tracker_banner_adding
-import io.bhodl.shared.resources.wallet_tracker_banner_body
-import io.bhodl.shared.resources.wallet_tracker_banner_skip
-import io.bhodl.shared.resources.wallet_tracker_banner_title
 import io.bhodl.ui.theme.BhodlTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -79,59 +70,40 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 /**
- * The signing-wallet workspace (UX review 2026-10, §4 items 5–8).
+ * The wallet workspace (UX review 2026-10, §4 items 5–8) for the
+ * watch-only wallet held by [WalletStore].
  *
- * Replaces the old centered mobile column with the tracker's dense,
- * full-width language and Sparrow's IA: a wallet header (name, balance
- * in the user's unit + operational fiat, sync status) above sub-tabs
- * **Transactions · Send · Receive · Addresses · UTXOs · Wallet
- * settings**. The old page buttons map as follows:
- *  - Receive / Send buttons → Receive / Send tabs;
- *  - History button → Transactions tab (list-detail, no separate page);
- *  - Address book button → "Contacts" header action;
- *  - Settings button → Wallet settings tab (wallet-scoped sections) —
- *    app-wide preferences stay on the rail's Settings entry;
- *  - Logout → "Lock" header action.
+ * The tracker's dense, full-width language with Sparrow's IA: a wallet
+ * header (name, balance in the user's unit + operational fiat, sync
+ * status) above sub-tabs **Transactions · Receive · Addresses · UTXOs ·
+ * Wallet settings**. Address-list wallets cannot derive addresses, so
+ * they have no Receive tab. "Contacts" and "Lock" are header actions.
  *
- * Sync model (unchanged contract): one automatic background sync per
- * entry when [SyncCache] is stale (a broadcast marks it stale), plus the
- * header's manual Sync. Tabs never sync on their own inside the
- * workspace; they re-read local state when [dataVersion] moves.
+ * Sync model: one automatic background sync per entry when [SyncCache]
+ * is stale, plus the header's manual Sync. Tabs never sync on their own
+ * inside the workspace; they re-read local state when [dataVersion]
+ * moves.
  */
 @Composable
 public fun DashboardScreen(
     initialTab: WalletTab = WalletTab.TRANSACTIONS,
-    /** Send tab built a PSBT → Review screen. */
-    onReviewSend: (psbtBase64: String, toAddress: String, amountSat: Long, category: String?) -> Unit =
-        { _, _, _, _ -> },
-    onPayjoinSent: (txid: String) -> Unit = {},
-    onBumpFee: (txid: String) -> Unit = {},
-    onCpfp: (txid: String, kind: CpfpKind) -> Unit = { _, _ -> },
     onAddressBookClicked: () -> Unit = {},
     onLockClicked: () -> Unit = {},
-    onWalletWiped: () -> Unit = {},
-    onSwitchSigningWallet: (walletId: String) -> Unit = {},
-    /** UX review 2026-10 (item 14) — footer shield / reminder → Security Hub. */
+    /** The wallet was removed from Wallet settings. */
+    onWalletRemoved: () -> Unit = {},
+    /** UX review 2026-10 (item 14) — footer shield → Security Hub. */
     onOpenSecurityHub: (() -> Unit)? = null,
 ) {
     val scope = rememberCoroutineScope()
 
-    // Prefer the wallet that the wizard just unlocked. Without one (a
-    // dev launch / deep link with an empty store) fall back to an
-    // in-memory handle on the BIP86 test mnemonic so the screen stays
-    // useful.
-    val wallet = remember {
-        WalletStore.current() ?: UniffiWalletPort(
-            WalletHandle.fromMnemonic(
-                network = Network.SIGNET,
-                mnemonic = TEST_MNEMONIC,
-                passphrase = "",
-            ),
-        )
+    val wallet = remember { WalletStore.require() }
+    val addressList = remember(wallet) { runCatching { wallet.isAddressList() }.getOrDefault(false) }
+    val tabs = remember(addressList) {
+        WalletTab.entries.filter { !(addressList && it == WalletTab.RECEIVE) }
     }
 
     var tabWire by rememberSaveable { mutableStateOf(initialTab.wire) }
-    val tab = WalletTab.fromWire(tabWire)
+    val tab = WalletTab.fromWire(tabWire).takeIf { it in tabs } ?: WalletTab.TRANSACTIONS
 
     // Optimistic balance from the cache so re-entry never flashes "—".
     var balanceSat by remember { mutableStateOf(SyncCache.lastBalanceSat()) }
@@ -141,8 +113,6 @@ public fun DashboardScreen(
     var tipHeight by remember { mutableStateOf<UInt?>(null) }
     // Bumped after every sync / local mutation: tabs re-read on change.
     var dataVersion by remember { mutableIntStateOf(0) }
-    // UTXOs tab "Send selected" → Send tab with coin control pinned.
-    var pendingCoinSelection by remember { mutableStateOf<List<String>>(emptyList()) }
     // Addresses tab "Show" → Receive tab on that address.
     var receivePresetAddress by remember { mutableStateOf<String?>(null) }
 
@@ -167,8 +137,6 @@ public fun DashboardScreen(
         SyncCache.record(sat)
         lastSyncAtMs = SyncCache.lastSyncAtMs()
         lastError = null
-        // A finished first post-restore sync drops the banner.
-        WalletStore.markRestoreComplete()
     }
 
     fun launchSync(mode: SyncMode) {
@@ -190,10 +158,8 @@ public fun DashboardScreen(
         }
     }
 
-    // Background sync on entry — and again whenever a broadcast elsewhere
-    // advanced the epoch (that also marks the cache stale).
-    val txEpoch by WalletStore.txEpoch
-    LaunchedEffect(wallet, txEpoch) {
+    // Background sync on entry when the cache is stale.
+    LaunchedEffect(wallet) {
         tipHeight = runCatching {
             withContext(Dispatchers.IO) { wallet.chainTipHeight() }
         }.getOrNull()
@@ -208,8 +174,9 @@ public fun DashboardScreen(
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         WalletHeader(
-            walletName = walletName ?: stringResource(Res.string.wallet_header_signing),
-            kindLabel = stringResource(Res.string.wallet_header_signing),
+            walletName = walletName ?: WalletStore.activeWalletLabel()
+                ?: stringResource(Res.string.wallet_header_watch),
+            kindLabel = stringResource(Res.string.wallet_header_watch),
             network = WalletStore.network(),
             balanceSat = balanceSat,
             syncMode = syncMode,
@@ -233,14 +200,6 @@ public fun DashboardScreen(
             },
         )
 
-        val justRestored by WalletStore.justRestored
-        if (justRestored) {
-            ErrorCard(
-                title = stringResource(Res.string.wallet_restoring_title),
-                message = stringResource(Res.string.wallet_restoring_body),
-                modifier = Modifier.testTag(DashboardTags.RESTORE_BANNER),
-            )
-        }
         if (lastError != null && syncMode != SyncMode.Foreground) {
             ErrorCard(
                 title = stringResource(Res.string.wallet_sync_failed),
@@ -249,14 +208,7 @@ public fun DashboardScreen(
                 onRetry = { launchSync(SyncMode.Foreground) },
             )
         }
-        TrackerPairingBanner(wallet = wallet)
-        // UX review 2026-10 (item 14) — spaced backup reminder; never
-        // on the Send tab (the review / bump / CPFP routes don't host it).
-        if (onOpenSecurityHub != null) {
-            SecurityReminderBanner(inSendFlow = tab == WalletTab.SEND, onOpenHub = onOpenSecurityHub)
-        }
-
-        WalletTabStrip(selected = tab, onSelect = { tabWire = it.wire })
+        WalletTabStrip(selected = tab, onSelect = { tabWire = it.wire }, tabs = tabs)
 
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
             when (tab) {
@@ -265,21 +217,7 @@ public fun DashboardScreen(
                     syncOnEnter = false,
                     refreshKey = dataVersion,
                     tipHeight = tipHeight,
-                    onBumpFee = onBumpFee,
-                    onCpfpIncoming = { onCpfp(it, CpfpKind.IncomingSpeedUp) },
-                    onCpfpChangeRescue = { onCpfp(it, CpfpKind.ChangeRescue) },
                 )
-                // Item 13 — a payment being built always shows real
-                // amounts (fee totals, available balance), privacy mode or not.
-                WalletTab.SEND -> RevealAmounts {
-                    SendScreen(
-                        onReady = onReviewSend,
-                        onBack = null,
-                        onPayjoinSent = onPayjoinSent,
-                        preselectedOutpoints = pendingCoinSelection,
-                        onPreselectionConsumed = { pendingCoinSelection = emptyList() },
-                    )
-                }
                 WalletTab.RECEIVE -> ReceiveScreen(
                     onBack = null,
                     presetAddress = receivePresetAddress,
@@ -292,18 +230,8 @@ public fun DashboardScreen(
                         tabWire = WalletTab.RECEIVE.wire
                     },
                 )
-                WalletTab.UTXOS -> WalletUtxosTab(
-                    refreshKey = dataVersion,
-                    onChanged = { dataVersion++ },
-                    onSpendSelected = { outpoints ->
-                        pendingCoinSelection = outpoints
-                        tabWire = WalletTab.SEND.wire
-                    },
-                )
-                WalletTab.SETTINGS -> WalletSettingsTab(
-                    onWalletWiped = onWalletWiped,
-                    onSwitchSigningWallet = onSwitchSigningWallet,
-                )
+                WalletTab.UTXOS -> WalletUtxosTab(refreshKey = dataVersion)
+                WalletTab.SETTINGS -> WalletSettingsTab(onWalletRemoved = onWalletRemoved)
             }
         }
 
@@ -317,8 +245,7 @@ public fun DashboardScreen(
 }
 
 /**
- * Wallet header shared by the signing workspace and the watch-only
- * view: name + kind + network on the left, balance (unit-aware) with the
+ * Wallet header of the workspace: name + kind + network on the left, balance (unit-aware) with the
  * operational fiat equivalent and the sync status on the right, then
  * the Sync button and the caller's [actions].
  */
@@ -438,18 +365,20 @@ private val SYNC_TIME_FORMAT: DateTimeFormatter =
  * label / category of a receive address onto the transaction that paid
  * it (net-incoming only, once per (txid, address), never over a label
  * the user set or cleared: `WalletPort.applyReceiveLabels`). Categories
- * are mirrored into the tracker under the rows the tracker actually
- * reads ([io.bhodl.desktop.data.writeTrackerCategory]). Best-effort: a
- * failure never fails the sync. Runs on the caller's IO dispatcher.
+ * are mirrored into the tracker registry under this wallet's id, which
+ * is what the tracker reads. Best-effort: a failure never fails the
+ * sync. Runs on the caller's IO dispatcher.
  */
 internal fun applyReceiveLabels(wallet: WalletPort) {
     val copies = runCatching { wallet.applyReceiveLabels() }.getOrDefault(emptyList())
     val registry = RegistryStore.current() ?: return
     val walletId = WalletStore.activeWalletId() ?: return
+    var changed = false
     for (copy in copies) {
         val category = copy.category ?: continue
-        io.bhodl.desktop.data.writeTrackerCategory(registry, wallet, walletId, copy.txid, category)
+        changed = runCatching { registry.setEventCategory(walletId, copy.txid, category) }.isSuccess || changed
     }
+    if (changed) RegistryStore.bumpDataVersion()
 }
 
 /**
@@ -457,145 +386,6 @@ internal fun applyReceiveLabels(wallet: WalletPort) {
  * leaves every control usable, or a user-requested foreground sync.
  */
 internal enum class SyncMode { Idle, Background, Foreground }
-
-/**
- * Phase 6.0 — one-line, non-modal prompt to pair the active signing
- * wallet with the Tracker as a watch-only mirror. Hidden when there is
- * no registry / wallet id, when the wallet is already tracked, or when
- * the user skipped it (persisted in [SettingsStore.trackerPairingSkipped];
- * Wallet settings › Add to Tracker stays available).
- */
-@Composable
-private fun TrackerPairingBanner(wallet: WalletPort) {
-    val scope = rememberCoroutineScope()
-    val walletId = WalletStore.activeWalletId()
-    val activeNetwork = WalletStore.network()
-    val registry = RegistryStore.current()
-    val skipped by SettingsStore.trackerPairingSkipped
-
-    var loaded by remember { mutableStateOf(false) }
-    var alreadyTracked by remember { mutableStateOf(false) }
-    var descriptor: String? by remember { mutableStateOf(null) }
-    var walletLabel by remember { mutableStateOf("My Wallet") }
-    var working by remember { mutableStateOf(false) }
-    var lastError: String? by remember { mutableStateOf(null) }
-
-    LaunchedEffect(walletId, registry) {
-        if (walletId == null || registry == null) {
-            loaded = true
-            return@LaunchedEffect
-        }
-        runCatching {
-            withContext(Dispatchers.IO) {
-                val desc = wallet.trackerDescriptorPub()
-                val tracked = isAlreadyTrackedExcluding(registry, desc, walletId)
-                val label = runCatching { registry.getWallet(walletId)?.label }.getOrNull() ?: "My Wallet"
-                Triple(desc, tracked, label)
-            }
-        }.fold(
-            onSuccess = { (desc, tracked, label) ->
-                descriptor = desc
-                alreadyTracked = tracked
-                walletLabel = label
-                loaded = true
-            },
-            onFailure = {
-                // Silent on errors rather than a confusing red box.
-                alreadyTracked = true
-                loaded = true
-            },
-        )
-    }
-
-    if (!loaded || walletId == null || registry == null || alreadyTracked || walletId in skipped) return
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(BhodlTheme.colors.surface, BhodlTheme.shapes.panel)
-            .border(1.dp, BhodlTheme.colors.outline, BhodlTheme.shapes.panel)
-            .padding(horizontal = 12.dp, vertical = 8.dp)
-            .testTag(DashboardTags.TRACKER_BANNER),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = stringResource(Res.string.wallet_tracker_banner_title),
-                style = BhodlTheme.typography.bodyMedium,
-                color = BhodlTheme.colors.textPrimary,
-            )
-            Text(
-                text = lastError ?: stringResource(Res.string.wallet_tracker_banner_body),
-                style = BhodlTheme.typography.labelMedium,
-                color = if (lastError != null) BhodlTheme.colors.error else BhodlTheme.colors.textSecondary,
-            )
-        }
-        Button(
-            onClick = {
-                val desc = descriptor ?: return@Button
-                if (working) return@Button
-                working = true
-                lastError = null
-                val mainnetNoTor = activeNetwork == Network.MAINNET && !SettingsStore.torEnabled.value
-                scope.launch {
-                    runCatching {
-                        withContext(Dispatchers.IO) {
-                            val xpub = io.bhodl.ffi.extractAccountXpub(desc)
-                                ?: error("Could not extract account xpub.")
-                            // Linked mirror (registry v4 `mirror_of`).
-                            val added = registry.addWatchXpubMirror(
-                                signingWalletId = walletId,
-                                label = "$walletLabel · tracker",
-                                xpub = xpub,
-                                network = activeNetwork,
-                                bip = io.bhodl.ffi.WatchBipFfi.TAPROOT,
-                            )
-                            // Best-effort initial sync, skipped on
-                            // mainnet without Tor (privacy hint).
-                            if (!mainnetNoTor) {
-                                runCatching {
-                                    val h = registry.openWatch(added.id)
-                                    h.syncWithEsplora(
-                                        EsploraEndpoint.current(activeNetwork),
-                                        EsploraEndpoint.currentProxy(),
-                                    )
-                                    h.destroy()
-                                }
-                            }
-                        }
-                    }.fold(
-                        onSuccess = {
-                            alreadyTracked = true
-                            working = false
-                            RegistryStore.bumpDataVersion()
-                        },
-                        onFailure = { e ->
-                            working = false
-                            lastError = e.userMessage(getString(Res.string.wview_err_pairing))
-                        },
-                    )
-                }
-            },
-            enabled = !working && descriptor != null,
-            modifier = Modifier.testTag(DashboardTags.TRACKER_BANNER_ADD),
-        ) {
-            Text(
-                if (working) stringResource(Res.string.wallet_tracker_banner_adding)
-                else stringResource(Res.string.wallet_tracker_banner_add),
-            )
-        }
-        OutlinedButton(
-            onClick = { SettingsStore.markTrackerPairingSkipped(walletId) },
-            enabled = !working,
-            modifier = Modifier.testTag(DashboardTags.TRACKER_BANNER_SKIP),
-        ) { Text(stringResource(Res.string.wallet_tracker_banner_skip)) }
-    }
-}
-
-private const val TEST_MNEMONIC: String =
-    "abandon abandon abandon abandon abandon abandon " +
-        "abandon abandon abandon abandon abandon about"
 
 /** Test tags exposed by [`DashboardScreen`] (the wallet workspace). */
 public object DashboardTags {
@@ -608,11 +398,6 @@ public object DashboardTags {
     public const val ADDRESS_BOOK: String = "dashboard.address-book"
     /** "Lock" header action (was Logout). */
     public const val LOGOUT: String = "dashboard.logout"
-    public const val RESTORE_BANNER: String = "dashboard.restore-banner"
-    /** Phase 6.0 — one-shot Tracker pairing banner on signing dashboards. */
-    public const val TRACKER_BANNER: String = "dashboard.tracker-banner"
-    public const val TRACKER_BANNER_ADD: String = "dashboard.tracker-banner.add"
-    public const val TRACKER_BANNER_SKIP: String = "dashboard.tracker-banner.skip"
 
     /** Sub-tab of the wallet workspace. */
     public fun tab(tab: WalletTab): String = "dashboard.tab.${tab.wire}"

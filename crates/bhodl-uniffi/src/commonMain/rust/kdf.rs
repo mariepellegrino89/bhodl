@@ -1,15 +1,13 @@
 //! KDF descriptor + salt persistence for BHODL.
 //!
 //! R2 — extracted from `lib.rs` so the FFI surface file is no longer a
-//! God Object. This module owns the on-disk `wallet.kdf.json` /
-//! `registry.kdf.json` descriptor format, the Argon2id parameter
-//! resolution / forward-migration helpers, the HMAC-SHA256 anti-tamper
-//! seal, and the legacy raw-binary `wallet.salt` compatibility path.
+//! God Object. This module owns the on-disk `registry.kdf.json`
+//! descriptor format, the Argon2id parameter resolution and the
+//! HMAC-SHA256 anti-tamper seal.
 //!
 //! ## Unlock protocol (2026-10 security audit, H1/H2/M1)
 //!
-//! Every PIN-keyed store (signing wallet, device registry) is opened
-//! through [`unlock_with`]:
+//! The device-PIN registry is opened through [`unlock_with`]:
 //!
 //! 1. Read the descriptor, reject unknown versions and out-of-bounds
 //!    Argon2id parameters (no 4 TiB allocation / multi-hour hang from a
@@ -22,24 +20,36 @@
 //!    wrong-PIN attempt bind the MAC to the wrong key and lock the user
 //!    out permanently (H1).
 //!
-//! A KDF migration ([`migrate_kdf_if_stale`]) writes the new descriptor
-//! to `<descriptor>.next` (sealed, fsynced) BEFORE `PRAGMA rekey`, and
-//! renames it over the main descriptor afterwards. If the process dies
-//! between the two, or the rename keeps failing (Windows AV / indexer
-//! sharing violation), the next unlock falls back to the `.next`
-//! descriptor when the main one cannot open the database, and promotes
-//! it (H2).
+//! A KDF migration writes the new descriptor to `<descriptor>.next`
+//! (sealed, fsynced) BEFORE `PRAGMA rekey`, and renames it over the main
+//! descriptor afterwards. If the process dies between the two, or the
+//! rename keeps failing (Windows AV / indexer sharing violation), the
+//! next unlock falls back to the `.next` descriptor when the main one
+//! cannot open the database, and promotes it (H2).
+//!
+//! ## Wrapped data key (v3, PIN recovery)
+//!
+//! Since v3 the PIN no longer keys the databases directly: the
+//! descriptor carries the store's data key wrapped (XChaCha20-Poly1305)
+//! by `Argon2id(PIN, salt)`. A v1/v2 store migrates on its first
+//! successful unlock WITHOUT re-encrypting anything — its data key is the
+//! key the PIN derived until then, re-wrapped under a fresh salt.
+//!
+//! The same data key can also be wrapped by a recovery code
+//! (`registry.recovery.json`, same file shape). Changing the PIN or
+//! recovering a forgotten one is therefore a re-wrap of 32 bytes, never
+//! a rekey of the registry and every `watch-state/*.sqlite` file.
 
 use std::{
     ffi::OsString,
     fs,
-    io::{Read, Write},
+    io::Write,
     path::{Path, PathBuf},
     time::Duration,
 };
 
 use bhodl_core::{KdfParams, SALT_LEN, generate_salt};
-use bhodl_wallet_onchain::{ENCRYPTION_KEY_LEN, OnchainAccount, REGISTRY_KDF_FILE_NAME};
+use bhodl_wallet_onchain::{ENCRYPTION_KEY_LEN, REGISTRY_KDF_FILE_NAME};
 use zeroize::Zeroizing;
 
 use crate::WalletError;
@@ -80,6 +90,10 @@ const RENAME_ATTEMPTS: u32 = 6;
 ///   after the first successful open.
 /// - `2` — sealed. `mac_hex` mandatory, keyed with the domain-separated
 ///   MAC key (see [`MAC_KEY_LABEL`]).
+/// - `3` — wrapped. `nonce_hex` + `wrapped_key_hex` mandatory, no
+///   `mac_hex`: the AEAD tag authenticates the salt, the parameters and
+///   the purpose (PIN vs recovery code) as associated data, so a wrong
+///   secret and a tampered file fail the same way.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) struct KdfFile {
     pub(crate) version: u32,
@@ -89,14 +103,22 @@ pub(crate) struct KdfFile {
     /// tampering of the descriptor on disk (e.g. a parameter downgrade).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) mac_hex: Option<String>,
+    /// v3: 24-byte XChaCha20 nonce of [`Self::wrapped_key_hex`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) nonce_hex: Option<String>,
+    /// v3: the data key encrypted under the secret-derived key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) wrapped_key_hex: Option<String>,
 }
 
 impl KdfFile {
     /// Pre-seal format (MAC optional, legacy MAC keying).
     pub(crate) const LEGACY_VERSION: u32 = 1;
-    /// Sealed format written by this build after every successful open.
+    /// Sealed format written by builds before the wrapped data key.
     pub(crate) const CURRENT_VERSION: u32 = 2;
-    pub(crate) const FILE_NAME: &'static str = "wallet.kdf.json";
+    /// Wrapped-data-key format written by this build after every
+    /// successful open (see the module docs).
+    pub(crate) const WRAPPED_VERSION: u32 = 3;
 
     pub(crate) fn salt(&self) -> Result<[u8; SALT_LEN], WalletError> {
         let bytes = hex::decode(&self.salt_hex).map_err(|_| WalletError::InvalidSalt {
@@ -122,17 +144,105 @@ impl KdfFile {
             salt_hex: hex::encode(salt),
             kdf: *kdf,
             mac_hex: None,
+            nonce_hex: None,
+            wrapped_key_hex: None,
         }
     }
 
-    /// Sealed (v2) descriptor whose MAC is keyed from [key].
+    /// Sealed (v2) descriptor whose MAC is keyed from [key] (test
+    /// fixture: this build writes v3).
+    #[cfg(test)]
     fn sealed(salt: &[u8; SALT_LEN], kdf: &KdfParams, key: &[u8; ENCRYPTION_KEY_LEN]) -> Self {
         Self {
             version: Self::CURRENT_VERSION,
             salt_hex: hex::encode(salt),
             kdf: *kdf,
             mac_hex: Some(hex::encode(compute_kdf_mac(key, salt, kdf))),
+            nonce_hex: None,
+            wrapped_key_hex: None,
         }
+    }
+
+    /// Wrapped (v3) file: `data_key` encrypted under `kek`, with the
+    /// salt, parameters and `purpose` bound as associated data.
+    fn wrapped(
+        salt: &[u8; SALT_LEN],
+        kdf: &KdfParams,
+        kek: &[u8; ENCRYPTION_KEY_LEN],
+        data_key: &[u8; ENCRYPTION_KEY_LEN],
+        purpose: WrapPurpose,
+    ) -> Result<Self, WalletError> {
+        use chacha20poly1305::{
+            KeyInit, XChaCha20Poly1305,
+            aead::{Aead, Payload},
+        };
+        let nonce: [u8; WRAP_NONCE_LEN] = bhodl_core::random_bytes()?;
+        let aad = wrap_aad(purpose, salt, kdf);
+        let wrapped = XChaCha20Poly1305::new(kek.into())
+            .encrypt(
+                (&nonce).into(),
+                Payload {
+                    msg: data_key,
+                    aad: &aad,
+                },
+            )
+            .map_err(|_| WalletError::Storage {
+                detail: "data key wrap failed".into(),
+            })?;
+        Ok(Self {
+            version: Self::WRAPPED_VERSION,
+            salt_hex: hex::encode(salt),
+            kdf: *kdf,
+            mac_hex: None,
+            nonce_hex: Some(hex::encode(nonce)),
+            wrapped_key_hex: Some(hex::encode(wrapped)),
+        })
+    }
+
+    pub(crate) fn is_wrapped(&self) -> bool {
+        self.version == Self::WRAPPED_VERSION
+    }
+
+    /// Decrypt the data key of a v3 file with `kek`. A wrong secret and a
+    /// tampered file are indistinguishable (AEAD tag mismatch).
+    fn unwrap_data_key(
+        &self,
+        kek: &[u8; ENCRYPTION_KEY_LEN],
+        purpose: WrapPurpose,
+    ) -> Result<SecretKey, WalletError> {
+        use chacha20poly1305::{
+            KeyInit, XChaCha20Poly1305,
+            aead::{Aead, Payload},
+        };
+        let corrupt = || WalletError::Storage {
+            detail: "kdf descriptor wrapped key is malformed".into(),
+        };
+        let nonce = hex::decode(self.nonce_hex.as_deref().unwrap_or_default())
+            .ok()
+            .and_then(|b| <[u8; WRAP_NONCE_LEN]>::try_from(b).ok())
+            .ok_or_else(corrupt)?;
+        let wrapped = hex::decode(self.wrapped_key_hex.as_deref().unwrap_or_default())
+            .map_err(|_| corrupt())?;
+        let aad = wrap_aad(purpose, &self.salt()?, &self.kdf);
+        let plain = Zeroizing::new(
+            XChaCha20Poly1305::new(kek.into())
+                .decrypt(
+                    (&nonce).into(),
+                    Payload {
+                        msg: &wrapped,
+                        aad: &aad,
+                    },
+                )
+                .map_err(|_| WalletError::Storage {
+                    detail: purpose.rejected_detail().into(),
+                })?,
+        );
+        if plain.len() != ENCRYPTION_KEY_LEN {
+            return Err(corrupt());
+        }
+        let mut key: SecretKey = Zeroizing::new([0u8; ENCRYPTION_KEY_LEN]);
+        key.copy_from_slice(&plain);
+        Ok(key)
     }
 
     /// Structural validation of a descriptor read from disk, BEFORE any
@@ -156,6 +266,12 @@ impl KdfFile {
                 detail: "kdf descriptor integrity check failed (MAC missing)".into(),
             }),
             Self::CURRENT_VERSION => Ok(()),
+            Self::WRAPPED_VERSION if self.nonce_hex.is_none() || self.wrapped_key_hex.is_none() => {
+                Err(WalletError::Storage {
+                    detail: "kdf descriptor integrity check failed (wrapped key missing)".into(),
+                })
+            }
+            Self::WRAPPED_VERSION => Ok(()),
             other => Err(WalletError::Storage {
                 detail: format!("unsupported kdf descriptor version {other}"),
             }),
@@ -187,11 +303,54 @@ impl KdfFile {
         }
         Ok(())
     }
+}
 
-    /// True when the file is not in the current sealed format.
-    fn needs_reseal(&self) -> bool {
-        self.version != Self::CURRENT_VERSION || self.mac_hex.is_none()
+/// What a v3 file's key was derived from. Bound into the AEAD
+/// associated data, so a recovery file can never stand in for the PIN
+/// descriptor (or the other way round).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum WrapPurpose {
+    DevicePin,
+    RecoveryCode,
+}
+
+impl WrapPurpose {
+    fn label(self) -> &'static [u8] {
+        match self {
+            Self::DevicePin => b"device-pin",
+            Self::RecoveryCode => b"recovery-code",
+        }
     }
+
+    fn rejected_detail(self) -> &'static str {
+        match self {
+            // PinErrors treats an unrecognised Storage detail as a wrong
+            // PIN (fail-closed), like the v2 MAC mismatch.
+            Self::DevicePin => "kdf key unwrap failed (wrong PIN or file tampered)",
+            Self::RecoveryCode => RECOVERY_CODE_REJECTED,
+        }
+    }
+}
+
+/// XChaCha20-Poly1305 nonce length.
+const WRAP_NONCE_LEN: usize = 24;
+
+/// Associated-data label of every v3 wrap.
+const WRAP_AAD_LABEL: &[u8] = b"bhodl-data-key-wrap-v1";
+
+/// Error detail of a rejected recovery code. Kotlin matches on it to
+/// count the attempt against the lockout.
+pub(crate) const RECOVERY_CODE_REJECTED: &str = "recovery code rejected";
+
+fn wrap_aad(purpose: WrapPurpose, salt: &[u8; SALT_LEN], kdf: &KdfParams) -> Vec<u8> {
+    let mut aad = Vec::with_capacity(96);
+    aad.extend_from_slice(WRAP_AAD_LABEL);
+    aad.push(0);
+    aad.extend_from_slice(purpose.label());
+    aad.push(0);
+    aad.extend_from_slice(salt);
+    aad.extend_from_slice(&serde_json::to_vec(kdf).expect("KdfParams serialises infallibly"));
+    aad
 }
 
 /// Domain-separated MAC key: `HMAC-SHA256(key, MAC_KEY_LABEL)`.
@@ -259,30 +418,19 @@ pub(crate) fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 /// Which PIN-keyed store a descriptor belongs to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum KdfScope {
-    /// `wallet.kdf.json` (+ legacy `wallet.salt`) next to `wallet.sqlite`.
-    Wallet,
-    /// `registry.kdf.json` next to `registry.sqlite`. No legacy salt.
+    /// `registry.kdf.json` next to `registry.sqlite`.
     Registry,
 }
 
 impl KdfScope {
     fn file_name(self) -> &'static str {
         match self {
-            Self::Wallet => KdfFile::FILE_NAME,
             Self::Registry => REGISTRY_KDF_FILE_NAME,
-        }
-    }
-
-    fn legacy_salt_name(self) -> Option<&'static str> {
-        match self {
-            Self::Wallet => Some(LEGACY_SALT_FILE_NAME),
-            Self::Registry => None,
         }
     }
 
     fn marker_name(self) -> &'static str {
         match self {
-            Self::Wallet => WALLET_SEALED_MARKER,
             Self::Registry => "registry.kdf.sealed",
         }
     }
@@ -304,20 +452,6 @@ impl KdfScope {
     }
 }
 
-/// Legacy raw-binary salt file of pre-descriptor wallets.
-pub(crate) const LEGACY_SALT_FILE_NAME: &str = "wallet.salt";
-const WALLET_SEALED_MARKER: &str = "wallet.kdf.sealed";
-
-/// Every file that carries the KDF state of a signing wallet. A
-/// migration that relocates `wallet.sqlite` must relocate all of them,
-/// or the moved wallet cannot be unlocked.
-pub(crate) const WALLET_KDF_ARTIFACTS: [&str; 4] = [
-    KdfFile::FILE_NAME,
-    LEGACY_SALT_FILE_NAME,
-    WALLET_SEALED_MARKER,
-    "wallet.kdf.json.next",
-];
-
 // ---------------------------------------------------------------------------
 // Unlock
 // ---------------------------------------------------------------------------
@@ -327,8 +461,6 @@ pub(crate) const WALLET_KDF_ARTIFACTS: [&str; 4] = [
 pub(crate) enum KdfSource {
     /// The main JSON descriptor.
     Descriptor,
-    /// Legacy `wallet.salt` (implicitly `LEGACY_OWASP_MIN`).
-    LegacySalt,
     /// A descriptor generated by this call for a brand-new store.
     Fresh,
     /// The `.next` descriptor of an interrupted KDF migration.
@@ -337,11 +469,11 @@ pub(crate) enum KdfSource {
 
 /// Result of a successful [`unlock_with`].
 pub(crate) struct UnlockedKdf {
-    pub(crate) params: KdfParams,
+    /// The store's data key (what SQLCipher was opened with).
     pub(crate) key: SecretKey,
     pub(crate) source: KdfSource,
-    salt: [u8; SALT_LEN],
-    needs_seal: bool,
+    /// The descriptor that opened the store predates v3.
+    needs_wrap: bool,
 }
 
 struct Candidate {
@@ -381,17 +513,6 @@ fn primary_candidate(
             source: KdfSource::Descriptor,
         }));
     }
-    if let Some(legacy) = scope.legacy_salt_name() {
-        let legacy_path = dir.join(legacy);
-        if legacy_path.exists() {
-            return Ok(Some(Candidate {
-                salt: read_existing_salt(&legacy_path)?,
-                params: KdfParams::LEGACY_OWASP_MIN,
-                file: None,
-                source: KdfSource::LegacySalt,
-            }));
-        }
-    }
     if !create_if_missing {
         return Ok(None);
     }
@@ -414,8 +535,8 @@ fn primary_candidate(
 /// Derive the key for the store at `dir` from `pin` and open it with
 /// `open`, then seal / promote the descriptor — in that order.
 ///
-/// - `create_if_missing`: when neither descriptor nor legacy salt (nor a
-///   pending `.next`) exists, create a fresh descriptor with
+/// - `create_if_missing`: when neither descriptor nor a pending `.next`
+///   exists, create a fresh descriptor with
 ///   [`KdfParams::CURRENT`] (enforcing the new-PIN policy). Otherwise a
 ///   missing descriptor is a `Storage` error.
 /// - `open` receives the derived key and must actually open the
@@ -473,40 +594,33 @@ pub(crate) fn unlock_with<T>(
     }
     if candidates.is_empty() {
         return Err(first_err.unwrap_or_else(|| WalletError::Storage {
-            detail: format!(
-                "no {} at this data dir{}",
-                scope.file_name(),
-                if scope == KdfScope::Wallet {
-                    " (nor wallet.salt)"
-                } else {
-                    ""
-                }
-            ),
+            detail: format!("no {} at this data dir", scope.file_name()),
         }));
     }
 
     for cand in candidates {
-        let key: SecretKey = Zeroizing::new(bhodl_core::derive_key_from_pin_with_params(
+        let derived: SecretKey = Zeroizing::new(bhodl_core::derive_key_from_pin_with_params(
             pin,
             &cand.salt,
             &cand.params,
         )?);
+        let wrapped = cand.file.as_ref().is_some_and(KdfFile::is_wrapped);
+        // v3: the PIN-derived key unwraps the data key. v1/v2: the
+        // PIN-derived key IS the data key (checked by the MAC, if any).
         let attempt = match &cand.file {
-            Some(f) => f.verify_mac(&key),
-            None => Ok(()),
+            Some(f) if wrapped => f.unwrap_data_key(&derived, WrapPurpose::DevicePin),
+            Some(f) => f.verify_mac(&derived).map(|()| derived.clone()),
+            None => Ok(derived.clone()),
         }
-        .and_then(|()| open(&key));
+        .and_then(|key| open(&key).map(|value| (value, key)));
         match attempt {
-            Ok(value) => {
-                let needs_seal = cand.file.as_ref().is_some_and(KdfFile::needs_reseal);
+            Ok((value, key)) => {
                 let unlocked = UnlockedKdf {
-                    params: cand.params,
                     key,
                     source: cand.source,
-                    salt: cand.salt,
-                    needs_seal,
+                    needs_wrap: !wrapped,
                 };
-                finalize_after_open(dir, scope, &unlocked)?;
+                finalize_after_open(dir, scope, pin, &unlocked)?;
                 return Ok((value, unlocked));
             }
             Err(e) => {
@@ -522,117 +636,164 @@ pub(crate) fn unlock_with<T>(
 }
 
 /// Post-open bookkeeping. Runs ONLY once the database accepted the key.
-fn finalize_after_open(dir: &Path, scope: KdfScope, u: &UnlockedKdf) -> Result<(), WalletError> {
+fn finalize_after_open(
+    dir: &Path,
+    scope: KdfScope,
+    pin: &str,
+    u: &UnlockedKdf,
+) -> Result<(), WalletError> {
     let pending = scope.pending_path(dir);
-    match u.source {
-        KdfSource::Pending => {
-            // The rekey of an interrupted migration did commit: make
-            // the `.next` descriptor the main one. Best-effort — if the
-            // rename still fails, the next unlock falls back again.
-            let _ = promote_pending(dir, scope);
-        }
-        KdfSource::Descriptor | KdfSource::Fresh => {
-            if u.needs_seal {
-                seal_kdf_file_with_mac(&scope.descriptor_path(dir), &u.salt, &u.params, &u.key)?;
-            }
-            if !scope.marker_path(dir).exists() {
-                let _ = write_marker(dir, scope);
-            }
-            // The main descriptor opened the DB, so any `.next` is from
-            // a rekey that never committed.
-            let _ = fs::remove_file(&pending);
-        }
-        KdfSource::LegacySalt => {
-            // Upgrade the raw `wallet.salt` to a sealed JSON descriptor
-            // carrying the same salt + LEGACY params (equivalent KDF
-            // state, now integrity-protected). The descriptor is durable
-            // before the salt file goes, and takes precedence on read.
-            seal_kdf_file_with_mac(&scope.descriptor_path(dir), &u.salt, &u.params, &u.key)?;
-            let _ = write_marker(dir, scope);
-            if let Some(legacy) = scope.legacy_salt_name() {
-                let _ = fs::remove_file(dir.join(legacy));
-            }
-            let _ = fs::remove_file(&pending);
-        }
+    if u.needs_wrap {
+        // v1/v2 → v3: wrap the data key that just opened the store under
+        // a fresh salt. Atomic write — a failure leaves the old
+        // descriptor (still valid for this PIN) in place.
+        write_wrapped_file(
+            &scope.descriptor_path(dir),
+            pin,
+            WrapPurpose::DevicePin,
+            &u.key,
+        )?;
+        // Whichever descriptor opened the store is now superseded.
+        let _ = fs::remove_file(&pending);
+    } else if u.source == KdfSource::Pending {
+        // A wrapped `.next` opened the store: make it the main one.
+        // Best-effort — if the rename still fails, the next unlock falls
+        // back again.
+        let _ = promote_pending(dir, scope);
+    } else {
+        // The main descriptor opened the DB, so any `.next` is from
+        // a rekey that never committed.
+        let _ = fs::remove_file(&pending);
+    }
+    if !scope.marker_path(dir).exists() {
+        let _ = write_marker(dir, scope);
     }
     Ok(())
 }
 
-/// Rename `<descriptor>.next` over the main descriptor, record the seal
-/// marker and drop the legacy salt file.
+// ---------------------------------------------------------------------------
+// Re-wrapping: change PIN, recovery code
+// ---------------------------------------------------------------------------
+
+/// Write a v3 file at `path` wrapping `data_key` under
+/// `Argon2id(secret, fresh salt, KdfParams::CURRENT)`.
+pub(crate) fn write_wrapped_file(
+    path: &Path,
+    secret: &str,
+    purpose: WrapPurpose,
+    data_key: &[u8; ENCRYPTION_KEY_LEN],
+) -> Result<(), WalletError> {
+    let salt = generate_salt()?;
+    let params = KdfParams::CURRENT;
+    let kek: SecretKey = Zeroizing::new(bhodl_core::derive_key_from_pin_with_params(
+        secret, &salt, &params,
+    )?);
+    write_descriptor_file(
+        path,
+        &KdfFile::wrapped(&salt, &params, &kek, data_key, purpose)?,
+    )
+}
+
+/// Unwrap the data key of the v3 file at `path` with `secret`.
+pub(crate) fn unwrap_file(
+    path: &Path,
+    secret: &str,
+    purpose: WrapPurpose,
+) -> Result<SecretKey, WalletError> {
+    let file = read_descriptor(path, true)?;
+    if !file.is_wrapped() {
+        return Err(WalletError::Storage {
+            detail: format!(
+                "unsupported kdf descriptor version {} for unwrap",
+                file.version
+            ),
+        });
+    }
+    let kek: SecretKey = Zeroizing::new(bhodl_core::derive_key_from_pin_with_params(
+        secret,
+        &file.salt()?,
+        &file.kdf,
+    )?);
+    file.unwrap_data_key(&kek, purpose)
+}
+
+/// After the device PIN changed (or was recovered): drop any `.next`
+/// left by an older migration and make sure the seal marker exists.
+pub(crate) fn after_rewrap(dir: &Path, scope: KdfScope) {
+    let _ = fs::remove_file(scope.pending_path(dir));
+    if !scope.marker_path(dir).exists() {
+        let _ = write_marker(dir, scope);
+    }
+}
+
+/// `registry.recovery.json` — the data key wrapped by the recovery code.
+pub(crate) const RECOVERY_FILE_NAME: &str = "registry.recovery.json";
+
+/// Crockford base32 alphabet (no I, L, O, U).
+const CROCKFORD: &[u8; 32] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+
+/// Random bytes behind a recovery code: 15 bytes = 120 bits = 24 symbols.
+const RECOVERY_CODE_BYTES: usize = 15;
+
+/// Symbols in a recovery code.
+pub(crate) const RECOVERY_CODE_LEN: usize = RECOVERY_CODE_BYTES * 8 / 5;
+
+/// A fresh recovery code: 24 Crockford base32 symbols (~120 bits),
+/// returned in canonical form (no separators).
+pub(crate) fn generate_recovery_code() -> Result<Zeroizing<String>, WalletError> {
+    let bytes = Zeroizing::new(bhodl_core::random_bytes::<RECOVERY_CODE_BYTES>()?);
+    let mut out = Zeroizing::new(String::with_capacity(RECOVERY_CODE_LEN));
+    let mut acc: u32 = 0;
+    let mut bits = 0u32;
+    for &b in bytes.iter() {
+        acc = (acc << 8) | u32::from(b);
+        bits += 8;
+        while bits >= 5 {
+            bits -= 5;
+            out.push(char::from(CROCKFORD[((acc >> bits) & 31) as usize]));
+        }
+        acc &= (1 << bits) - 1;
+    }
+    Ok(out)
+}
+
+/// `K7QM-3XH9-…`: the canonical code split into groups of four.
+pub(crate) fn format_recovery_code(canonical: &str) -> String {
+    canonical
+        .as_bytes()
+        .chunks(4)
+        .map(|c| String::from_utf8_lossy(c).into_owned())
+        .collect::<Vec<_>>()
+        .join("-")
+}
+
+/// Canonical form of a typed recovery code: separators and whitespace
+/// dropped, case folded, and the Crockford look-alikes mapped
+/// (`O`→`0`, `I`/`L`→`1`). `None` when the result is not a well-formed
+/// code, so a typo is reported before any Argon2 run.
+pub(crate) fn normalize_recovery_code(typed: &str) -> Option<Zeroizing<String>> {
+    let mut out = Zeroizing::new(String::with_capacity(RECOVERY_CODE_LEN));
+    for c in typed.chars() {
+        let c = match c.to_ascii_uppercase() {
+            '-' | ' ' | '\t' | '\n' | '\r' => continue,
+            'O' => '0',
+            'I' | 'L' => '1',
+            other => other,
+        };
+        if !c.is_ascii() || !CROCKFORD.contains(&(c as u8)) {
+            return None;
+        }
+        out.push(c);
+    }
+    (out.len() == RECOVERY_CODE_LEN).then_some(out)
+}
+
+/// Rename `<descriptor>.next` over the main descriptor and record the
+/// seal marker.
 fn promote_pending(dir: &Path, scope: KdfScope) -> Result<(), WalletError> {
     rename_with_retry(&scope.pending_path(dir), &scope.descriptor_path(dir))?;
     sync_dir(dir);
     write_marker(dir, scope)?;
-    if let Some(legacy) = scope.legacy_salt_name() {
-        let _ = fs::remove_file(dir.join(legacy));
-    }
-    Ok(())
-}
-
-/// Resolve the salt + params that belong to an already-known good
-/// `key` (e.g. the device key held by an open `RegistryHandle`),
-/// verifying the descriptor's MAC against it. Never writes.
-pub(crate) fn params_for_known_key(
-    dir: &Path,
-    scope: KdfScope,
-    key: &[u8; ENCRYPTION_KEY_LEN],
-) -> Result<([u8; SALT_LEN], KdfParams), WalletError> {
-    let sealed_before = scope.marker_path(dir).exists();
-    let main = read_descriptor(&scope.descriptor_path(dir), sealed_before)
-        .and_then(|f| f.verify_mac(key).map(|()| f));
-    match main {
-        Ok(f) => Ok((f.salt()?, f.kdf)),
-        Err(e) => {
-            let pending = scope.pending_path(dir);
-            if pending.exists() {
-                let f = read_descriptor(&pending, true)?;
-                f.verify_mac(key).map_err(|_| e)?;
-                return Ok((f.salt()?, f.kdf));
-            }
-            Err(e)
-        }
-    }
-}
-
-/// If `unlocked.params` are below [`KdfParams::CURRENT`], rotate the
-/// SQLCipher key of the open wallet forward to today's parameters.
-///
-/// Crash-safe ordering (H2):
-/// 1. Derive the new key from `pin` + a fresh salt + CURRENT params.
-/// 2. Write `wallet.kdf.json.next` — sealed with the NEW key — and fsync.
-/// 3. `PRAGMA rekey`. Once this commits the DB only opens with the new
-///    key, and the matching descriptor is already durable on disk.
-/// 4. Rename `.next` over `wallet.kdf.json` (retried on Windows sharing
-///    violations). If that still fails, [`unlock_with`] recovers on the
-///    next unlock by falling back to `.next` and promoting it.
-pub(crate) fn migrate_kdf_if_stale(
-    db_dir: &Path,
-    unlocked: &UnlockedKdf,
-    pin: &str,
-    account: &OnchainAccount,
-) -> Result<(), WalletError> {
-    if unlocked.params == KdfParams::CURRENT {
-        return Ok(());
-    }
-    let scope = KdfScope::Wallet;
-    let new_salt = generate_salt()?;
-    let new_key: SecretKey = Zeroizing::new(bhodl_core::derive_key_from_pin_with_params(
-        pin,
-        &new_salt,
-        &KdfParams::CURRENT,
-    )?);
-    let pending = scope.pending_path(db_dir);
-    write_descriptor_file(
-        &pending,
-        &KdfFile::sealed(&new_salt, &KdfParams::CURRENT, &new_key),
-    )?;
-    // On a rekey error the `.next` file is deliberately left in place:
-    // if the error came after SQLCipher committed, it is the only copy
-    // of the new salt. If the rekey did not commit, the next unlock
-    // opens with the main descriptor and discards the stale `.next`.
-    account.rekey(&new_key)?;
-    let _ = promote_pending(db_dir, scope);
     Ok(())
 }
 
@@ -641,8 +802,8 @@ pub(crate) fn migrate_kdf_if_stale(
 // ---------------------------------------------------------------------------
 
 /// Re-write [path] as a sealed (v2) descriptor with a MAC keyed from
-/// [key]. Only ever call this with a key that has just opened the
-/// database (see [`unlock_with`]).
+/// [key], as builds before v3 did (test fixture).
+#[cfg(test)]
 pub(crate) fn seal_kdf_file_with_mac(
     path: &Path,
     salt: &[u8; SALT_LEN],
@@ -722,18 +883,10 @@ fn sync_dir(dir: &Path) {
 // Read-only helpers (tests, backup inspection)
 // ---------------------------------------------------------------------------
 
-/// Load the salt + KDF params for `db_dir`, or create both with the
-/// current defaults if the directory has no wallet yet. Validates the
-/// descriptor (version, bounds, mandatory MAC once sealed) but does not
-/// verify the MAC — that needs the key; see [`unlock_with`].
-#[cfg(test)]
-pub(crate) fn read_or_create_kdf(
-    db_dir: &Path,
-) -> Result<([u8; SALT_LEN], KdfParams), WalletError> {
-    read_or_create(db_dir, KdfScope::Wallet)
-}
-
-/// Registry-scoped counterpart of [`read_or_create_kdf`].
+/// Load the registry salt + KDF params, or create both with the current
+/// defaults if the directory has none yet. Validates the descriptor
+/// (version, bounds, mandatory MAC once sealed) but does not verify the
+/// MAC — that needs the key; see [`unlock_with`].
 #[cfg(test)]
 pub(crate) fn read_or_create_registry_kdf(
     data_dir: &Path,
@@ -745,12 +898,7 @@ pub(crate) fn read_or_create_registry_kdf(
 fn read_or_create(dir: &Path, scope: KdfScope) -> Result<([u8; SALT_LEN], KdfParams), WalletError> {
     match read_existing(dir, scope) {
         Ok(found) => Ok(found),
-        Err(_)
-            if !scope.descriptor_path(dir).exists()
-                && scope
-                    .legacy_salt_name()
-                    .is_none_or(|n| !dir.join(n).exists()) =>
-        {
+        Err(_) if !scope.descriptor_path(dir).exists() => {
             let salt = generate_salt()?;
             write_kdf_file_for(dir, scope, &salt, &KdfParams::CURRENT)?;
             Ok((salt, KdfParams::CURRENT))
@@ -759,39 +907,21 @@ fn read_or_create(dir: &Path, scope: KdfScope) -> Result<([u8; SALT_LEN], KdfPar
     }
 }
 
-/// Read-only: the salt + params recorded for `dir` (descriptor first,
-/// then legacy `wallet.salt` for the wallet scope). Never creates.
-pub(crate) fn read_existing(
-    dir: &Path,
-    scope: KdfScope,
-) -> Result<([u8; SALT_LEN], KdfParams), WalletError> {
+/// Read-only: the salt + params recorded for `dir`. Never creates.
+#[cfg(test)]
+fn read_existing(dir: &Path, scope: KdfScope) -> Result<([u8; SALT_LEN], KdfParams), WalletError> {
     let sealed_before = scope.marker_path(dir).exists();
     match primary_candidate(dir, scope, "", sealed_before, false)? {
         Some(c) => Ok((c.salt, c.params)),
         None => Err(WalletError::Storage {
-            detail: format!("no {} or wallet.salt at this data dir", scope.file_name()),
+            detail: format!("no {} at this data dir", scope.file_name()),
         }),
     }
 }
 
-/// Wallet-scoped [`read_existing`].
+/// Write an UNSEALED descriptor (test fixture).
 #[cfg(test)]
-pub(crate) fn read_existing_kdf(db_dir: &Path) -> Result<([u8; SALT_LEN], KdfParams), WalletError> {
-    read_existing(db_dir, KdfScope::Wallet)
-}
-
-/// Write an UNSEALED `wallet.kdf.json` (test fixture / legacy layout).
-#[cfg(test)]
-pub(crate) fn write_kdf_file(
-    db_dir: &Path,
-    salt: &[u8; SALT_LEN],
-    kdf: &KdfParams,
-) -> Result<(), WalletError> {
-    write_kdf_file_for(db_dir, KdfScope::Wallet, salt, kdf)
-}
-
-#[cfg(test)]
-fn write_kdf_file_for(
+pub(crate) fn write_kdf_file_for(
     dir: &Path,
     scope: KdfScope,
     salt: &[u8; SALT_LEN],
@@ -814,57 +944,8 @@ pub(crate) fn seal_legacy_v1_for_test(
         salt_hex: hex::encode(salt),
         kdf: *kdf,
         mac_hex: Some(hex::encode(compute_kdf_mac_legacy(key, salt, kdf))),
+        nonce_hex: None,
+        wrapped_key_hex: None,
     };
     write_descriptor_file(path, &file)
-}
-
-/// Load the salt at `path`, or create + persist a fresh one if absent.
-///
-/// The salt file is 16 raw bytes — no header, no version. We treat any
-/// other size as corruption rather than silently regenerating, because
-/// a regenerated salt would derive a different key and lock the user
-/// out of their existing wallet.
-#[cfg(test)]
-pub(crate) fn read_or_create_salt(path: &Path) -> Result<[u8; SALT_LEN], WalletError> {
-    match fs::File::open(path) {
-        Ok(file) => read_salt_from_handle(file),
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-            let salt = generate_salt()?;
-            write_file_atomic(path, &salt)?;
-            Ok(salt)
-        }
-        Err(other) => Err(other.into()),
-    }
-}
-
-/// Read an existing salt file. Errors if the file is missing or the wrong
-/// size — the unlock path uses this to refuse to silently re-initialise a
-/// missing wallet.
-fn read_existing_salt(path: &Path) -> Result<[u8; SALT_LEN], WalletError> {
-    let file = fs::File::open(path)?;
-    read_salt_from_handle(file)
-}
-
-fn read_salt_from_handle(mut file: fs::File) -> Result<[u8; SALT_LEN], WalletError> {
-    let mut buf = [0u8; SALT_LEN];
-    let mut read_total = 0usize;
-    while read_total < SALT_LEN {
-        let n = file.read(&mut buf[read_total..])?;
-        if n == 0 {
-            return Err(WalletError::InvalidSalt {
-                expected: SALT_LEN as u32,
-                actual: read_total as u32,
-            });
-        }
-        read_total += n;
-    }
-    // Reject files larger than expected.
-    let mut overflow = [0u8; 1];
-    if file.read(&mut overflow)? != 0 {
-        return Err(WalletError::InvalidSalt {
-            expected: SALT_LEN as u32,
-            actual: (SALT_LEN + 1) as u32,
-        });
-    }
-    Ok(buf)
 }

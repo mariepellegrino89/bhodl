@@ -3,7 +3,7 @@
 <resources>
     <!-- ConfirmWipeDialog -->
     <string name="onb_wipe_title">Cancellare TUTTI i wallet su questo dispositivo?</string>
-    <string name="onb_wipe_body">Elimina definitivamente OGNI wallet (di firma e watch-only), il registro dei wallet, tutti i dati di tracking e lo storico dei PIN su questo dispositivo. I fondi si possono recuperare solo dalla frase di recupero o dal backup cifrato di ciascun wallet.\n\nScrivi %1$s per confermare.</string>
+    <string name="onb_wipe_body">Elimina definitivamente ogni wallet, il registro dei wallet, tutti i dati di tracking e lo storico dei PIN su questo dispositivo. I tuoi bitcoin non sono toccati: i wallet si possono aggiungere di nuovo dalla loro xpub.\n\nScrivi %1$s per confermare.</string>
     <string name="onb_wipe_field">Scrivi %1$s</string>
     <string name="onb_wipe_erasing">Cancellazione…</string>
     <string name="onb_wipe_confirm">Cancella tutti i wallet</string>
@@ -17,23 +17,16 @@
     <string name="onb_pin_lockout">Troppi PIN errati. Attendi %1$d s prima di riprovare.</string>
     <string name="onb_device_pin_verify_failed">Impossibile verificare il PIN del dispositivo: %1$s. Il PIN non è stato conteggiato come tentativo fallito.</string>
     <string name="onb_unknown_error">errore sconosciuto</string>
-    <string name="onb_fee_rate_high">%1$d sat/vB è più alto del solito. Ricontrolla il livello di commissione o la tariffa personalizzata prima di inviare.</string>
-    <string name="onb_fee_rate_extreme">%1$d sat/vB è estremo. Quasi certamente è un errore di battitura o un feed della mempool errato: controlla con attenzione prima di inviare.</string>
     <string name="onb_wipe_aborted">Cancellazione interrotta: %1$d file di database sono ancora in uso e non è stato possibile eliminarli. Non è stato rimosso nient’altro, quindi i tuoi wallet sono intatti. Chiudi le altre finestre di BHODL e riprova.</string>
     <string name="onb_wipe_incomplete">Cancellazione incompleta: impossibile eliminare %1$d elementi (%2$s).</string>
     <string name="onb_wipe_nothing">Niente da cancellare.</string>
     <string name="onb_wipe_done">Eliminati %1$d elementi.</string>
 
     <!-- WalletPinReauthDialog -->
-    <string name="onb_pin_check_failed">Verifica del PIN non riuscita.</string>
-    <string name="onb_reauth_title">Inserisci il PIN del wallet</string>
-    <string name="onb_reauth_body">Reinserisci il PIN di questo wallet per %1$s.</string>
-    <string name="onb_reauth_pin_label">PIN del wallet</string>
-    <string name="onb_checking">Verifica…</string>
 
     <!-- DevicePinUnlockScreen -->
     <string name="onb_device_pin">PIN del dispositivo</string>
-    <string name="onb_device_pin_unlock_body">Inserisci il PIN del dispositivo per aprire il registro dei wallet. È il PIN che hai impostato durante l’aggiornamento multi-wallet.</string>
+    <string name="onb_device_pin_unlock_body">Inserisci il PIN del dispositivo per aprire BHODL.</string>
     <string name="onb_device_pin_wrong_wait">PIN del dispositivo errato. Attendi %1$d s prima di riprovare.</string>
     <string name="onb_device_pin_wrong">PIN del dispositivo errato.</string>
     <string name="onb_registry_open_failed">Impossibile aprire il registro.</string>
@@ -41,41 +34,8 @@
     <string name="onb_open_registry">Apri registro</string>
 
     <!-- Generate / Confirm mnemonic -->
-    <string name="onb_gen_title">La tua frase di recupero</string>
-    <string name="onb_gen_body">Scrivi queste 12 parole su carta, in ordine. Sono l’unico modo per ripristinare il wallet se perdi questo dispositivo.</string>
-    <string name="onb_generating">Generazione…</string>
-    <string name="onb_gen_failed">Generazione non riuscita: %1$s</string>
-    <string name="onb_gen_written">L’ho scritta</string>
-    <string name="onb_confirm_title">Conferma la frase di recupero</string>
-    <string name="onb_confirm_body">Scrivi le parole richieste della frase che hai appena annotato.</string>
-    <string name="onb_confirm_word">Parola n. %1$d</string>
-    <string name="onb_confirm_missing">Compila tutti i campi.</string>
-    <string name="onb_confirm_wrong">Errate: %1$s. Ricontrolla la frase.</string>
 
     <!-- Restore mnemonic / backup -->
-    <string name="onb_restore_title">Ripristina wallet</string>
-    <string name="onb_restore_body">Scrivi o incolla la tua frase di recupero di 12 parole. Le parole devono essere minuscole e separate da spazi. Accettiamo 12, 15, 18, 21 o 24 parole.</string>
-    <string name="onb_restore_phrase_label">Frase di recupero</string>
-    <string name="onb_restore_words_empty">0 / 12 parole</string>
-    <string name="onb_restore_words_one">1 parola</string>
-    <string name="onb_restore_words_many">%1$d parole</string>
-    <string name="onb_restore_wrong_count">Servono 12, 15, 18, 21 o 24 parole (ne hai inserite %1$d).</string>
-    <string name="onb_restore_invalid">Frase di recupero non valida.</string>
-    <string name="onb_validating">Verifica…</string>
-    <string name="onb_continue">Continua</string>
-    <string name="onb_restore_backup_title">Ripristina da backup</string>
-    <string name="onb_restore_backup_body">Incolla il backup cifrato con age che hai esportato da Impostazioni → Backup cifrato, poi scrivi la password del backup (NON il tuo PIN).</string>
-    <string name="onb_load_from_file">Carica da file…</string>
-    <string name="onb_backup_blob">Contenuto del backup</string>
-    <string name="onb_backup_password">Password del backup</string>
-    <string name="onb_backup_paste_first">Incolla prima il contenuto del backup.</string>
-    <string name="onb_backup_type_password">Scrivi la password del backup.</string>
-    <string name="onb_decryption_failed">Decifratura non riuscita.</string>
-    <string name="onb_decrypting">Decifratura…</string>
-    <string name="onb_decrypt_continue">Decifra e continua</string>
-    <string name="onb_backup_dialog_title">Carica backup cifrato</string>
-    <string name="onb_backup_file_filter">File di testo / age (*.txt, *.age)</string>
-    <string name="onb_load_failed">Caricamento non riuscito: %1$s</string>
 
     <!-- ModulesScreen -->
     <string name="onb_modules_title">Moduli</string>
@@ -93,120 +53,31 @@
     <string name="onb_modules_footer">Puoi cambiarli in qualsiasi momento dalle Impostazioni.</string>
 
     <!-- Unlock / Migration -->
-    <string name="onb_unlock_title">Bentornato</string>
-    <string name="onb_unlock_body">Inserisci il PIN per sbloccare il wallet.</string>
-    <string name="onb_pin_label">PIN</string>
-    <string name="onb_pin_wrong_wait">PIN errato. Attendi %1$d s prima di riprovare.</string>
-    <string name="onb_unlocking">Sblocco…</string>
-    <string name="onb_unlock_wait">Sblocca (%1$d s)</string>
-    <string name="onb_unlock">Sblocca</string>
-    <string name="onb_mig_title">Aggiorna il tuo wallet</string>
-    <string name="onb_mig_body">BHODL ora supporta più wallet: tracking in sola lettura per vedere i tuoi asset, più un wallet di firma alla volta. Imposta un PIN del dispositivo per proteggere l’elenco dei wallet e conferma il PIN attuale per migrare il wallet esistente.</string>
-    <string name="onb_mig_backup_hint">Consigliato: esporta prima un backup cifrato con la versione precedente dell’app. La migrazione è atomica e reversibile, ma un backup recente è la garanzia più sicura.</string>
-    <string name="onb_mig_new_device_pin">Nuovo PIN del dispositivo (min. 6 caratteri)</string>
-    <string name="onb_mig_confirm_device_pin">Conferma il nuovo PIN del dispositivo</string>
     <string name="onb_device_pins_mismatch">I PIN del dispositivo non coincidono.</string>
-    <string name="onb_mig_current_pin">PIN attuale del wallet</string>
-    <string name="onb_wallet_pin_wrong_wait">PIN del wallet errato. Attendi %1$d s prima di riprovare.</string>
-    <string name="onb_wallet_pin_wrong">PIN del wallet errato.</string>
-    <string name="onb_mig_failed">Migrazione non riuscita.</string>
-    <string name="onb_migrating">Migrazione…</string>
-    <string name="onb_migrate">Migra il wallet</string>
 
     <!-- WelcomeScreen -->
-    <string name="onb_sync_failed">sincronizzazione non riuscita</string>
-    <string name="onb_sync_partial">Impossibile sincronizzare %1$d wallet: mostro i saldi in cache. %2$s</string>
-    <string name="onb_loading_wallets">Caricamento dei wallet…</string>
-    <string name="onb_open_tracker">Apri il Tracker (patrimonio e portafoglio)</string>
     <string name="onb_erase_all_local">Cancella TUTTI i wallet locali…</string>
-    <string name="onb_remove_watch_title">Rimuovere il wallet watch-only?</string>
-    <string name="onb_remove_watch_body">“%1$s” verrà eliminato definitivamente dal registro e il suo file cifrato di stato della chain verrà cancellato dal disco. Nessuna chiave di firma viene toccata. Potrai riaggiungere la stessa xpub in seguito, ma lo storico delle transazioni in cache verrà riscaricato da zero.</string>
-    <string name="onb_remove">Rimuovi</string>
-    <string name="onb_your_wallets">I tuoi wallet</string>
-    <string name="onb_remove_tracker">Rimuovi tracker</string>
-    <string name="onb_remove_watch">Rimuovi wallet watch-only</string>
-    <string name="onb_hide_options">Nascondi opzioni</string>
-    <string name="onb_add_new_wallet">+ Aggiungi nuovo wallet</string>
-    <string name="onb_create_wallet">Crea un nuovo wallet</string>
-    <string name="onb_restore_phrase">Ripristina dalla frase di recupero</string>
-    <string name="onb_restore_backup">Ripristina da backup cifrato</string>
-    <string name="onb_add_watch">Aggiungi watch-only (xpub)</string>
-    <string name="onb_kind_signing_tracked">Firma (tracciato)</string>
-    <string name="onb_kind_signing">Firma</string>
-    <string name="onb_kind_watch_xpub">Watch (xpub)</string>
-    <string name="onb_kind_watch_addresses">Watch (indirizzi)</string>
-    <string name="onb_kind_watch_hd">Watch (HD)</string>
-    <string name="onb_welcome_title">Benvenuto</string>
-    <string name="onb_welcome_body">BHODL è un wallet Bitcoin in autocustodia. Questo è il flusso dimostrativo alpha.</string>
-    <string name="onb_have_wallet">Ho già un wallet</string>
+    <string name="onb_welcome_body">BHODL è un tracker Bitcoin in sola lettura. Aggiungi i tuoi wallet tramite xpub, descrittore o elenco di indirizzi per seguire saldi, spese e patrimonio netto. Non conserva mai chiavi private e non può inviare bitcoin.</string>
 
     <!-- PinSetupScreen -->
-    <string name="onb_default_wallet_name">Il mio wallet</string>
-    <string name="onb_pin_title">Imposta un PIN</string>
-    <string name="onb_pin_body">Il PIN sblocca il wallet su questo dispositivo. Usa almeno %1$d cifre. Il PIN non lascia mai questo dispositivo.</string>
-    <string name="onb_wallet_name">Nome del wallet</string>
-    <string name="onb_add_to_tracker">Aggiungi al Tracker</string>
-    <string name="onb_add_to_tracker_hint">Mostra saldo e storico di questo wallet nel Tracker (copia solo xpub, nessun PIN di firma necessario per vederli).</string>
     <string name="onb_pin_strength_moderate">PIN di %1$d cifre: protezione moderata dagli attacchi offline. Consigliate 8 o più cifre.</string>
-    <string name="onb_confirm_pin">Conferma il PIN</string>
-    <string name="onb_hide_advanced">Nascondi opzioni avanzate</string>
-    <string name="onb_advanced_passphrase">Avanzate (passphrase BIP-39)</string>
-    <string name="onb_passphrase_hint">Tredicesima parola BIP-39 facoltativa. Viene combinata con il seed: senza di essa nemmeno la frase di recupero può ripristinare questo wallet. Lasciala vuota se non sai cos’è.</string>
-    <string name="onb_passphrase_label">Passphrase BIP-39 (facoltativa)</string>
-    <string name="onb_passphrase_confirm">Conferma la passphrase BIP-39</string>
-    <string name="onb_passphrases_mismatch">Le passphrase non coincidono.</string>
-    <string name="onb_passphrases_mismatch_closed">Le passphrase BIP-39 non coincidono: apri le opzioni avanzate per correggerle.</string>
-    <string name="onb_pins_mismatch">I PIN non coincidono.</string>
     <string name="onb_pin_empty">Inserisci un PIN.</string>
     <string name="onb_pin_too_short">PIN troppo corto (%1$d / minimo %2$d).</string>
     <string name="onb_pin_too_long">PIN troppo lungo (%1$d / massimo %2$d).</string>
     <string name="onb_pin_non_numeric">Il PIN deve contenere solo cifre.</string>
-    <string name="onb_registry_locked">Il registro dei wallet è bloccato. Inserisci il PIN del dispositivo per aprirlo prima di creare questo wallet.</string>
-    <string name="onb_open_registry_first">Apri prima il registro dei wallet con il PIN del dispositivo.</string>
     <string name="onb_wallet_name_taken">Esiste già un wallet con questo nome. Scegline un altro.</string>
-    <string name="onb_wallet_create_failed">Creazione del wallet non riuscita.</string>
-    <string name="onb_creating_wallet">Creazione del wallet…</string>
-    <string name="onb_finish_setup">Completa la configurazione</string>
-    <string name="onb_same_pin_title">Usa un PIN diverso per ogni wallet</string>
-    <string name="onb_same_pin_body">Hai impostato per questo wallet lo stesso PIN del dispositivo. Per una protezione migliore, usa un PIN diverso per ogni wallet di firma:\n\n• Il PIN del dispositivo protegge l’elenco dei wallet, lo stato della chain dei watch-only e i dati di tracking.\n• Il PIN di ciascun wallet protegge la chiave di firma solo di quel wallet.\n\nCon PIN distinti, scoprirne uno non dà a un attaccante l’accesso all’altro livello. Puoi cambiare il PIN di questo wallet in seguito dalle Impostazioni.</string>
-    <string name="onb_i_understand">Ho capito</string>
     <string name="onb_no_tor_title">Sincronizzazione mainnet senza Tor</string>
-    <string name="onb_no_tor_body">Aggiungere la copia watch-only avvierà una scansione completa Esplora su un server pubblico SENZA Tor. Il server vedrà ogni indirizzo di ricezione e di resto derivato dalla xpub di questo wallet, e la maggior parte dei provider registra le richieste.\n\nConsigliato: attiva prima Tor in Impostazioni → Tor. Altrimenti tocca “Continua senza Tor” per procedere.</string>
     <string name="onb_adding">Aggiunta…</string>
     <string name="onb_continue_without_tor">Continua senza Tor</string>
 
     <!-- PromoteWatchScreen -->
-    <string name="onb_promote_load_failed">Impossibile caricare il wallet.</string>
-    <string name="onb_promote_title">Promuovi: %1$s</string>
-    <string name="onb_promote_intro">Aggiungi le chiavi di firma a questo wallet watch-only. Dopo la promozione potrai inviare e firmare; storico ed etichetta del wallet vengono conservati.</string>
-    <string name="onb_promote_seed_verify_failed">Impossibile verificare il seed.</string>
-    <string name="onb_promote_seed_mismatch">Il seed non corrisponde a questo wallet. Controlla la passphrase BIP-39, se ne hai usata una.</string>
-    <string name="onb_promote_failed">Promozione non riuscita.</string>
-    <string name="onb_promote_same_pin_body">Hai impostato per questo wallet lo stesso PIN del dispositivo. Per una protezione migliore, usa un PIN diverso per ogni wallet di firma. Puoi cambiarlo in seguito dalle Impostazioni.</string>
-    <string name="onb_promote_pin_title">Conferma con il PIN del dispositivo</string>
-    <string name="onb_promote_pin_body">Promuovere un wallet watch-only a wallet di firma aggiunge le chiavi di spesa. Per evitare che lo faccia chi trova l’app sbloccata, conferma prima con il PIN del dispositivo.</string>
-    <string name="onb_verifying">Verifica…</string>
-    <string name="onb_promote_verify_title">Verifica questi indirizzi</string>
-    <string name="onb_promote_verify_body">Questi sono i primi tre indirizzi di ricezione derivati dal descriptor salvato di questo wallet. Se non corrispondono a quelli che ti aspetti, annulla: NON inserire il seed qui sotto.</string>
-    <string name="onb_promote_address">Indirizzo n. %1$d</string>
-    <string name="onb_promote_addresses_ok">Gli indirizzi sono corretti: continua</string>
-    <string name="onb_promote_addresses_wrong">Annulla: qualcosa non torna</string>
-    <string name="onb_promote_seed_title">Inserisci la frase di recupero</string>
-    <string name="onb_promote_seed_body">Scrivi la mnemonica BIP-39 di 12 parole di questo wallet. Deriviamo la xpub in locale e verifichiamo che corrisponda al descriptor salvato prima di continuare.</string>
-    <string name="onb_promote_verify_seed">Verifica il seed</string>
-    <string name="onb_pin_invalid">Inserisci un PIN valido.</string>
-    <string name="onb_promote_wallet_pin_title">Imposta un PIN del wallet</string>
-    <string name="onb_promote_wallet_pin_body">Scegli un PIN che protegga d’ora in poi le chiavi di firma di questo wallet. Può essere diverso dal PIN del dispositivo, ed è consigliato per isolare i due livelli.</string>
-    <string name="onb_promoting">Promozione…</string>
-    <string name="onb_promote_submit">Promuovi a wallet di firma</string>
 
     <!-- AddWatchScreen -->
     <string name="onb_registry_not_open">Registro non aperto. Riavvia l’app.</string>
-    <string name="onb_xpub_dup_signing">Questa xpub è già registrata come “%1$s” (wallet di firma). Scegli un’altra xpub o rimuovi prima la voce esistente.</string>
     <string name="onb_xpub_dup_watch">Questa xpub è già registrata come “%1$s” (wallet watch-only). Scegli un’altra xpub o rimuovi prima la voce esistente.</string>
     <string name="onb_add_failed">Aggiunta non riuscita.</string>
     <string name="onb_add_watch_title">Aggiungi wallet watch-only</string>
-    <string name="onb_add_watch_body">Monitora saldo e storico di un altro wallet incollando la xpub del suo account. Non viene importata nessuna chiave di firma: il wallet watch-only vede indirizzi e transazioni ma non può spendere.</string>
+    <string name="onb_add_watch_body">Monitora saldo e storico di un wallet dalle sue chiavi pubbliche: incolla la xpub dell’account, un descrittore Sparrow / Specter o un elenco di indirizzi. BHODL non importa mai chiavi private: vede indirizzi e transazioni ma non può spendere.</string>
     <string name="onb_add_watch_label">Etichetta (es. ‘Cold storage’)</string>
     <string name="onb_add_watch_xpub">Xpub / tpub / vpub / upub</string>
     <string name="onb_script_type">Tipo di script</string>
@@ -223,4 +94,16 @@
     <string name="onb_nav_section_goals">Obiettivi</string>
     <string name="onb_nav_section_portfolio">Portafoglio</string>
     <string name="onb_nav_section_reports">Report</string>
+    <string name="onb_get_started">Inizia</string>
+    <string name="onb_device_pin_setup_title">Crea il PIN del dispositivo</string>
+    <string name="onb_device_pin_setup_body">Il PIN del dispositivo cifra l’elenco dei wallet e i dati del tracker su questo dispositivo. Usa almeno %1$d cifre. Non lascia mai il dispositivo e non è recuperabile: se lo dimentichi puoi solo cancellare i dati locali e aggiungere di nuovo i wallet.</string>
+    <string name="onb_device_pin_confirm">Conferma il PIN del dispositivo</string>
+    <string name="onb_device_pin_create">Crea PIN del dispositivo</string>
+    <string name="onb_legacy_title">Rimuovi i vecchi wallet di spesa</string>
+    <string name="onb_legacy_body">BHODL ora è in sola lettura. Su questo dispositivo restano i dati cifrati di wallet creati o ripristinati da una frase di recupero in una versione precedente. Qui non si possono più aprire e verranno eliminati definitivamente, chiavi comprese.\n\nAssicurati di avere la frase di recupero di ogni wallet: è l’unico modo per spendere quei fondi, in qualsiasi altro wallet. Per continuare a seguirne uno qui, aggiungilo di nuovo tramite la sua xpub.</string>
+    <string name="onb_legacy_count">Vecchi wallet di spesa nell’elenco: %1$d</string>
+    <string name="onb_legacy_confirm">Ho le frasi di recupero di questi wallet</string>
+    <string name="onb_legacy_delete">Elimina i vecchi wallet</string>
+    <string name="onb_legacy_later">Non ora</string>
+    <string name="onb_legacy_failed">Alcuni file non sono stati eliminati (%1$d). Chiudi gli altri programmi che usano la cartella di BHODL e riprova.</string>
 </resources>

@@ -115,7 +115,7 @@ pub(crate) fn parse_socks_proxy(proxy_url: &str) -> Result<SocksProxy, OnchainEr
 /// ureq 2 only knows `socks5://`, but its SOCKS5 connector forwards host
 /// names unresolved (ATYP=DOMAINNAME, see ureq `stream.rs::connect_socks`),
 /// i.e. it already behaves like `socks5h://`. Single source of truth for
-/// every ureq-based caller (rate history, `PayJoin`).
+/// every ureq-based caller (rate history).
 pub(crate) fn ureq_socks_proxy_url(proxy_url: &str) -> Result<String, OnchainError> {
     let p = parse_socks_proxy(proxy_url)?;
     let host = if p.host.contains(':') {
@@ -761,11 +761,9 @@ pub(crate) mod tests {
                 .unwrap();
         });
         let proxy_url = format!("socks5h://{}:{}", proxy.host, proxy.port);
-        let client = crate::account::try_build_esplora_client(
-            "http://esplora.example/api",
-            Some(&proxy_url),
-        )
-        .unwrap();
+        let client =
+            crate::common::try_build_esplora_client("http://esplora.example/api", Some(&proxy_url))
+                .unwrap();
         assert_eq!(client.get_height().unwrap(), 123_456);
         let seen = seen.recv_timeout(Duration::from_secs(5)).unwrap();
         assert_eq!(
@@ -782,7 +780,7 @@ pub(crate) mod tests {
             let l = TcpListener::bind("127.0.0.1:0").unwrap();
             l.local_addr().unwrap().port()
         };
-        let client = crate::account::try_build_esplora_client(
+        let client = crate::common::try_build_esplora_client(
             "http://esplora.example/api",
             Some(&format!("socks5h://127.0.0.1:{dead_port}")),
         )
@@ -790,12 +788,12 @@ pub(crate) mod tests {
         assert!(client.get_height().is_err());
         // A malformed proxy setting is refused up-front …
         assert!(
-            crate::account::try_build_esplora_client("https://x.example/api", Some("http://p:1"))
+            crate::common::try_build_esplora_client("https://x.example/api", Some("http://p:1"))
                 .is_err()
         );
         // … and the infallible builder degrades to a client that cannot
         // reach anything (BadProxy), never to a direct connection.
-        let c = crate::account::build_esplora_client("https://x.example/api", Some("http://p:1"));
+        let c = crate::common::build_esplora_client("https://x.example/api", Some("http://p:1"));
         assert!(c.get_height().is_err());
     }
 }

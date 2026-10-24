@@ -1,5 +1,10 @@
 # BHODL — Analisi UI/UX vs best practice e concorrenti (2026-10-10)
 
+> **Nota (2026-10-23):** dal 2026-10-23 BHODL è watch-only: non tiene chiavi private e
+> non può inviare bitcoin. Le parti di questo documento su seed, firma, invio, PayJoin,
+> backup o mirror signing↔tracker sono storiche; il design attuale è in
+> `docs/handbook.md`.
+
 **Base dell'analisi**
 
 - **172 screenshot reali** dell'app (`main` @ `cbbdc23`), generati con l'harness dei test Compose e dati finti realistici.

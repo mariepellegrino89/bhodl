@@ -73,6 +73,16 @@ public object PriceCache {
     /** Clock seam for the TTL (tests). */
     internal var nowMs: () -> Long = { System.currentTimeMillis() }
 
+    /** Network seams (tests); production asks [PriceFetcher]. */
+    internal var btcPriceSource: (FiatCurrency) -> Double? = PriceFetcher::fetchBtcPrice
+    internal var quoteSource: (String) -> YahooQuote? = PriceFetcher::fetchYahooQuote
+
+    internal fun resetSourcesForTest() {
+        btcPriceSource = PriceFetcher::fetchBtcPrice
+        quoteSource = PriceFetcher::fetchYahooQuote
+        nowMs = { System.currentTimeMillis() }
+    }
+
     private fun isRateFresh(ccy: String): Boolean {
         val at = currencyRateFetchedAtMs[ccy] ?: return false
         return nowMs() - at < CURRENCY_RATE_TTL_MS
@@ -210,7 +220,7 @@ public object PriceCache {
             } else {
                 _refreshing.value = true
                 val result = withContext(Dispatchers.IO) {
-                    runCatching { PriceFetcher.fetchBtcPrice(currency) }
+                    runCatching { btcPriceSource(currency) }
                 }
                 _refreshing.value = false
                 result.fold(
@@ -224,7 +234,14 @@ public object PriceCache {
                         }
                     },
                     onFailure = { e ->
-                        _lastError.value = e.message ?: e.javaClass.simpleName
+                        // GAP-012 — the raw message can carry hosts / URLs /
+                        // paths: log it sanitized, surface only the localized
+                        // "no provider" state.
+                        System.err.println(
+                            "[PriceCache] fetch failed: " +
+                                io.bhodl.desktop.ui.sanitizeErrorDetail(e.message, e.javaClass.simpleName),
+                        )
+                        _lastError.value = NO_PRICE_ERROR
                     },
                 )
             }
@@ -265,7 +282,7 @@ public object PriceCache {
             for (ccy in expired) {
                 val fiat = FiatCurrency.entries.firstOrNull { it.code.equals(ccy, ignoreCase = true) }
                     ?: continue
-                val r = runCatching { PriceFetcher.fetchBtcPrice(fiat) }.getOrNull()
+                val r = runCatching { btcPriceSource(fiat) }.getOrNull()
                 if (r != null && r > 0.0 && r.isFinite()) out[ccy] = r
             }
             out
@@ -286,7 +303,7 @@ public object PriceCache {
                 if (isRateFresh(ccy) && _price.value != null) continue
                 val fiat = FiatCurrency.entries.firstOrNull { it.code.equals(ccy, ignoreCase = true) }
                     ?: continue
-                val rate = runCatching { PriceFetcher.fetchBtcPrice(fiat) }.getOrNull()
+                val rate = runCatching { btcPriceSource(fiat) }.getOrNull()
                 if (rate != null && rate > 0.0) {
                     newRates[ccy] = rate
                 }
@@ -301,7 +318,7 @@ public object PriceCache {
                 rateFor(ccy)?.let { if (it > 0.0) return it } // fresh only (TTL)
                 val fiat = FiatCurrency.entries.firstOrNull { it.code.equals(ccy, ignoreCase = true) }
                     ?: return null
-                val r = runCatching { PriceFetcher.fetchBtcPrice(fiat) }.getOrNull()
+                val r = runCatching { btcPriceSource(fiat) }.getOrNull()
                 if (r != null && r > 0.0) {
                     putCurrencyRates(mapOf(ccy.trim().uppercase() to r))
                     return r
@@ -312,7 +329,7 @@ public object PriceCache {
             val candidates = investments.filter { !it.ticker.isNullOrBlank() }.take(MAX_QUOTED_TICKERS)
             for (inv in candidates) {
                 val ticker = inv.ticker ?: continue
-                val quote = runCatching { PriceFetcher.fetchYahooQuote(ticker) }.getOrNull() ?: continue
+                val quote = runCatching { quoteSource(ticker) }.getOrNull() ?: continue
                 // Phase 9 — the Yahoo quote is denominated in the
                 // exchange's home currency (quote.currency, e.g. USD for
                 // MSTR), which may differ from the investment's cost-basis
@@ -482,25 +499,35 @@ public object PriceCache {
     ): List<HistoricalPricePoint>? {
         if (currency == FiatCurrency.NONE || days <= 0) return null
         val key = currency to days
-        val nowMs = System.currentTimeMillis()
+        val atMs = nowMs()
         // Cheap optimistic read outside the mutex — if the entry is
         // fresh, no need to take the lock at all.
         historyCache[key]?.let {
-            if (nowMs - it.fetchedAtMs < ttlMsFor(days)) return it.series
+            if (atMs - it.fetchedAtMs < ttlMsFor(days)) return it.series
         }
         return historyMutex.withLock {
             historyCache[key]?.let {
-                if (nowMs - it.fetchedAtMs < ttlMsFor(days)) return@withLock it.series
+                if (atMs - it.fetchedAtMs < ttlMsFor(days)) return@withLock it.series
             }
             val series = withContext(Dispatchers.IO) {
                 runCatching { PriceFetcher.fetchBtcPriceHistory(currency, days) }
                     .getOrNull()
             }
             if (series != null) {
-                historyCache[key] = HistoryCacheEntry(fetchedAtMs = nowMs, series = series)
+                historyCache[key] = HistoryCacheEntry(fetchedAtMs = atMs, series = series)
             }
             series
         }
+    }
+
+    /**
+     * GAP-015 — drop the session-scoped caches (price history, per-currency
+     * rates) on lock / wipe. The spot price stays: it carries no user data.
+     */
+    public fun clearSessionCaches() {
+        historyCache.clear()
+        currencyRateFetchedAtMs.clear()
+        _currencyRates.value = emptyMap()
     }
 
     /** Test-only: clear the history cache so tests get deterministic results. */
@@ -511,6 +538,6 @@ public object PriceCache {
     /** Test-only: pre-load a fresh history series so [priceHistory]
      *  answers without the network. */
     internal fun seedHistoryForTest(currency: FiatCurrency, days: Int, series: List<HistoricalPricePoint>) {
-        historyCache[currency to days] = HistoryCacheEntry(System.currentTimeMillis(), series)
+        historyCache[currency to days] = HistoryCacheEntry(nowMs(), series)
     }
 }

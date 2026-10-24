@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- PIN recovery, recovery code, change PIN (docs/pin-recovery.md). Italian twin in values-it. -->
+    <string name="pinrec_forgot">Forgot your PIN?</string>
+    <string name="pinrec_title">Forgot device PIN</string>
+    <string name="pinrec_have_code">I have my recovery code</string>
+    <string name="pinrec_no_code">I don’t have a recovery code</string>
+    <string name="pinrec_code_label">Recovery code</string>
+    <string name="pinrec_code_hint">24 characters, dashes and spaces optional</string>
+    <string name="pinrec_new_pin">New device PIN</string>
+    <string name="pinrec_confirm_pin">Confirm new device PIN</string>
+    <string name="pinrec_reset">Set new PIN and open</string>
+    <string name="pinrec_checking">Checking…</string>
+    <string name="pinrec_err_code_format">A recovery code has 24 characters (digits and letters).</string>
+    <string name="pinrec_err_code_wrong">Wrong recovery code.</string>
+    <string name="pinrec_err_code_wrong_wait">Wrong recovery code. Wait %1$ds before retrying.</string>
+    <string name="pinrec_no_file">No recovery code was created on this device.</string>
+    <string name="pinrec_no_code_body">Without the PIN or the recovery code, the tracker data on this device cannot be decrypted, not even by the BHODL developers. You can erase the local data and start again.\n\nKept: your bitcoin, and your wallets: add them again from their xpub, and balances and history come back from the blockchain.\n\nLost: categories, rules, budgets, investments and lots, sales, manual assets, liabilities, goals, labels, contacts and custom cost-basis prices.</string>
+
+    <string name="rc_title">Recovery code</string>
+    <string name="rc_intro">If you forget your device PIN, this code is the only way to open your tracker data again. It is shown once and never stored: write it down or keep it in a password manager, away from this computer.</string>
+    <string name="rc_create">Create recovery code</string>
+    <string name="rc_regenerate">Create a new code</string>
+    <string name="rc_regenerate_warning">A recovery code already exists. A new one replaces it, and the current code stops working.</string>
+    <string name="rc_lose_both">Losing both the PIN and this code means losing the tracker data on this device.</string>
+    <string name="rc_confirm_group">To confirm you saved it, type group %1$d of the code:</string>
+    <string name="rc_group_label">Group %1$d</string>
+    <string name="rc_done">I saved it</string>
+    <string name="rc_saved">Recovery code saved. You can create a new one from the Security Hub at any time.</string>
+    <string name="rc_failed">Could not create the recovery code: %1$s</string>
+
+    <string name="cp_title">Change device PIN</string>
+    <string name="cp_current">Current device PIN</string>
+    <string name="cp_save">Change PIN</string>
+    <string name="cp_done">Device PIN changed.</string>
+    <string name="cp_failed">Could not change the PIN: %1$s</string>
+
+    <string name="security_row_recovery">Recovery code</string>
+    <string name="security_recovery_set">Created: the way back in if you forget the device PIN.</string>
+    <string name="security_recovery_missing">Not created: forgetting the device PIN would mean losing the tracker data.</string>
+    <string name="security_recovery_no_pin">Available once the device PIN exists.</string>
+    <string name="security_action_create">Create</string>
+    <string name="security_action_manage">Manage</string>
+    <string name="security_action_change">Change</string>
+</resources>

@@ -1,27 +1,36 @@
 //! Regtest integration tests.
 //!
 //! These tests bring up a real `bitcoind 25.0` + `electrs` esplora pair via
-//! `bdk_testenv` (binaries are downloaded on first build and cached). They
-//! run only on Unix hosts because the `electrsd` build script depends on
-//! Unix-only filesystem APIs (and electrs publishes no Windows binary).
-//! On Windows, run them in a Linux container (Docker Desktop):
+//! `bdk_testenv`. Its `download` feature is disabled (it unpacked the
+//! daemons with the vulnerable `zip` 0.6 crate), so the binaries come from
+//! the `BITCOIND_EXE` / `ELECTRS_EXE` env vars. `scripts/regtest-binaries.sh`
+//! downloads the same pinned artifacts, verifies their sha256 and prints
+//! the exports:
+//!
+//! ```text
+//! eval "$(scripts/regtest-binaries.sh)"
+//! cargo test -p bhodl-wallet-onchain --test regtest -- --ignored --test-threads=1
+//! ```
+//!
+//! `ELECTRS_EXE` must be an esplora build of electrs (the HTTP API is
+//! used); distro `electrs` packages are the Electrum-only flavour.
+//!
+//! The tests run only on Unix hosts (electrsd signals electrs with SIGUSR1
+//! and electrs publishes no Windows binary). On Windows, run them in a
+//! Linux container (Docker Desktop):
 //!
 //! ```text
 //! docker run --rm -v <repo>:/work -v bhodl-regtest-target:/target
-//!   -e CARGO_TARGET_DIR=/target -w /work rust:1.88-bookworm
-//!   cargo test -p bhodl-wallet-onchain --test regtest -- --ignored --test-threads=1
+//!   -e CARGO_TARGET_DIR=/target -e REGTEST_BIN_DIR=/target/regtest-bin
+//!   -w /work rust:1.88-bookworm bash -c
+//!   'apt-get update && apt-get install -y unzip && eval "$(scripts/regtest-binaries.sh)"
+//!    && cargo test -p bhodl-wallet-onchain --test regtest -- --ignored --test-threads=1'
 //! ```
 //!
 //! All tests in this file are marked `#[ignore]` so the standard
-//! `cargo test --workspace` run stays fast and deterministic in CI. To run
-//! them locally:
-//!
-//! ```text
-//! cargo test -p bhodl-wallet-onchain --test regtest -- --ignored
-//! ```
-//!
-//! On the first run the `bdk_testenv` cache populates `target/`, taking a
-//! couple of minutes; subsequent runs reuse the cached binaries.
+//! `cargo test --workspace` run stays fast, offline and deterministic in
+//! CI. Without the two env vars `TestEnv::new()` fails with "you need to
+//! provide an env var `BITCOIND_EXE`".
 
 #![cfg(unix)]
 
@@ -33,17 +42,55 @@ use std::{
 
 use bdk_testenv::{TestEnv, bitcoincore_rpc::RpcApi as _};
 use bhodl_core::{Amount, Network as BhodlNetwork};
-use bhodl_wallet_onchain::OnchainAccount;
-use bitcoin::Address;
+use bhodl_wallet_onchain::{ENCRYPTION_KEY_LEN, LabelKind, WatchAccount, WatchBip};
+use bitcoin::{
+    Address,
+    bip32::{DerivationPath, Xpriv, Xpub},
+    key::Secp256k1,
+};
 
 /// Canonical BIP86 test mnemonic. Public, well-known, never used for funds.
-const BIP86_MNEMONIC: &str = "abandon abandon abandon abandon abandon abandon \
-                              abandon abandon abandon abandon abandon about";
+const BIP86_MNEMONIC: &str = "abandon abandon abandon abandon abandon abandon                               abandon abandon abandon abandon abandon about";
 
-/// Second well-known test mnemonic (BIP39 §test vectors). Used as a
-/// distinct payee in the round-trip test.
-const BOB_MNEMONIC: &str = "legal winner thank year wave sausage worth useful legal \
-                            winner thank yellow";
+/// Regtest account xpub (`m/86'/1'/0'`) of [`BIP86_MNEMONIC`]. BHODL only
+/// ever sees this public key; the test derives it here.
+fn regtest_xpub() -> String {
+    let secp = Secp256k1::new();
+    let seed = bip39::Mnemonic::parse(BIP86_MNEMONIC)
+        .expect("valid mnemonic")
+        .to_seed("");
+    let master = Xpriv::new_master(bitcoin::Network::Regtest, &seed).expect("master key");
+    let account = master
+        .derive_priv(
+            &secp,
+            &DerivationPath::from_str("m/86'/1'/0'").expect("path"),
+        )
+        .expect("derive account");
+    Xpub::from_priv(&secp, &account).to_string()
+}
+
+/// Watch-only wallet over [`regtest_xpub`] in a temp dir.
+fn regtest_watch() -> (tempfile::TempDir, WatchAccount) {
+    let dir = tempfile::TempDir::new().expect("temp dir");
+    let account = WatchAccount::create_from_xpub(
+        BhodlNetwork::Regtest,
+        &dir.path().join("watch.sqlite"),
+        &[0x42; ENCRYPTION_KEY_LEN],
+        &regtest_xpub(),
+        WatchBip::Taproot,
+    )
+    .expect("create watch wallet");
+    (dir, account)
+}
+
+/// Send `sat` from the bdk_testenv faucet to `address`.
+fn fund(env: &TestEnv, address: &Address, sat: u64) {
+    let checked = Address::from_str(&address.to_string())
+        .expect("parse address")
+        .assume_checked();
+    env.send(&checked, bitcoin::Amount::from_sat(sat))
+        .expect("send to address");
+}
 
 /// HTTP base URL of the local esplora (electrs) for `env`.
 ///
@@ -53,7 +100,7 @@ const BOB_MNEMONIC: &str = "legal winner thank year wave sausage worth useful le
 /// an explicit loopback `http://` URL from the port instead.
 fn esplora_base_url(env: &TestEnv) -> String {
     let raw = env.electrsd.esplora_url.as_deref().expect(
-        "TestEnv was started without an esplora endpoint — feature `download` should enable it",
+        "TestEnv was started without an esplora endpoint — ELECTRS_EXE must be an esplora build",
     );
     let port = raw
         .rsplit(':')
@@ -87,204 +134,73 @@ fn wait_for_esplora(env: &TestEnv) {
     panic!("esplora did not reach bitcoind tip {want} within 60 s");
 }
 
-/// End-to-end smoke: send `50_000` sat to our regtest taproot address via
-/// bitcoind, confirm, sync via Esplora, assert the wallet sees the balance.
+/// End-to-end smoke: fund the watch wallet's first receive address via
+/// bitcoind, confirm, sync via Esplora, assert balance / history / UTXOs.
 #[test]
 #[ignore = "regtest harness — run with `cargo test -- --ignored`"]
-fn regtest_send_increments_wallet_balance() {
-    // 1. Start the regtest stack (bitcoind + electrs esplora).
+fn regtest_watch_wallet_sees_incoming_funds() {
     let env = TestEnv::new().expect("start regtest stack");
+    let (_dir, mut account) = regtest_watch();
+    let address = account
+        .next_unused_receive_address()
+        .expect("derive receive address");
 
-    // 2. Build our wallet on Regtest.
-    let mut account = OnchainAccount::from_mnemonic(BhodlNetwork::Regtest, BIP86_MNEMONIC, "")
-        .expect("build account from BIP86 mnemonic");
-
-    // 3. Compute our first receive address.
-    let our_address = account
-        .peek_taproot_address(0)
-        .expect("derive index-0 taproot address");
-
-    // 4. Mine the maturity period (101 blocks) so the test wallet has spendable coins.
     env.mine_blocks(101, None).expect("mine maturity blocks");
-
-    // 5. Send 50_000 sat from the bdk_testenv internal faucet to our address.
-    //    `Address::send_to` returns an `Address<NetworkUnchecked>`-friendly
-    //    representation; we go through the canonical string round-trip so
-    //    the test does not depend on rust-bitcoin private API quirks.
-    let our_address_unchecked = Address::from_str(&our_address.to_string())
-        .expect("parse our address back from string")
-        .assume_checked();
     let amount_sat: u64 = 50_000;
-    env.send(
-        &our_address_unchecked,
-        bitcoin::Amount::from_sat(amount_sat),
-    )
-    .expect("send to our address");
-
-    // 6. Confirm the send.
+    fund(&env, &address, amount_sat);
     env.mine_blocks(1, None).expect("mine confirmation block");
-
-    // 7. Give electrs a moment to index the new block.
     wait_for_esplora(&env);
 
-    // 8. Sync via the production code path (Esplora HTTP).
-    let esplora_url = esplora_base_url(&env);
     account
-        .sync_with_esplora(&esplora_url, None)
+        .sync_with_esplora(&esplora_base_url(&env), None)
         .expect("sync against the local esplora");
 
-    // 9. Wallet must see the balance.
-    assert_eq!(
-        account.balance(),
-        Amount::from_sat(amount_sat),
-        "wallet balance must equal the amount we sent ourselves on regtest"
+    assert_eq!(account.balance(), Amount::from_sat(amount_sat));
+    let txs = account.list_transactions();
+    assert_eq!(txs.len(), 1);
+    assert_eq!(txs[0].net_sat, 50_000);
+    assert!(txs[0].confirmation_height.is_some());
+    let utxos = account.list_utxos().expect("list utxos");
+    assert_eq!(utxos.len(), 1);
+    assert!(utxos[0].confirmed);
+    assert_eq!(utxos[0].address, address);
+    // The address is now used: the next unused one is index 1.
+    assert_ne!(
+        account.next_unused_receive_address().expect("next address"),
+        address
     );
 }
 
-/// End-to-end outgoing flow: fund wallet A, then build + sign + broadcast a
-/// PSBT that pays wallet B. Verify wallet B receives the amount after sync.
+/// Label-first receive: a label set on the address before funds arrive is
+/// copied onto the paying transaction after sync.
 #[test]
 #[ignore = "regtest harness — run with `cargo test -- --ignored`"]
-fn regtest_psbt_round_trip_pays_recipient() {
+fn regtest_receive_label_lands_on_the_incoming_transaction() {
     let env = TestEnv::new().expect("start regtest stack");
+    let (_dir, mut account) = regtest_watch();
+    let address = account
+        .next_unused_receive_address()
+        .expect("derive receive address");
+    account
+        .set_address_label(&address.to_string(), "Invoice 7", Some("income".into()))
+        .expect("label address");
+
     env.mine_blocks(101, None).expect("mine maturity blocks");
-
-    // --- Wallet A: payer.
-    let mut alice = OnchainAccount::from_mnemonic(BhodlNetwork::Regtest, BIP86_MNEMONIC, "")
-        .expect("build alice wallet");
-    let alice_addr = alice.peek_taproot_address(0).unwrap();
-    let alice_addr_unchecked = Address::from_str(&alice_addr.to_string())
-        .unwrap()
-        .assume_checked();
-
-    // Fund alice with 100_000 sat.
-    let funding_sat: u64 = 100_000;
-    env.send(
-        &alice_addr_unchecked,
-        bitcoin::Amount::from_sat(funding_sat),
-    )
-    .expect("fund alice");
-    env.mine_blocks(1, None).expect("confirm funding");
+    fund(&env, &address, 25_000);
+    env.mine_blocks(1, None).expect("mine confirmation block");
     wait_for_esplora(&env);
+    account
+        .sync_with_esplora(&esplora_base_url(&env), None)
+        .expect("sync against the local esplora");
 
-    let esplora_url = esplora_base_url(&env);
-    alice
-        .sync_with_esplora(&esplora_url, None)
-        .expect("sync alice");
-    assert_eq!(alice.balance(), Amount::from_sat(funding_sat));
-
-    // --- Wallet B: payee. Different mnemonic, same regtest network.
-    let mut bob = OnchainAccount::from_mnemonic(BhodlNetwork::Regtest, BOB_MNEMONIC, "")
-        .expect("build bob wallet");
-    let bob_addr = bob.peek_taproot_address(0).unwrap().to_string();
-
-    // --- Alice builds + signs + broadcasts a 30_000 sat payment to bob.
-    let pay_sat: u64 = 30_000;
-    let unsigned = alice
-        .build_send_tx(&bob_addr, Amount::from_sat(pay_sat), 2, false)
-        .expect("alice builds psbt");
-    let signed = alice.sign_psbt(&unsigned).expect("alice signs psbt");
-    let txid = alice
-        .broadcast_tx(&esplora_url, &signed, None)
-        .expect("alice broadcasts");
-    eprintln!("broadcast txid: {txid}");
-
-    // --- Confirm and let bob sync.
-    env.mine_blocks(1, None).expect("confirm payment");
-    wait_for_esplora(&env);
-    bob.sync_with_esplora(&esplora_url, None).expect("sync bob");
-
-    assert_eq!(
-        bob.balance(),
-        Amount::from_sat(pay_sat),
-        "bob must observe the 30_000 sat payment alice sent"
-    );
-}
-
-/// Coin-control flow: fund alice on two distinct outputs (different
-/// addresses), enumerate UTXOs, build a send that consumes exactly one of
-/// them, broadcast, and verify only the selected outpoint disappears from
-/// the spendable set.
-#[test]
-#[ignore = "regtest harness — run with `cargo test -- --ignored`"]
-fn regtest_coin_control_spends_only_selected_utxo() {
-    let env = TestEnv::new().expect("start regtest stack");
-    env.mine_blocks(101, None).expect("mine maturity blocks");
-
-    let mut alice = OnchainAccount::from_mnemonic(BhodlNetwork::Regtest, BIP86_MNEMONIC, "")
-        .expect("build alice wallet");
-
-    // Fund alice on TWO distinct receive addresses (index 0 and index 1).
-    let addr_0 = alice.peek_taproot_address(0).unwrap();
-    let addr_1 = alice.peek_taproot_address(1).unwrap();
-    let addr_0_unchecked = Address::from_str(&addr_0.to_string())
-        .unwrap()
-        .assume_checked();
-    let addr_1_unchecked = Address::from_str(&addr_1.to_string())
-        .unwrap()
-        .assume_checked();
-
-    env.send(&addr_0_unchecked, bitcoin::Amount::from_sat(40_000))
-        .expect("fund addr 0");
-    env.send(&addr_1_unchecked, bitcoin::Amount::from_sat(60_000))
-        .expect("fund addr 1");
-    env.mine_blocks(1, None).expect("confirm fundings");
-    wait_for_esplora(&env);
-
-    let esplora_url = esplora_base_url(&env);
-    alice
-        .sync_with_esplora(&esplora_url, None)
-        .expect("sync alice");
-    assert_eq!(alice.balance(), Amount::from_sat(100_000));
-
-    // Two UTXOs in the spendable set.
-    let utxos_before = alice.list_utxos().expect("list_utxos must not fail");
-    assert_eq!(
-        utxos_before.len(),
-        2,
-        "expected exactly two utxos after dual funding"
-    );
-
-    // Pick the smaller (40_000) one and spend it to bob.
-    let selected = utxos_before
-        .iter()
-        .min_by_key(|u| u.value.to_sat())
-        .expect("at least one utxo");
-    assert_eq!(selected.value, Amount::from_sat(40_000));
-    let selected_outpoint = selected.outpoint;
-
-    let mut bob = OnchainAccount::from_mnemonic(BhodlNetwork::Regtest, BOB_MNEMONIC, "")
-        .expect("build bob wallet");
-    let bob_addr = bob.peek_taproot_address(0).unwrap().to_string();
-
-    let unsigned = alice
-        .build_send_tx_with_utxos(
-            &bob_addr,
-            Amount::from_sat(20_000),
-            2,
-            &[selected_outpoint],
-            false,
-        )
-        .expect("build with manual utxo selection");
-    let signed = alice.sign_psbt(&unsigned).expect("sign");
-    let _txid = alice
-        .broadcast_tx(&esplora_url, &signed, None)
-        .expect("broadcast");
-
-    env.mine_blocks(1, None).expect("confirm spend");
-    wait_for_esplora(&env);
-    alice
-        .sync_with_esplora(&esplora_url, None)
-        .expect("re-sync alice");
-    bob.sync_with_esplora(&esplora_url, None).expect("sync bob");
-
-    // The selected UTXO must be gone from alice's spendable set.
-    let utxos_after = alice.list_utxos().expect("list_utxos must not fail");
-    assert!(
-        utxos_after.iter().all(|u| u.outpoint != selected_outpoint),
-        "the manually selected outpoint should no longer be spendable"
-    );
-
-    // Bob received the 20_000 sat output.
-    assert_eq!(bob.balance(), Amount::from_sat(20_000));
+    let applied = account.apply_receive_labels().expect("apply labels");
+    assert_eq!(applied.len(), 1);
+    let txid = &account.list_transactions()[0].txid;
+    assert_eq!(&applied[0].txid, txid);
+    let label = account
+        .get_label(LabelKind::Tx, txid)
+        .expect("read label")
+        .expect("label copied");
+    assert_eq!(label.text, "Invoice 7");
+    assert_eq!(label.category.as_deref(), Some("income"));
 }
