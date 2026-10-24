@@ -74,7 +74,9 @@ class UcHomeTrackerTest {
         waitUntilAtLeastOneExists(hasTestTag(TrackerHomeTags.STALE_BANNER))
         waitUntilAtLeastOneExists(hasText("tap to refresh", substring = true))
         onNodeWithTag(TrackerHomeTags.STALE_BANNER).performClick()
-        waitUntilAtLeastOneExists(hasText("Registry not open."))
+        // The error itself is rendered once by the TrackingScreen shell.
+        waitUntil("refresh ran", timeoutMillis = 5_000) { TrackerCache.lastError.value == "Registry not open." }
+        assertEquals(0, onAllNodes(hasText("Registry not open.")).fetchSemanticsNodes().size)
     }
 
     @Test

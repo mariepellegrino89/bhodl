@@ -50,6 +50,7 @@
     <string name="err_kind_invalid_address">Indirizzo non valido</string>
     <string name="err_kind_invalid_argument">Valore non valido</string>
     <string name="err_kind_esplora_sync">Sincronizzazione Esplora non riuscita</string>
+    <string name="err_esplora_connection_dropped">il server ha chiuso la connessione; si riprova al prossimo sync</string>
     <string name="err_kind_storage">Errore di archiviazione</string>
     <string name="err_kind_wallet_create">Creazione del wallet non riuscita</string>
     <string name="err_kind_derivation_path">Percorso di derivazione non valido</string>

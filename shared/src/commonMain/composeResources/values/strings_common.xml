@@ -55,6 +55,7 @@
     <string name="err_kind_invalid_address">Invalid address</string>
     <string name="err_kind_invalid_argument">Invalid value</string>
     <string name="err_kind_esplora_sync">Esplora sync failed</string>
+    <string name="err_esplora_connection_dropped">the server closed the connection; it is retried at the next sync</string>
     <string name="err_kind_storage">Storage error</string>
     <string name="err_kind_wallet_create">Wallet creation failed</string>
     <string name="err_kind_derivation_path">Invalid derivation path</string>

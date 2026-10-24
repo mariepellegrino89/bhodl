@@ -122,7 +122,6 @@ internal fun TrackerHomeSection(
     val recurringCandidates by TrackerCache.recurringCandidates
     val liabilities by TrackerCache.liabilities
     val refreshing by TrackerCache.refreshing
-    val lastError by TrackerCache.lastError
     val lastSyncUnix by TrackerCache.lastSyncUnix
     val hasLoadedOnce by TrackerCache.hasLoadedOnce
     // "loading" is shown only on the very first cold load. Once the
@@ -277,13 +276,8 @@ internal fun TrackerHomeSection(
                     color = BhodlTheme.colors.textSecondary,
                 )
             }
-            if (lastError != null) {
-                Text(
-                    text = lastError!!,
-                    style = BhodlTheme.typography.labelMedium,
-                    color = BhodlTheme.colors.error,
-                )
-            }
+            // The sync / cache error is shown once, by the TrackingScreen
+            // shell above every section; repeating it here doubled it.
 
             // Phase 7.2 — tracker-stale banner. The 2-min background
             // poll usually keeps lastSyncUnix fresh; the banner shows

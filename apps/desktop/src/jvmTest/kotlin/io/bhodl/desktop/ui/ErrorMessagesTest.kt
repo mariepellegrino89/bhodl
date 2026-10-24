@@ -55,6 +55,18 @@ class ErrorMessagesTest {
     }
 
     @Test
+    fun `a dropped connection reads as a temporary failure, other sync errors keep their detail`() {
+        assertEquals(
+            "Esplora sync failed: the server closed the connection; it is retried at the next sync",
+            WalletException.EsploraSync("Minreq(IoError(Kind(UnexpectedEof)))").userMessage(),
+        )
+        assertEquals(
+            "Esplora sync failed: HttpResponse { status: 502 }",
+            WalletException.EsploraSync("HttpResponse { status: 502 }").userMessage(),
+        )
+    }
+
+    @Test
     fun `URLs are not mistaken for paths`() {
         val msg = "Esplora sync failed: https://mempool.space/signet/api returned 502"
         assertEquals(msg, sanitizeErrorDetail(msg))

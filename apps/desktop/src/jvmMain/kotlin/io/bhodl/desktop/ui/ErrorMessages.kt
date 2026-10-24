@@ -3,6 +3,7 @@ package io.bhodl.desktop.ui
 import io.bhodl.desktop.wizard.localizedText
 import io.bhodl.ffi.WalletException
 import io.bhodl.shared.resources.Res
+import io.bhodl.shared.resources.err_esplora_connection_dropped
 import io.bhodl.shared.resources.err_kind_bip32
 import io.bhodl.shared.resources.err_kind_derivation_path
 import io.bhodl.shared.resources.err_kind_esplora_sync
@@ -67,7 +68,8 @@ private fun WalletException.kindAndDetail(): Pair<String, String?> = when (this)
     is WalletException.Bip32 -> localizedText(Res.string.err_kind_bip32) to detail
     is WalletException.InvalidAddress -> localizedText(Res.string.err_kind_invalid_address) to detail
     is WalletException.InvalidArgument -> localizedText(Res.string.err_kind_invalid_argument) to detail
-    is WalletException.EsploraSync -> localizedText(Res.string.err_kind_esplora_sync) to detail
+    is WalletException.EsploraSync -> localizedText(Res.string.err_kind_esplora_sync) to
+        if (isDroppedConnection(detail)) localizedText(Res.string.err_esplora_connection_dropped) else detail
     is WalletException.Storage -> localizedText(Res.string.err_kind_storage) to detail
     is WalletException.WalletCreate -> localizedText(Res.string.err_kind_wallet_create) to detail
     is WalletException.DerivationPath -> localizedText(Res.string.err_kind_derivation_path) to detail
@@ -86,6 +88,22 @@ private fun WalletException.kindAndDetail(): Pair<String, String?> = when (this)
  * filesystem paths and truncate. Shared by [userMessage] and the
  * non-Throwable call sites (e.g. stderr logging in the price clients).
  */
+/**
+ * Transport errors where the server (or a proxy) dropped the connection
+ * mid-request, e.g. minreq's `IoError(Kind(UnexpectedEof))`. Temporary:
+ * the next sync retries, so the raw Rust debug text is replaced.
+ */
+internal fun isDroppedConnection(detail: String?): Boolean =
+    detail != null && DROPPED_CONNECTION_MARKERS.any { detail.contains(it) }
+
+private val DROPPED_CONNECTION_MARKERS = listOf(
+    "UnexpectedEof",
+    "ConnectionReset",
+    "ConnectionAborted",
+    "BrokenPipe",
+    "TimedOut",
+)
+
 public fun sanitizeErrorDetail(
     raw: String?,
     fallback: String = localizedText(Res.string.err_unexpected),
