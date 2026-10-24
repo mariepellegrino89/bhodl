@@ -370,12 +370,13 @@ public object PriceFetcher {
         maxBytes: Int = MAX_BODY_BYTES,
         deadlineMs: Long = TOR_OVERALL_DEADLINE_MS,
         tlsWrap: (Socket, String, Int) -> Socket = defaultTlsWrap,
+        isolationToken: String? = priceIsolationToken,
     ): String {
         val uri = URI.create(url)
         val host = uri.host ?: throw IOException("URL has no host: $url")
         val https = uri.scheme.equals("https", ignoreCase = true)
         val port = if (uri.port != -1) uri.port else if (https) 443 else 80
-        val raw = Socket(Proxy(Proxy.Type.SOCKS, InetSocketAddress.createUnresolved(proxyHost, proxyPort)))
+        val raw = Socket()
         val timedOut = java.util.concurrent.atomic.AtomicBoolean(false)
         val kill = watchdog.schedule(
             {
@@ -387,7 +388,10 @@ public object PriceFetcher {
         )
         try {
             raw.soTimeout = timeoutMs
-            raw.connect(InetSocketAddress.createUnresolved(host, port), timeoutMs)
+            // The proxy's own address may be resolved locally (it is
+            // normally 127.0.0.1); the destination never is.
+            raw.connect(InetSocketAddress(proxyHost, proxyPort), timeoutMs)
+            socks5Handshake(raw, host, port, isolationToken)
             val socket = if (https) tlsWrap(raw, host, port) else raw
             socket.use { s ->
                 s.soTimeout = timeoutMs
@@ -418,6 +422,83 @@ public object PriceFetcher {
         } finally {
             kill.cancel(false)
             runCatching { raw.close() }
+        }
+    }
+
+    /**
+     * Random per-session SOCKS5 isolation token for all price / rate
+     * traffic. Tor's default `IsolateSOCKSAuth` puts streams with
+     * different credentials on different circuits, so this traffic never
+     * shares a circuit with a wallet's Esplora sync (the Rust core uses
+     * its own tokens). Memory only, never persisted, derived from nothing.
+     */
+    internal val priceIsolationToken: String by lazy { newIsolationToken() }
+
+    /** 128 random bits as lowercase hex. */
+    internal fun newIsolationToken(): String {
+        val raw = ByteArray(16).also { java.security.SecureRandom().nextBytes(it) }
+        return raw.joinToString("") { "%02x".format(it.toInt() and 0xff) }
+    }
+
+    private val ipv4Literal = Regex("""\d{1,3}(\.\d{1,3}){3}""")
+
+    /**
+     * RFC 1928 / RFC 1929 handshake on [s], already connected to the
+     * proxy. The JDK's built-in SOCKS client is deliberately not used: it
+     * always offers username/password and, without a JVM-global
+     * `Authenticator`, answers with the OS `user.name`.
+     *
+     * With an [isolationToken] the greeting offers no-auth (0x00) and
+     * user/pass (0x02); if the proxy picks 0x02 the token is the username
+     * (password `x`), if it picks 0x00 we proceed un-isolated. Without a
+     * token only 0x00 is offered. The destination is sent as
+     * ATYP=0x03 (domain) unless it is an IPv4 literal; never resolved here.
+     */
+    internal fun socks5Handshake(s: Socket, host: String, port: Int, isolationToken: String?) {
+        val token = isolationToken?.takeIf { it.isNotEmpty() }
+        val out = s.getOutputStream()
+        val input = java.io.DataInputStream(s.getInputStream())
+        out.write(if (token != null) byteArrayOf(5, 2, 0, 2) else byteArrayOf(5, 1, 0))
+        out.flush()
+        if (input.read() != 5) throw IOException("bad SOCKS5 greeting reply")
+        when (val method = input.read()) {
+            0 -> Unit // no auth: proxy cannot isolate, carry on
+            2 -> {
+                if (token == null) throw IOException("SOCKS5 proxy selected an unoffered method")
+                val u = token.toByteArray(StandardCharsets.US_ASCII)
+                val p = "x".toByteArray(StandardCharsets.US_ASCII)
+                if (u.size > 255) throw IOException("SOCKS5 credential too long")
+                out.write(byteArrayOf(1, u.size.toByte()) + u + byteArrayOf(p.size.toByte()) + p)
+                out.flush()
+                if (input.read() != 1 || input.read() != 0) throw IOException("SOCKS5 username/password rejected")
+            }
+            else -> throw IOException("SOCKS5 proxy selected unsupported method $method")
+        }
+        val req = ByteArrayOutputStream()
+        req.write(byteArrayOf(5, 1, 0))
+        if (ipv4Literal.matches(host)) {
+            req.write(1)
+            host.split('.').forEach { req.write(it.toInt()) }
+        } else {
+            val name = host.toByteArray(StandardCharsets.US_ASCII)
+            if (name.isEmpty() || name.size > 255) throw IOException("bad host length")
+            req.write(3)
+            req.write(name.size)
+            req.write(name)
+        }
+        req.write(port shr 8)
+        req.write(port and 0xff)
+        out.write(req.toByteArray())
+        out.flush()
+        if (input.read() != 5) throw IOException("bad SOCKS5 reply version")
+        val rep = input.read()
+        if (rep != 0) throw IOException("SOCKS5 connect failed (reply $rep)")
+        input.read() // RSV
+        when (val atyp = input.read()) {
+            1 -> input.readFully(ByteArray(4 + 2))
+            4 -> input.readFully(ByteArray(16 + 2))
+            3 -> input.readFully(ByteArray(input.read() + 2))
+            else -> throw IOException("bad SOCKS5 bound address type $atyp")
         }
     }
 

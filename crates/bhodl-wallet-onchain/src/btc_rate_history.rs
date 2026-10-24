@@ -84,6 +84,10 @@ const HTTP_OVERALL_TIMEOUT: Duration = Duration::from_secs(60);
 const GENERIC_USER_AGENT: &str =
     "Mozilla/5.0 (Windows NT 10.0; rv:128.0) Gecko/20100101 Firefox/128.0";
 
+/// Tor stream-isolation scope shared by all rate / price fetches, kept
+/// apart from every wallet's Esplora traffic.
+pub(crate) const RATES_ISOLATION_SCOPE: &str = "bhodl:rates";
+
 /// Process-wide `ureq::Agent` for the given proxy setting.
 ///
 /// One agent per distinct proxy URL (in practice: "none" and the user's
@@ -120,8 +124,10 @@ pub(crate) fn rate_agent(proxy_url: Option<&str>) -> Result<ureq::Agent, RateErr
         .timeout(HTTP_OVERALL_TIMEOUT);
     if !key.is_empty() {
         let proxy =
-            crate::tor::ureq_socks_proxy(&key).map_err(|e| RateError::AllSourcesFailed {
-                last_error: format!("proxy: {e}"),
+            crate::tor::ureq_socks_proxy_isolated(&key, RATES_ISOLATION_SCOPE).map_err(|e| {
+                RateError::AllSourcesFailed {
+                    last_error: format!("proxy: {e}"),
+                }
             })?;
         builder = builder.proxy(proxy);
     }

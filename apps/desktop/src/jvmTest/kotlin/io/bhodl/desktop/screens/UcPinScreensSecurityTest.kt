@@ -377,7 +377,7 @@ class UcPinScreensSecurityTest {
         waitUntilAtLeastOneExists(hasText("No recovery code was created on this device."))
         assertEquals(0, onAllNodesWithTag(ForgotPinTags.HAVE_CODE).fetchSemanticsNodes().size)
         onNodeWithTag(ForgotPinTags.NO_CODE).performClick()
-        onNodeWithTag(ForgotPinTags.NO_CODE_BODY).assertTextContains("Lost:", substring = true)
+        onNodeWithTag(ForgotPinTags.NO_CODE_BODY).assertTextContains("Lost unless you remember the PIN:", substring = true)
         onNodeWithTag(ForgotPinTags.WIPE).assertIsNotEnabled()
         onNodeWithTag(ForgotPinTags.WIPE_FIELD).performTextInput("DELETE")
         onNodeWithTag(ForgotPinTags.WIPE).performClick()

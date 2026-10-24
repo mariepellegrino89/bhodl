@@ -149,4 +149,15 @@ Planned:
   price / historical-rate requests. Requires a local Tor daemon. Adding a
   mainnet wallet without Tor shows a warning first: without Tor or a
   self-hosted endpoint, the Esplora server can link every address of the
-  xpub to the user's IP address.
+  xpub to the user's IP address. With Tor, each wallet, the price traffic
+  and any other Esplora call authenticate to SOCKS5 with their own random
+  in-memory token, so Tor's `IsolateSOCKSAuth` keeps them on separate
+  circuits and one Esplora server cannot link the wallets by circuit.
+- **Reset from the locked screen**: with a registry, a permanent wipe needs
+  the device PIN (counted in the lockout). Without it ("I forgot the device
+  PIN", or "I don't have a recovery code" in the forgot-PIN flow) nothing is
+  deleted: the files move to `~/.bhodl-trash/<UTC timestamp>/`, which the
+  app never empties.
+- **Clipboard**: addresses, txids, xpubs and descriptors are copied with the
+  Windows formats that keep them out of clipboard history and cloud
+  clipboard; xpubs and descriptors are cleared after 60 s if still there.

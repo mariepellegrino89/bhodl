@@ -78,7 +78,10 @@ public class ElectrsContainer(
         // mempool/electrs combines the Electrum protocol server with an
         // Esplora-compatible REST endpoint. Pinned tag so the test stays
         // reproducible across container registry mirrors.
-        public const val IMAGE: String = "mempool/electrs:v3.2.0"
+        // Digest-pinned (multi-arch index, resolved 2026-10-21); bump tag and
+        // digest together, deliberately, and keep in sync with ci.yml.
+        public const val IMAGE: String =
+            "mempool/electrs:v3.2.0@sha256:1d8a505bb53005cf06b751190b0570a5a66ee1c185cef621e6737f0c18f6643e"
         public const val HTTP_PORT: Int = 3002
         public const val ELECTRUM_PORT: Int = 60401
         public const val NETWORK_ALIAS: String = "electrs"

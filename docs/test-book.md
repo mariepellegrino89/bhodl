@@ -27,7 +27,7 @@ Ogni scenario (riga numerata di una tabella, o `### NN.M` nelle sezioni
   (`Classe.`metodo``). Senza suffisso = `./gradlew :shared:jvmTest
   :apps:desktop:jvmTest`, che gira su ogni PR; `(cargo)` = `cargo test
   --workspace` (anche su ogni PR); `(integrationTest)` = job Docker
-  regtest della CI; `nightly` = workflow `Tor (live)`.
+  regtest della CI; `nightly` = workflow `Tor (live)` (ora solo manuale, `workflow_dispatch`).
 - `[partial]` — la logica è automatizzata, resta manuale il passo
   indicato (resa visiva, wiring in `Main.kt`/`App.kt`, riavvio reale).
 - `[ ]` — manuale.
@@ -268,10 +268,10 @@ Wallet settings.
 
 | #     | Steps                                                                 | Risultato atteso                                                                | Pass |
 |-------|-----------------------------------------------------------------------|---------------------------------------------------------------------------------|------|
-| 15.1  | Da DevicePinUnlock torna a Welcome (←) → "Erase ALL local wallets…".  | Dialog "Erase ALL wallets on this device?" con campo "Type DELETE"; conferma disabilitata finché il testo non è `DELETE`. | [auto] WelcomeScreenTest.`reset entry is offered but does not wipe without confirmation` + SecretActionsUiTest.`wipe dialog stays disabled for anything but DELETE` |
+| 15.1  | Da DevicePinUnlock torna a Welcome (←) → "Erase ALL local wallets…".  | Dialog "Erase ALL wallets on this device?": con un registry chiede il PIN del dispositivo **e** `DELETE`; senza registry (o con "I forgot the device PIN") chiede `DELETE` e la spunta "I can add every wallet again from its xpub, descriptor or addresses". Conferma disabilitata finché manca qualcosa. | [auto] WelcomeScreenTest.`reset entry is offered but does not wipe without confirmation` + SecretActionsUiTest.`wipe dialog stays disabled for anything but DELETE` + `Welcome reset with a registry requires the device PIN and counts wrong attempts` |
 | 15.2  | Cancel.                                                               | Nulla cancellato.                                                               | [auto] SecretActionsUiTest.`wipe Cancel keeps every file and the unlocked wallet` |
-| 15.3  | Digita `DELETE` → "Erase all wallets".                                | "Wiped N items."; `~/.bhodl/` senza registry, watch-state né storico PIN.       | [auto] SecretActionsUiTest.`Welcome reset needs DELETE and then reports the wipe` + `confirmed wipe empties the data dir and drops PIN history` |
-| 15.4  | Settings → "Factory reset (all wallets)…" → `DELETE`.                 | Stesso risultato; l'app torna a Welcome.                                         | [auto] SettingsScreenTest.`Wipe is two-tap and clears the WalletStore on confirm` |
+| 15.3  | Con PIN: PIN + `DELETE` → "Erase all wallets". Senza PIN: `DELETE` + spunta → "Move wallets to recovery folder". | Con PIN: "Wiped N items.", `~/.bhodl/` senza registry, watch-state né storico PIN. Senza PIN: "Moved N items to …/.bhodl-trash/<AAAAMMGG-hhmmss>", stessi percorsi relativi, recuperabili. Vedi §57. | [auto] SecretActionsUiTest.`forgot device PIN switches to the trash path` + `Welcome reset without a registry moves the files to trash after the seed acknowledgement` + LocalWipeTrashTest |
+| 15.4  | Settings → "Factory reset (all wallets)…" → `DELETE`.                 | Sessione già autenticata: basta `DELETE`, cancellazione definitiva; l'app torna a Welcome. | [auto] SettingsScreenTest.`Wipe is two-tap and clears the WalletStore on confirm` + SecretActionsUiTest.`confirmed wipe empties the data dir and drops PIN history` |
 | 15.5  | Riapri l'app.                                                         | Boot guard parte da Welcome.                                                    | [ ] |
 
 ---
@@ -1858,6 +1858,7 @@ sopra (richiede rete + scenari con date d'acquisto reali).
 | 46.6  | Warning http:// con Tor ON             | 1. Tor ON. 2. Esplora URL = `http://example.com/api`.                                          | Warning "Plaintext HTTP endpoint — Tor does not encrypt the last hop…". `.onion` / localhost: nessun warning.                                   | [auto] SettingsNetworkSecurityTest.`plaintext http warning appears for remote hosts only` + ExplorerLinkTest.`plaintext http warning applies with Tor on too` |
 | 46.7  | Idle lock non tenuto vivo dai job      | 1. Sblocca con device PIN. 2. Lascia l'app aperta senza input > 15 min con il tracker aperto. | L'app si blocca comunque (backfill / grafico NW / resolver non rinfrescano più il timer).                                                     | [auto] IdleLockTest (policy, 6 tests) — App-level 10 s watcher: manual |
 | 46.8  | Recompute bypassa la cache             | 1. Settings → "Ricalcola cost basis BTC" con rete attiva.                                     | I tassi vengono riscaricati (non riletti dalla cache) e sovrascritti; tassi assurdi (≤0, NaN, enormi) rifiutati.                              | [ ]  |
+| 46.9  | Isolamento stream Tor per wallet — **automatizzato** | Fake SOCKS5: greeting `[5,2,0,2]` (no-auth + user/pass), credenziali RFC 1929 = token casuale hex da 32 caratteri, password `x`; token stabile per scope nella sessione, diverso tra wallet / tassi / fee; proxy che sceglie `0x00` → si procede senza isolamento; credenziali rifiutate o `0xFF` → errore. Manuale (opzionale): Tor ON, due wallet, `GETINFO stream-status` / `circuit-status` via control port durante il refresh. | I due wallet usano circuiti diversi (streams con `SOCKS_USERNAME` diversi), tassi/prezzi un terzo; stesso wallet = stesso token. | [auto] tor:: (`socks5_connect_offers_userpass_and_sends_rfc1929_token`, `…proceeds_without_isolation…`, `…fails_when_creds_rejected…`, `isolation_tokens_are_stable_per_scope…`, `bridge_forwards_its_isolation_token_to_socks`, `ureq_isolated_proxy_url_carries_token_credentials`) + PriceFetcherTorTest (`…random per-session isolation token`, `…no-auth`, `…without a token…`); circuiti reali: manual |
 
 ### Verifiche automatizzate
 
@@ -1875,9 +1876,9 @@ Atteso: verde. Fake SOCKS5 server nei test Rust (bridge, ureq) e Kotlin
 ### Test live con un daemon Tor reale (automatizzati, 2026-10-10)
 
 Sostituiscono il vecchio test manuale "sync con un daemon Tor reale"
-(46.1) e coprono la parte di rete di 46.2/46.3. Girano solo su richiesta
-o di notte in CI (workflow `Tor (live)`, `.github/workflows/tor.yml`),
-mai sulle PR: dipendono da Tor e da servizi pubblici.
+(46.1) e coprono la parte di rete di 46.2/46.3. Girano solo su richiesta,
+in locale o in CI lanciando a mano il workflow `Tor (live)` (`.github/workflows/tor.yml`),
+mai in automatico: dipendono da Tor e da servizi pubblici.
 
 ```
 scripts/tor-tests.sh            # attende il bootstrap di Tor, poi Rust + Kotlin
@@ -2322,7 +2323,7 @@ Dati di esempio: registry con almeno un wallet e qualche dato del tracker.
 | 56.4 | Rigenerare                             | 1. Gestisci › Crea un nuovo codice. 2. Blocca e prova il vecchio codice.                               | Avviso che il vecchio smette di funzionare; il vecchio codice viene rifiutato, il nuovo funziona.                            | [auto] (cargo) `sec_044_regenerating_the_code_revokes_the_previous_one` |
 | 56.5 | PIN dimenticato, con codice            | 1. Blocca. 2. "Hai dimenticato il PIN?" › "Ho il codice di recupero". 3. Codice in minuscolo con spazi, nuovo PIN due volte. | Si entra nell'app con tutti i dati e i wallet; al blocco successivo il vecchio PIN è rifiutato e il nuovo funziona.          | [auto] PinRecoveryScreensTest.`SEC-143 end to end - recovery code sets a new PIN and opens the real registry` |
 | 56.6 | Codice errato                          | 1. Come 56.5 con un codice sbagliato, più volte.                                                       | "Codice di recupero errato."; dopo alcuni tentativi compare l'attesa in secondi. Un codice troppo corto dà l'errore di formato e non conta. | [auto] PinRecoveryScreensTest.`SEC-142 a wrong code is counted, a malformed one is not` |
-| 56.7 | PIN dimenticato, senza codice          | 1. Su un'installazione senza codice: "Hai dimenticato il PIN?". 2. "Non ho il codice di recupero". 3. Scrivi DELETE e cancella. | Avviso che non c'è un codice; spiegazione di cosa resta e cosa si perde; dopo la cancellazione si riparte dal Welcome.          | [auto] UcPinScreensSecurityTest.`SEC-044 a forgotten PIN without a code reaches the explained local reset` |
+| 56.7 | PIN dimenticato, senza codice          | 1. Su un'installazione senza codice: "Hai dimenticato il PIN?". 2. "Non ho il codice di recupero". 3. Scrivi DELETE e conferma. | Avviso che non c'è un codice; spiegazione di cosa resta e cosa si perde; i file finiscono in `~/.bhodl-trash/<AAAAMMGG-hhmmss>/` (recuperabili) e si riparte dal Welcome.          | [auto] UcPinScreensSecurityTest.`SEC-044 a forgotten PIN without a code reaches the explained local reset` |
 | 56.8 | Cambia PIN                             | 1. Hub › riga PIN › Cambia. 2. PIN attuale sbagliato. 3. PIN attuale giusto e nuovo PIN.               | Prima "PIN del dispositivo errato." (conta nel blocco); poi "PIN del dispositivo cambiato."; al blocco vale il nuovo PIN.      | [auto] PinRecoveryScreensTest.`SEC-144 a wrong current PIN is counted and a right one confirms` |
 | 56.9 | Reset di fabbrica                      | 1. Settings › Reset di fabbrica.                                                                       | Anche `registry.recovery.json` viene cancellato.                                                                             | [auto] PinRecoveryScreensTest.`SEC-146 the factory reset also removes the recovery file` |
 
@@ -2332,4 +2333,46 @@ Dati di esempio: registry con almeno un wallet e qualche dato del tracker.
 cargo test -p bhodl-uniffi uc_pin_recovery
 ./gradlew :apps:desktop:jvmTest --tests "io.bhodl.desktop.screens.PinRecoveryScreensTest" \
   --tests "io.bhodl.desktop.screens.UcPinScreensSecurityTest"
+```
+
+## 57. Audit 2026-10 — reset pre-auth e clipboard (2026-10-21, adattato al watch-only)
+
+> Due finding residui dell'audit 2026-10.
+> **Reset pre-auth** (Welcome › "Erase ALL local wallets…", raggiungibile dal
+> gate PIN bloccato con Back): se esiste un registry serve il **PIN del
+> dispositivo** (tentativi contati come sul gate, stesso lockout) per la
+> cancellazione definitiva. "I forgot the device PIN" (o nessun registry)
+> **non cancella**: i file vengono spostati in `~/.bhodl-trash/<AAAAMMGG-hhmmss>/`
+> (UTC, stesso percorso relativo di `~/.bhodl`) dopo la spunta "I can add every
+> wallet again from its xpub, descriptor or addresses". Il cestino non
+> viene mai svuotato dall'app. Settings › Factory reset (sessione
+> autenticata) resta solo `DELETE`.
+> **Clipboard**: tutte le copie di dati del wallet (indirizzo, URI BIP21,
+> txid, xpub / descriptor) passano da `SensitiveClipboard`: su Windows
+> pubblicano anche i formati `ExcludeClipboardContentFromMonitorProcessing`,
+> `CanIncludeInClipboardHistory` = 0 e `CanUploadToCloudClipboard` = 0, quindi
+> non finiscono nella cronologia Win+V né nel clipboard cloud. xpub e
+> descriptor mantengono l'auto-clear a 60 s.
+
+| #     | Test                                              | Passi                                                                                                   | Atteso                                                                                                                                                                                                 | Pass |
+|-------|---------------------------------------------------|---------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|------|
+| 57.1  | Reset pre-auth con PIN del dispositivo            | 1. Install con registry, app chiusa. 2. Avvio → gate PIN → Back → Welcome › "Erase ALL local wallets…". 3. `DELETE` senza PIN. 4. PIN sbagliato. 5. PIN giusto. | 3: bottone disabilitato. 4: "Wrong device PIN.", nessun file toccato, il tentativo conta (stesso lockout del gate). 5: "Wiped N items.", `~/.bhodl` senza registry né wallet; nessuna cartella `~/.bhodl-trash`. | [auto] SecretActionsUiTest.`Welcome reset with a registry requires the device PIN and counts wrong attempts` |
+| 57.2  | "Ho dimenticato il PIN" → cestino recuperabile    | 1. Come 57.1 punto 2. 2. Spunta "I forgot the device PIN". 3. `DELETE` senza spunta backup. 4. Spunta "I can add every wallet again…" → "Move wallets to recovery folder". | 2: il campo PIN sparisce, il testo indica la cartella `…/.bhodl-trash`. 3: bottone disabilitato. 4: "Moved N items to …/.bhodl-trash/<timestamp>". L'app riparte da Welcome come installazione nuova. | [auto] SecretActionsUiTest.`forgot device PIN switches to the trash path` + LocalWipeTrashTest.`move to trash empties the data dir and keeps every file restorable` |
+| 57.3  | Ripristino dal cestino                            | 1. Dopo 57.2 chiudi l'app. 2. Sposta il contenuto di `~/.bhodl-trash/<timestamp>/` dentro `~/.bhodl/`. 3. Riavvia e inserisci il PIN ricordato. | Il gate PIN accetta il PIN e i wallet tornano tutti, con storico e tracking. | [ ]  |
+| 57.4  | Reset senza registry (legacy / nessun PIN device) | 1. Data dir con solo wallet legacy. 2. Welcome › Erase ALL local wallets…. | Nessun campo PIN né "forgot PIN": solo `DELETE` + spunta backup, file spostati nel cestino. Due reset nello stesso secondo creano cartelle distinte (`…-1`). | [auto] SecretActionsUiTest.`Welcome reset without a registry moves the files to trash after the seed acknowledgement` + LocalWipeTrashTest.`a second reset in the same second gets its own folder` |
+| 57.5  | Clipboard fuori dalla cronologia Windows          | 1. Windows 10/11, Impostazioni › Appunti: cronologia (e sincronizzazione) attive. 2. Copia un testo qualsiasi da un'altra app. 3. Receive › Copy address; Settings › Show watch-only descriptor › Copy xpub; dettaglio tx › Copy txid. 4. Win+V. 5. Incolla subito in un editor. | 4: nella cronologia c'è il testo del punto 2 ma **nessuno** dei valori di BHODL. 5: incolla il valore corretto. Dopo 60 s l'xpub / descriptor non è più negli appunti (gli indirizzi restano). | [auto] SensitiveClipboardTest (formati e auto-clear su clipboard privata) — la verifica Win+V resta manuale |
+| 57.6  | Clipboard su macOS / Linux                        | 1. Copia indirizzo e xpub. 2. Incolla.                                                                   | Incollato il testo esatto; l'xpub si svuota dopo 60 s; nessun formato extra (solo testo).                                                                                                              | [auto] SensitiveClipboardTest.`elsewhere only plain text is offered` |
+| 57.7  | Stringhe in italiano                              | 1. Lingua Italiano. 2. Welcome › Cancella TUTTI i wallet locali….                                        | "Ho dimenticato il PIN del dispositivo", "Posso aggiungere di nuovo ogni wallet…", "Sposta i wallet nella cartella di recupero", "Spostati N elementi in …". | [ ]  |
+
+> Nota watch-only: il blocco inattività del wizard di setup (seed a schermo)
+> non esiste più, perché il wizard non mostra seed. Anche "Hai dimenticato il
+> PIN?" › "Non ho il codice di recupero" (§56.7) usa lo stesso cestino.
+
+### Verifiche automatizzate
+
+```
+./gradlew :apps:desktop:jvmTest --tests "io.bhodl.desktop.screens.SecretActionsUiTest" \
+  --tests "io.bhodl.desktop.wizard.LocalWipeTrashTest" \
+  --tests "io.bhodl.desktop.ui.SensitiveClipboardTest"
+cargo test -p bhodl-wallet-onchain --lib tor
 ```

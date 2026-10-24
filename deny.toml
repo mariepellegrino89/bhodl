@@ -60,11 +60,30 @@ ignore = [
     # user-configured Esplora endpoint only. No CRLs are processed by
     # minreq (0104 unreachable); 0098/0099 need a name-constrained
     # intermediate CA mis-issuing for the Esplora host. The app's own
-    # rustls 0.23 stack (ureq, price/rate fetchers) is patched.
+    # rustls 0.23 stack (ureq, price/rate fetchers) is NOT affected by
+    # these ignores: it resolves to rustls 0.23.46, rustls-webpki 0.103.16
+    # and webpki-roots 1.0.10, which carry the fixes for the 2026-10
+    # advisories (0346-0349, 0381, 0382).
     # REVIEW BY 2026-12-31 or on the next bdk_esplora release.
     { id = "RUSTSEC-2026-0098", reason = "rustls-webpki 0.101 via minreq<-esplora-client 0.12<-bdk_esplora 0.22.2; no fixed bdk_esplora yet. Review by 2026-12-31." },
     { id = "RUSTSEC-2026-0099", reason = "rustls-webpki 0.101 via minreq<-esplora-client 0.12<-bdk_esplora 0.22.2; no fixed bdk_esplora yet. Review by 2026-12-31." },
     { id = "RUSTSEC-2026-0104", reason = "rustls-webpki 0.101 CRL parsing panic; minreq never parses CRLs. Via bdk_esplora 0.22.2. Review by 2026-12-31." },
+    # --- rustls 0.21.12 / rustls-webpki 0.101.7 / webpki-roots 0.25.4, 2026-10 batch ---
+    # Same single path as above (minreq 2.14.1 <- esplora-client 0.12.3 <-
+    # bdk_esplora 0.22.2); no semver-compatible fix exists on the 0.21 line.
+    # Only the IDs the 0.21 copy actually matches are listed (0347/0348 do
+    # not match it and are fixed on the 0.23 copy).
+    # REVIEW BY 2026-12-31 or on the next bdk_esplora release.
+    { id = "RUSTSEC-2026-0346", reason = "rustls 0.21.12 derived Debug on client session values leaks secrets only via a custom ClientSessionStore that Debug-formats them; minreq uses a static ClientConfig with the built-in session store and never logs it. Via bdk_esplora 0.22.2. Review by 2026-12-31." },
+    { id = "RUSTSEC-2026-0349", reason = "rustls 0.21.12 has no X25519MLKEM768 hybrid group (no post-quantum KX to downgrade); TLS to the user-configured Esplora endpoint only. Via bdk_esplora 0.22.2. Review by 2026-12-31." },
+    { id = "RUSTSEC-2026-0382", reason = "rustls-webpki 0.101.7 may accept distrusted emSign intermediates; needs an attacker holding a leaked emSign intermediate key and MITM on the Esplora connection. Chain data is independently validated (PoW/headers), no keys or seeds sent. Via bdk_esplora 0.22.2. Review by 2026-12-31." },
+    { id = "RUSTSEC-2026-0381", reason = "webpki-roots 0.25.4 bundles the distrusted emSign ECC Root CA - G3; same emSign MITM precondition as 0382, Esplora TLS only. Via bdk_esplora 0.22.2. Review by 2026-12-31." },
+    # --- dev/build-time only ---
+    # REVIEW BY 2026-12-31.
+    { id = "RUSTSEC-2026-0367", reason = "zip 0.6.6 SUID/SGID on extract; build-dep of bitcoind 0.36 <- electrsd <- bdk_testenv (unix-only dev-dependency). zip is only used for the win64 download branch, never compiled in on unix, never shipped. Review by 2026-12-31." },
+    { id = "RUSTSEC-2026-0368", reason = "zip 0.6.6 symlink escape on extract; same dev/build-only bitcoind build.rs path as 0367, win64 branch only. Review by 2026-12-31." },
+    { id = "RUSTSEC-2026-0369", reason = "zip 0.6.6 permissions via symlinks on extract; same dev/build-only bitcoind build.rs path as 0367, win64 branch only. Review by 2026-12-31." },
+    { id = "RUSTSEC-2026-0374", reason = "basic-toml 0.1.10 unmaintained; only via askama_derive 0.12 <- uniffi_bindgen 0.28 (proc-macro/build). Review by 2026-12-31." },
     # --- unmaintained, compile-time only (proc-macros / bindgen) ---
     # Not linked into the shipped binary's runtime paths; removal depends
     # on upstream (uniffi 0.28 -> newer uniffi).
@@ -77,3 +96,6 @@ ignore = [
 unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+# Exactly one reviewed git source: the Kotlin Multiplatform UniFFI bindgen
+# (crates/uniffi-bindgen-kmp), pinned by commit in Cargo.lock.
+allow-git = ["https://github.com/UbiqueInnovation/uniffi-kotlin-multiplatform-bindings"]

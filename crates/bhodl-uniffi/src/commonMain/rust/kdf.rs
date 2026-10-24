@@ -599,11 +599,8 @@ pub(crate) fn unlock_with<T>(
     }
 
     for cand in candidates {
-        let derived: SecretKey = Zeroizing::new(bhodl_core::derive_key_from_pin_with_params(
-            pin,
-            &cand.salt,
-            &cand.params,
-        )?);
+        let derived: SecretKey =
+            bhodl_core::derive_key_from_pin_with_params(pin, &cand.salt, &cand.params)?;
         let wrapped = cand.file.as_ref().is_some_and(KdfFile::is_wrapped);
         // v3: the PIN-derived key unwraps the data key. v1/v2: the
         // PIN-derived key IS the data key (checked by the MAC, if any).
@@ -685,9 +682,7 @@ pub(crate) fn write_wrapped_file(
 ) -> Result<(), WalletError> {
     let salt = generate_salt()?;
     let params = KdfParams::CURRENT;
-    let kek: SecretKey = Zeroizing::new(bhodl_core::derive_key_from_pin_with_params(
-        secret, &salt, &params,
-    )?);
+    let kek: SecretKey = bhodl_core::derive_key_from_pin_with_params(secret, &salt, &params)?;
     write_descriptor_file(
         path,
         &KdfFile::wrapped(&salt, &params, &kek, data_key, purpose)?,
@@ -709,11 +704,8 @@ pub(crate) fn unwrap_file(
             ),
         });
     }
-    let kek: SecretKey = Zeroizing::new(bhodl_core::derive_key_from_pin_with_params(
-        secret,
-        &file.salt()?,
-        &file.kdf,
-    )?);
+    let kek: SecretKey =
+        bhodl_core::derive_key_from_pin_with_params(secret, &file.salt()?, &file.kdf)?;
     file.unwrap_data_key(&kek, purpose)
 }
 

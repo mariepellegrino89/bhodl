@@ -1,6 +1,5 @@
 package io.bhodl.desktop.screens
 
-import androidx.compose.ui.platform.ClipboardManager
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -13,8 +12,8 @@ import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.runDesktopComposeUiTest
 import androidx.compose.ui.test.waitUntilAtLeastOneExists
-import androidx.compose.ui.text.AnnotatedString
 import io.bhodl.desktop.settings.SettingsStore
+import io.bhodl.desktop.ui.SensitiveClipboard
 import io.bhodl.desktop.wallet.FakeWalletPort
 import io.bhodl.desktop.wizard.RegistryStore
 import io.bhodl.desktop.wizard.WalletPaths
@@ -23,10 +22,6 @@ import io.bhodl.ffi.Network
 import io.bhodl.ffi.RegistryHandle
 import io.bhodl.ffi.WatchBipFfi
 import io.bhodl.ui.theme.BhodlTheme
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
 import java.io.File
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
@@ -128,27 +123,17 @@ class UcWalletSettingsSecurityTest {
 
     @Test
     fun `SEC-163 the clipboard is cleared after the delay only if it still holds the value`() {
-        val clipboard = FakeClipboard()
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        try {
-            copyToClipboardWithAutoClear(
-                scope, clipboard, "xpub-secret",
-                timerScope = scope, delayMs = 100, uiContext = Dispatchers.Unconfined,
-            )
-            assertEquals("xpub-secret", clipboard.text)
-            waitFor { clipboard.text == "" }
+        val clipboard = java.awt.datatransfer.Clipboard("sec-163")
+        fun text() = clipboard.getData(java.awt.datatransfer.DataFlavor.stringFlavor) as String
+        SensitiveClipboard.copy("xpub-secret", autoClearMs = 100, clipboard = clipboard)
+        assertEquals("xpub-secret", text())
+        waitFor { text() == "" }
 
-            copyToClipboardWithAutoClear(
-                scope, clipboard, "xpub-secret",
-                timerScope = scope, delayMs = 100, uiContext = Dispatchers.Unconfined,
-            )
-            clipboard.setText(AnnotatedString("something the user copied"))
-            Thread.sleep(400)
-            assertEquals("something the user copied", clipboard.text, "unrelated content is never clobbered")
-        } finally {
-            scope.cancel()
-        }
-        assertEquals(60_000L, CLIPBOARD_CLEAR_DELAY_MS)
+        SensitiveClipboard.copy("xpub-secret", autoClearMs = 100, clipboard = clipboard)
+        clipboard.setContents(java.awt.datatransfer.StringSelection("something the user copied"), null)
+        Thread.sleep(400)
+        assertEquals("something the user copied", text(), "unrelated content is never clobbered")
+        assertEquals(60_000L, SensitiveClipboard.AUTO_CLEAR_DELAY_MS)
     }
 
     private fun waitFor(condition: () -> Boolean) {
@@ -156,15 +141,6 @@ class UcWalletSettingsSecurityTest {
         while (!condition()) {
             check(System.currentTimeMillis() < deadline) { "timed out" }
             Thread.sleep(20)
-        }
-    }
-
-    @Suppress("DEPRECATION")
-    private class FakeClipboard : ClipboardManager {
-        @Volatile var text: String? = null
-        override fun getText(): AnnotatedString? = text?.let { AnnotatedString(it) }
-        override fun setText(annotatedString: AnnotatedString) {
-            text = annotatedString.text
         }
     }
 

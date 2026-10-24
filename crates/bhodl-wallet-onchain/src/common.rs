@@ -195,9 +195,34 @@ impl std::ops::Deref for EsploraClient {
 ///
 /// - [`OnchainError::InvalidArgument`] — malformed Esplora or proxy URL.
 /// - [`OnchainError::EsploraSync`] — the loopback bridge could not start.
+#[cfg(test)]
 pub(crate) fn try_build_esplora_client(
     esplora_url: &str,
     proxy_url: Option<&str>,
+) -> Result<EsploraClient, OnchainError> {
+    try_build_esplora_client_scoped(esplora_url, proxy_url, ESPLORA_MISC_SCOPE)
+}
+
+/// Isolation scope of Esplora traffic that is not tied to one wallet
+/// (fee estimates, connectivity checks).
+#[cfg(test)]
+pub(crate) const ESPLORA_MISC_SCOPE: &str = "bhodl:esplora-misc";
+
+/// Isolation scope for one wallet's Esplora traffic: its public external
+/// descriptor. Used only as an in-memory map key (hashed) — the SOCKS
+/// credentials are an unrelated random token, see [`crate::tor`].
+pub(crate) fn wallet_isolation_scope(descriptor: &str) -> String {
+    format!("bhodl:wallet:{descriptor}")
+}
+
+/// [`try_build_esplora_client`] with an explicit Tor stream-isolation
+/// `scope`: with a proxy, every tunnel authenticates to SOCKS5 with the
+/// session token of that scope, so Tor puts different scopes (wallets)
+/// on different circuits and the Esplora server cannot link them.
+pub(crate) fn try_build_esplora_client_scoped(
+    esplora_url: &str,
+    proxy_url: Option<&str>,
+    isolation_scope: &str,
 ) -> Result<EsploraClient, OnchainError> {
     let proxy_url = proxy_url.map(str::trim).filter(|p| !p.is_empty());
     let mut builder = bdk_esplora::esplora_client::Builder::new(esplora_url)
@@ -214,7 +239,8 @@ pub(crate) fn try_build_esplora_client(
             let port = parsed
                 .port_or_known_default()
                 .ok_or_else(|| OnchainError::InvalidArgument("Esplora URL has no port".into()))?;
-            let bridge = crate::tor::ConnectBridge::start(socks, host, port)?;
+            let token = crate::tor::isolation_token(isolation_scope)?;
+            let bridge = crate::tor::ConnectBridge::start(socks, host, port, Some(token))?;
             builder = builder.proxy(&bridge.proxy_url());
             Some(bridge)
         }
@@ -232,14 +258,20 @@ pub(crate) fn try_build_esplora_client(
 /// fails with `BadProxy` **before** any socket is opened — fail-closed,
 /// never a silent clearnet fallback.
 #[cfg(test)]
-pub(crate) fn build_esplora_client(esplora_url: &str, proxy_url: Option<&str>) -> EsploraClient {
-    try_build_esplora_client(esplora_url, proxy_url).unwrap_or_else(|_| EsploraClient {
-        client: bdk_esplora::esplora_client::Builder::new(esplora_url)
-            .timeout(esplora_timeout_secs(true))
-            .max_retries(0)
-            .proxy("bhodl-tor-setup-failed://")
-            .build_blocking(),
-        bridge: None,
+pub(crate) fn build_esplora_client(
+    esplora_url: &str,
+    proxy_url: Option<&str>,
+    isolation_scope: &str,
+) -> EsploraClient {
+    try_build_esplora_client_scoped(esplora_url, proxy_url, isolation_scope).unwrap_or_else(|_| {
+        EsploraClient {
+            client: bdk_esplora::esplora_client::Builder::new(esplora_url)
+                .timeout(esplora_timeout_secs(true))
+                .max_retries(0)
+                .proxy("bhodl-tor-setup-failed://")
+                .build_blocking(),
+            bridge: None,
+        }
     })
 }
 

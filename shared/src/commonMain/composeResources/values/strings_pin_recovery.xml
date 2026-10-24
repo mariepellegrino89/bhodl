@@ -15,7 +15,7 @@
     <string name="pinrec_err_code_wrong">Wrong recovery code.</string>
     <string name="pinrec_err_code_wrong_wait">Wrong recovery code. Wait %1$ds before retrying.</string>
     <string name="pinrec_no_file">No recovery code was created on this device.</string>
-    <string name="pinrec_no_code_body">Without the PIN or the recovery code, the tracker data on this device cannot be decrypted, not even by the BHODL developers. You can erase the local data and start again.\n\nKept: your bitcoin, and your wallets: add them again from their xpub, and balances and history come back from the blockchain.\n\nLost: categories, rules, budgets, investments and lots, sales, manual assets, liabilities, goals, labels, contacts and custom cost-basis prices.</string>
+    <string name="pinrec_no_code_body">Without the PIN or the recovery code, the tracker data on this device cannot be decrypted, not even by the BHODL developers. You can clear the local data and start again: nothing is deleted, the files are moved to a recovery folder (next to the BHODL data folder, named .bhodl-trash). If you remember the PIN later, move them back.\n\nKept: your bitcoin, and your wallets: add them again from their xpub, and balances and history come back from the blockchain.\n\nLost unless you remember the PIN: categories, rules, budgets, investments and lots, sales, manual assets, liabilities, goals, labels, contacts and custom cost-basis prices.</string>
 
     <string name="rc_title">Recovery code</string>
     <string name="rc_intro">If you forget your device PIN, this code is the only way to open your tracker data again. It is shown once and never stored: write it down or keep it in a password manager, away from this computer.</string>

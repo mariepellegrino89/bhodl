@@ -39,7 +39,8 @@ server cannot link your addresses to your IP address.
 - Receive: fresh addresses derived from the xpub, label-first (the label and category you
   set on an address are copied onto the payment that arrives), BIP-21 QR codes.
 - BIP-329 labels import / export, local address book, public descriptor export.
-- Optional Tor (SOCKS5) for all Esplora and price traffic; custom Esplora endpoint.
+- Optional Tor (SOCKS5) for all Esplora and price traffic, one circuit per wallet; custom
+  Esplora endpoint.
 - Encryption at rest: SQLCipher, with the data key wrapped by an Argon2id key derived from a
   device PIN. An optional recovery code resets a forgotten PIN; without it, a forgotten PIN
   means erasing the local data and adding the wallets again from their xpubs.

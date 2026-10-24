@@ -7,6 +7,17 @@ ignore = [
     "RUSTSEC-2026-0098",
     "RUSTSEC-2026-0099",
     "RUSTSEC-2026-0104",
+    # 2026-10 batch, same minreq path (rustls 0.21.12 / webpki 0.101.7 / roots 0.25.4)
+    "RUSTSEC-2026-0346",
+    "RUSTSEC-2026-0349",
+    "RUSTSEC-2026-0382",
+    "RUSTSEC-2026-0381",
+    # zip 0.6.6: dev/build-only (bitcoind build.rs, win64 branch); not shipped
+    "RUSTSEC-2026-0367",
+    "RUSTSEC-2026-0368",
+    "RUSTSEC-2026-0369",
+    # basic-toml unmaintained (uniffi_bindgen proc-macro)
+    "RUSTSEC-2026-0374",
     # unmaintained, compile-time only (uniffi 0.28 proc-macros)
     "RUSTSEC-2025-0141",
     "RUSTSEC-2024-0436",

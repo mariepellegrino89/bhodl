@@ -40,6 +40,7 @@
 use argon2::{Algorithm, Argon2, Params, Version};
 use rand::TryRngCore;
 use thiserror::Error;
+use zeroize::Zeroizing;
 
 /// Length of the salt the caller must persist alongside the wallet DB
 /// (next to it, not encrypted by it — the salt is required *before* the
@@ -226,7 +227,7 @@ pub fn validate_new_pin(pin: &str) -> Result<(), KeyDerivationError> {
 pub fn derive_key_from_pin(
     pin: &str,
     salt: &[u8; SALT_LEN],
-) -> Result<[u8; DERIVED_KEY_LEN], KeyDerivationError> {
+) -> Result<Zeroizing<[u8; DERIVED_KEY_LEN]>, KeyDerivationError> {
     derive_key_from_pin_with_params(pin, salt, &KdfParams::CURRENT)
 }
 
@@ -244,7 +245,7 @@ pub fn derive_key_from_pin_with_params(
     pin: &str,
     salt: &[u8; SALT_LEN],
     params: &KdfParams,
-) -> Result<[u8; DERIVED_KEY_LEN], KeyDerivationError> {
+) -> Result<Zeroizing<[u8; DERIVED_KEY_LEN]>, KeyDerivationError> {
     if pin.is_empty() {
         return Err(KeyDerivationError::EmptyPin);
     }
@@ -262,9 +263,9 @@ pub fn derive_key_from_pin_with_params(
 
     let argon = Argon2::new(Algorithm::Argon2id, Version::V0x13, argon_params);
 
-    let mut output = [0u8; DERIVED_KEY_LEN];
+    let mut output = Zeroizing::new([0u8; DERIVED_KEY_LEN]);
     argon
-        .hash_password_into(pin.as_bytes(), salt, &mut output)
+        .hash_password_into(pin.as_bytes(), salt, output.as_mut())
         .map_err(|e| KeyDerivationError::HashFailed(e.to_string()))?;
 
     Ok(output)
@@ -311,7 +312,7 @@ mod tests {
     fn derived_key_is_not_all_zeros() {
         // Sanity check: the KDF actually fills the output buffer.
         let k = derive_key_from_pin("123456", &TEST_SALT).unwrap();
-        assert_ne!(k, [0u8; DERIVED_KEY_LEN]);
+        assert_ne!(*k, [0u8; DERIVED_KEY_LEN]);
     }
 
     #[test]

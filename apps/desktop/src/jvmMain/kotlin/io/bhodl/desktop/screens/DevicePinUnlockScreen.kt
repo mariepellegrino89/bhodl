@@ -88,7 +88,7 @@ public fun DevicePinUnlockScreen(
     recoverRegistry: (dataDir: String, code: String, newPin: String) -> RegistryHandle =
         { dir, code, pin -> RegistryHandle.unlockWithRecoveryCode(dir, code, pin) },
     wipeLocalData: (java.io.File) -> io.bhodl.desktop.wizard.WalletPathsView.ResetResult =
-        { io.bhodl.desktop.wizard.LocalWipe.wipeAll(it) },
+        { io.bhodl.desktop.wizard.LocalWipe.moveAllToTrash(it) },
 ) {
     val scope = rememberCoroutineScope()
     var devicePin by remember { mutableStateOf("") }

@@ -1,0 +1,211 @@
+# osv-scanner configuration (used by .github/workflows/osv-scan.yml).
+#
+# The scanner reads gradle/verification-metadata.xml, which lists EVERY
+# artifact Gradle resolves, including the build tooling (Android Gradle
+# Plugin, Kotlin/Compose Gradle plugins and their netty / bouncycastle /
+# jackson / protobuf / httpclient transitives). None of the packages below
+# is a direct dependency of this project (see gradle/libs.versions.toml)
+# and none is on the :apps:desktop jvmRuntimeClasspath; they run on the
+# developer or CI machine at build time only and are not shipped.
+#
+# Each override is pinned to an exact version on purpose: when a bump
+# changes the tooling version, the new version is scanned again and the
+# job fails until someone reviews it. Never add a package that ships in
+# the app here; bump it instead. Review a candidate with:
+#   ./gradlew :apps:desktop:dependencies --configuration jvmRuntimeClasspath
+
+[[PackageOverrides]]
+name = "com.fasterxml.jackson.core:jackson-core"
+version = "2.20.1"
+ecosystem = "Maven"
+ignore = true
+reason = "Build-tooling transitive (AGP / Gradle plugin classpath); not shipped"
+
+[[PackageOverrides]]
+name = "com.fasterxml.jackson.core:jackson-databind"
+version = "2.20.1"
+ecosystem = "Maven"
+ignore = true
+reason = "Build-tooling transitive (AGP / Gradle plugin classpath); not shipped"
+
+[[PackageOverrides]]
+name = "com.google.protobuf:protobuf-java"
+version = "3.22.3"
+ecosystem = "Maven"
+ignore = true
+reason = "Build-tooling transitive (AGP / Gradle plugin classpath); not shipped"
+
+[[PackageOverrides]]
+name = "com.google.protobuf:protobuf-java"
+version = "3.24.4"
+ecosystem = "Maven"
+ignore = true
+reason = "Build-tooling transitive (AGP / Gradle plugin classpath); not shipped"
+
+[[PackageOverrides]]
+name = "com.google.protobuf:protobuf-kotlin"
+version = "3.24.4"
+ecosystem = "Maven"
+ignore = true
+reason = "Build-tooling transitive (AGP / Gradle plugin classpath); not shipped"
+
+[[PackageOverrides]]
+name = "io.netty:netty-codec-http2"
+version = "4.1.93.Final"
+ecosystem = "Maven"
+ignore = true
+reason = "Build-tooling transitive (AGP / Gradle plugin classpath); not shipped"
+
+[[PackageOverrides]]
+name = "io.netty:netty-codec-http"
+version = "4.1.93.Final"
+ecosystem = "Maven"
+ignore = true
+reason = "Build-tooling transitive (AGP / Gradle plugin classpath); not shipped"
+
+[[PackageOverrides]]
+name = "io.netty:netty-codec"
+version = "4.1.93.Final"
+ecosystem = "Maven"
+ignore = true
+reason = "Build-tooling transitive (AGP / Gradle plugin classpath); not shipped"
+
+[[PackageOverrides]]
+name = "io.netty:netty-common"
+version = "4.1.93.Final"
+ecosystem = "Maven"
+ignore = true
+reason = "Build-tooling transitive (AGP / Gradle plugin classpath); not shipped"
+
+[[PackageOverrides]]
+name = "io.netty:netty-handler-proxy"
+version = "4.1.93.Final"
+ecosystem = "Maven"
+ignore = true
+reason = "Build-tooling transitive (AGP / Gradle plugin classpath); not shipped"
+
+[[PackageOverrides]]
+name = "io.netty:netty-handler"
+version = "4.1.93.Final"
+ecosystem = "Maven"
+ignore = true
+reason = "Build-tooling transitive (AGP / Gradle plugin classpath); not shipped"
+
+[[PackageOverrides]]
+name = "io.opentelemetry:opentelemetry-api"
+version = "1.41.0"
+ecosystem = "Maven"
+ignore = true
+reason = "Build-tooling transitive (AGP / Gradle plugin classpath); not shipped"
+
+[[PackageOverrides]]
+name = "org.apache.commons:commons-compress"
+version = "1.21"
+ecosystem = "Maven"
+ignore = true
+reason = "Build-tooling transitive (AGP / Gradle plugin classpath); not shipped"
+
+[[PackageOverrides]]
+name = "org.apache.commons:commons-compress"
+version = "1.24.0"
+ecosystem = "Maven"
+ignore = true
+reason = "Build-tooling transitive (AGP / Gradle plugin classpath); not shipped"
+
+[[PackageOverrides]]
+name = "org.apache.httpcomponents.client5:httpclient5"
+version = "5.5.1"
+ecosystem = "Maven"
+ignore = true
+reason = "Build-tooling transitive (AGP / Gradle plugin classpath); not shipped"
+
+[[PackageOverrides]]
+name = "org.apache.httpcomponents.core5:httpcore5-h2"
+version = "5.3.6"
+ecosystem = "Maven"
+ignore = true
+reason = "Build-tooling transitive (AGP / Gradle plugin classpath); not shipped"
+
+[[PackageOverrides]]
+name = "org.apache.httpcomponents.core5:httpcore5"
+version = "5.3.6"
+ecosystem = "Maven"
+ignore = true
+reason = "Build-tooling transitive (AGP / Gradle plugin classpath); not shipped"
+
+[[PackageOverrides]]
+name = "org.bitbucket.b_c:jose4j"
+version = "0.9.5"
+ecosystem = "Maven"
+ignore = true
+reason = "Build-tooling transitive (AGP / Gradle plugin classpath); not shipped"
+
+[[PackageOverrides]]
+name = "org.bouncycastle:bcpg-jdk18on"
+version = "1.80"
+ecosystem = "Maven"
+ignore = true
+reason = "Build-tooling transitive (AGP / Gradle plugin classpath); not shipped"
+
+[[PackageOverrides]]
+name = "org.bouncycastle:bcpkix-jdk18on"
+version = "1.79"
+ecosystem = "Maven"
+ignore = true
+reason = "Build-tooling transitive (AGP / Gradle plugin classpath); not shipped"
+
+[[PackageOverrides]]
+name = "org.bouncycastle:bcpkix-jdk18on"
+version = "1.80"
+ecosystem = "Maven"
+ignore = true
+reason = "Build-tooling transitive (AGP / Gradle plugin classpath); not shipped"
+
+[[PackageOverrides]]
+name = "org.bouncycastle:bcpkix-jdk18on"
+version = "1.82"
+ecosystem = "Maven"
+ignore = true
+reason = "Build-tooling transitive (AGP / Gradle plugin classpath); not shipped"
+
+[[PackageOverrides]]
+name = "org.bouncycastle:bcprov-jdk18on"
+version = "1.79"
+ecosystem = "Maven"
+ignore = true
+reason = "Build-tooling transitive (AGP / Gradle plugin classpath); not shipped"
+
+[[PackageOverrides]]
+name = "org.bouncycastle:bcprov-jdk18on"
+version = "1.80.2"
+ecosystem = "Maven"
+ignore = true
+reason = "Build-tooling transitive (AGP / Gradle plugin classpath); not shipped"
+
+[[PackageOverrides]]
+name = "org.bouncycastle:bcprov-jdk18on"
+version = "1.82"
+ecosystem = "Maven"
+ignore = true
+reason = "Build-tooling transitive (AGP / Gradle plugin classpath); not shipped"
+
+[[PackageOverrides]]
+name = "org.freemarker:freemarker"
+version = "2.3.32"
+ecosystem = "Maven"
+ignore = true
+reason = "Build-tooling transitive (AGP / Gradle plugin classpath); not shipped"
+
+[[PackageOverrides]]
+name = "org.jdom:jdom2"
+version = "2.0.6"
+ecosystem = "Maven"
+ignore = true
+reason = "Build-tooling transitive (AGP / Gradle plugin classpath); not shipped"
+
+[[PackageOverrides]]
+name = "org.jetbrains.kotlin:kotlin-gradle-plugin"
+version = "2.2.21"
+ecosystem = "Maven"
+ignore = true
+reason = "Build-tooling transitive (AGP / Gradle plugin classpath); not shipped"

@@ -62,7 +62,11 @@ public class BitcoindRegtestContainer(
     public fun rpcBaseUrl(): String = "http://$host:${getMappedPort(RPC_PORT)}"
 
     public companion object {
-        public const val IMAGE: String = "polarlightning/bitcoind:28.0"
+        // Pinned by digest (multi-arch index, resolved 2026-10-21); the tag is
+        // kept for readability only. Bump tag and digest together, deliberately,
+        // and keep in sync with the pre-pull step in .github/workflows/ci.yml.
+        public const val IMAGE: String =
+            "polarlightning/bitcoind:28.0@sha256:ff435d758c89f01823924e057d5d5e4206d350ae69dff5e0dc1bbc9c6a36d010"
         public const val RPC_PORT: Int = 18443
         public const val NETWORK_ALIAS: String = "bitcoind"
         public const val RPC_USER: String = "bhodl"

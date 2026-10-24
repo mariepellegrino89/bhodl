@@ -116,8 +116,11 @@ public fun WelcomeScreen(
                 )
             }
             if (resetDialogOpen) {
+                // Audit 2026-10 — pre-auth: device PIN for a real wipe,
+                // otherwise ("forgot PIN") a recoverable move to trash.
                 ConfirmWipeDialog(
                     dataDir = dataDir,
+                    preAuth = true,
                     onDismiss = { resetDialogOpen = false },
                     onFinished = { result ->
                         resetDialogOpen = false

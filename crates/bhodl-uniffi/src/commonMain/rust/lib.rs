@@ -4006,7 +4006,7 @@ mod tests {
             crate::kdf::WrapPurpose::DevicePin,
         )
         .unwrap();
-        assert_eq!(*data_key, key);
+        assert_eq!(*data_key, *key);
         unlock(tmp.path(), "123456").expect("v3 unlocks");
     }
 

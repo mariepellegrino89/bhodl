@@ -59,7 +59,7 @@ use std::collections::HashMap;
 use crate::common::{
     DerivedAddress, DescriptorBackup, ENCRYPTION_KEY_LEN, ReceiveLabelCopy, TxRecord, UtxoInfo,
     ensure_contacts_table, ensure_labels_table, map_network, open_encrypted_connection,
-    try_build_esplora_client, validated_contact_label,
+    try_build_esplora_client_scoped, validated_contact_label, wallet_isolation_scope,
 };
 use crate::contacts::{self, Contact};
 use crate::error::OnchainError;
@@ -92,18 +92,20 @@ pub enum WatchBip {
 // ---------------------------------------------------------------------------
 
 /// Scan request snapshotted by [`WatchAccount::start_esplora_scan`].
+///
+/// The `String` is the Tor stream-isolation scope (in-memory key only).
 pub enum PendingWatchScan {
     /// HD (descriptor) watch wallet: full scan with stop-gap.
-    Full(FullScanRequest<KeychainKind>),
+    Full(FullScanRequest<KeychainKind>, String),
     /// Address-list watch wallet: plain spk sync.
-    Spks(SyncRequest<u32>),
+    Spks(SyncRequest<u32>, String),
 }
 
 impl std::fmt::Debug for PendingWatchScan {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
-            Self::Full(_) => "PendingWatchScan::Full",
-            Self::Spks(_) => "PendingWatchScan::Spks",
+            Self::Full(..) => "PendingWatchScan::Full",
+            Self::Spks(..) => "PendingWatchScan::Spks",
         })
     }
 }
@@ -120,13 +122,16 @@ impl PendingWatchScan {
         esplora_url: &str,
         proxy_url: Option<&str>,
     ) -> Result<WatchScanUpdate, OnchainError> {
-        let client = try_build_esplora_client(esplora_url, proxy_url)?;
+        let scope = match &self {
+            Self::Full(_, s) | Self::Spks(_, s) => s.clone(),
+        };
+        let client = try_build_esplora_client_scoped(esplora_url, proxy_url, &scope)?;
         match self {
-            Self::Full(request) => client
+            Self::Full(request, _) => client
                 .full_scan(request, 20, 4)
                 .map(|r| WatchScanUpdate::Full(r.into()))
                 .map_err(|e| OnchainError::EsploraSync(e.to_string())),
-            Self::Spks(request) => client
+            Self::Spks(request, _) => client
                 .sync(request, 4)
                 .map(WatchScanUpdate::Spks)
                 .map_err(|e| OnchainError::EsploraSync(e.to_string())),
@@ -1123,8 +1128,23 @@ impl WatchAccount {
     #[must_use]
     pub fn start_esplora_scan(&self) -> PendingWatchScan {
         match &self.backend {
-            WatchBackend::Descriptor(w) => PendingWatchScan::Full(w.start_full_scan().build()),
-            WatchBackend::Scripts(s) => PendingWatchScan::Spks(s.sync_request()),
+            WatchBackend::Descriptor(w) => {
+                let desc = w.public_descriptor(KeychainKind::External).to_string();
+                PendingWatchScan::Full(w.start_full_scan().build(), wallet_isolation_scope(&desc))
+            }
+            WatchBackend::Scripts(s) => {
+                // Address-list wallets have no descriptor: key on the
+                // lowest-index script (in-memory, hashed).
+                let first = s
+                    .graph
+                    .index
+                    .all_spks()
+                    .iter()
+                    .next()
+                    .map(|(_, spk)| spk.to_hex_string())
+                    .unwrap_or_default();
+                PendingWatchScan::Spks(s.sync_request(), wallet_isolation_scope(&first))
+            }
         }
     }
 

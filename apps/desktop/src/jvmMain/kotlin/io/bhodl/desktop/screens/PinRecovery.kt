@@ -171,7 +171,8 @@ private enum class ForgotStage { CHOOSE, CODE, NO_CODE }
  * Body of the unlock screen once "Forgot your PIN?" is clicked.
  * [recover] opens the registry with the code and sets the new PIN
  * (production: `RegistryHandle.unlockWithRecoveryCode`); [wipe] is the
- * factory reset ([LocalWipe.wipeAll]).
+ * pre-auth reset that moves every file into the recoverable trash
+ * folder ([LocalWipe.moveAllToTrash]), as on Welcome.
  */
 @Composable
 internal fun ForgotPinPanel(

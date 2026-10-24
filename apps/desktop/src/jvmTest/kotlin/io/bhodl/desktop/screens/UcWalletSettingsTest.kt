@@ -2,10 +2,8 @@ package io.bhodl.desktop.screens
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ClipboardManager
-import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsEnabled
@@ -44,10 +42,7 @@ import io.bhodl.ffi.WatchBipFfi
 import io.bhodl.ui.theme.BhodlTheme
 import java.io.File
 import java.io.FileInputStream
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -184,11 +179,7 @@ class UcWalletSettingsTest {
         val fake = FakeWalletPort()
         WalletStore.set(fake)
         val clip = FakeClipboard()
-        setContent {
-            CompositionLocalProvider(LocalClipboardManager provides clip) {
-                BhodlTheme { ShowWatchOnlyDescriptorSection() }
-            }
-        }
+        setContent { BhodlTheme { ShowWatchOnlyDescriptorSection(copyValue = { clip.text = it }) } }
         onNodeWithTag(SettingsTags.WATCH_DESC_REVEAL).performClick()
         waitUntilAtLeastOneExists(hasTestTag(SettingsTags.WATCH_DESC_COPY_XPUB), timeoutMillis = 3_000)
         onNodeWithTag(SettingsTags.WATCH_DESC_COPY_XPUB).performClick()
@@ -204,22 +195,18 @@ class UcWalletSettingsTest {
 
     @Test
     fun `WAL-122 the clipboard is cleared after the delay only if it still holds the value`() {
-        val timer = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        try {
-            val clip = FakeClipboard()
-            copyToClipboardWithAutoClear(timer, clip, "xpubSECRET", timerScope = timer, delayMs = 50, uiContext = Dispatchers.Default)
-            assertEquals("xpubSECRET", clip.text)
-            waitFor { clip.text == "" }
-            assertEquals("", clip.text)
+        val clip = java.awt.datatransfer.Clipboard("wal-122")
+        fun text() = clip.getData(java.awt.datatransfer.DataFlavor.stringFlavor) as String
+        io.bhodl.desktop.ui.SensitiveClipboard.copy("xpubSECRET", autoClearMs = 50, clipboard = clip)
+        assertEquals("xpubSECRET", text())
+        waitFor { text() == "" }
+        assertEquals("", text())
 
-            val other = FakeClipboard()
-            copyToClipboardWithAutoClear(timer, other, "xpubSECRET", timerScope = timer, delayMs = 150, uiContext = Dispatchers.Default)
-            other.text = "something the user copied later"
-            Thread.sleep(400)
-            assertEquals("something the user copied later", other.text)
-        } finally {
-            timer.cancel()
-        }
+        val other = java.awt.datatransfer.Clipboard("wal-122-other")
+        io.bhodl.desktop.ui.SensitiveClipboard.copy("xpubSECRET", autoClearMs = 150, clipboard = other)
+        other.setContents(java.awt.datatransfer.StringSelection("something the user copied later"), null)
+        Thread.sleep(400)
+        assertEquals("something the user copied later", other.getData(java.awt.datatransfer.DataFlavor.stringFlavor))
     }
 
     // ---- WAL-110 / WAL-111 / WAL-112 labels --------------------------------------
@@ -425,11 +412,7 @@ class UcWalletSettingsTest {
         val fake = FakeWalletPort()
         WalletStore.set(fake)
         val clip = FakeClipboard()
-        setContent {
-            CompositionLocalProvider(LocalClipboardManager provides clip) {
-                BhodlTheme { ReceiveScreen() }
-            }
-        }
+        setContent { BhodlTheme { ReceiveScreen(copyText = { clip.text = it }) } }
         onNodeWithTag(ReceiveTags.SKIP).performClick()
         waitUntilAtLeastOneExists(hasTestTag(ReceiveTags.QR), timeoutMillis = 3_000)
         val address = fake.nextReceiveBuilder(0)

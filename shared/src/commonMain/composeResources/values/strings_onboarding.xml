@@ -26,6 +26,14 @@
     <string name="onb_wipe_incomplete">Wipe incomplete: %1$d item(s) could not be deleted (%2$s).</string>
     <string name="onb_wipe_nothing">Nothing to wipe.</string>
     <string name="onb_wipe_done">Wiped %1$d items.</string>
+    <string name="onb_wipe_pin_body">A device PIN protects the wallets on this device. Enter it to permanently erase every wallet.</string>
+    <string name="onb_wipe_forgot_pin">I forgot the device PIN</string>
+    <string name="onb_wipe_trash_body">Without the device PIN nothing is deleted: every wallet file is moved to a recovery folder (%1$s) and disappears from BHODL. If you remember the PIN later, move the files back into the BHODL data folder; otherwise delete that folder yourself.
+
+Type %2$s to confirm.</string>
+    <string name="onb_wipe_seed_ack">I can add every wallet again from its xpub, descriptor or addresses</string>
+    <string name="onb_wipe_move_confirm">Move wallets to recovery folder</string>
+    <string name="onb_wipe_trashed">Moved %1$d items to %2$s. To restore them, move them back into the BHODL data folder.</string>
 
     <!-- WalletPinReauthDialog -->
 

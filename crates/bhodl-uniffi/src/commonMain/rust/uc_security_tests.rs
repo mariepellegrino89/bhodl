@@ -20,7 +20,9 @@ fn create_err(dir: &Path, pin: &str) -> WalletError {
 }
 
 fn key_for(salt: &[u8; bhodl_core::SALT_LEN]) -> [u8; ENCRYPTION_KEY_LEN] {
-    bhodl_core::derive_key_from_pin_with_params(PIN, salt, &KdfParams::CURRENT).unwrap()
+    bhodl_core::derive_key_from_pin_with_params(PIN, salt, &KdfParams::CURRENT)
+        .map(|k| *k)
+        .unwrap()
 }
 
 fn read_kdf(path: &Path) -> KdfFile {

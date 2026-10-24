@@ -212,6 +212,12 @@ public data class WalletPathsView(val dir: File) {
          * descriptors were therefore left in place on purpose.
          */
         val aborted: Boolean,
+        /**
+         * Audit 2026-10 — set when the files were MOVED into this
+         * recoverable trash folder ([moveToTrashChecked]) instead of
+         * deleted; [deleted] then lists the original paths moved.
+         */
+        val movedTo: File? = null,
     ) {
         val ok: Boolean get() = failed.isEmpty() && !aborted
     }
@@ -240,7 +246,27 @@ public data class WalletPathsView(val dir: File) {
      *     state and the migration sentinel are removed;
      *  4. anything still on disk is returned in [ResetResult.failed].
      */
-    public fun resetChecked(): ResetResult {
+    public fun resetChecked(): ResetResult = disposeChecked { f ->
+        if (f.isDirectory) f.deleteRecursively() else f.delete()
+    }
+
+    /**
+     * Audit 2026-10 — same walk and ordering guarantees as [resetChecked],
+     * but every artefact is MOVED under [trashDir] (keeping its path
+     * relative to [dir]) instead of deleted. Used by the pre-auth
+     * "forgot device PIN" reset on Welcome: the wallets disappear from
+     * the app, yet a user who later remembers the PIN can restore them
+     * by moving the folder contents back. A database that cannot be
+     * moved (open handle on Windows) aborts exactly like a failed
+     * delete.
+     */
+    public fun moveToTrashChecked(trashDir: File): ResetResult {
+        val root = dir.absoluteFile
+        val result = disposeChecked { f -> moveInto(root, f.absoluteFile, trashDir) }
+        return result.copy(movedTo = trashDir)
+    }
+
+    private fun disposeChecked(remove: (File) -> Boolean): ResetResult {
         val deleted = mutableListOf<File>()
 
         // Phase 1 — databases (most likely to be locked).
@@ -260,7 +286,7 @@ public data class WalletPathsView(val dir: File) {
         for (db in databases) {
             for (f in listOf(db) + SQLITE_SIDECARS.map { File(db.parentFile, db.name + it) }) {
                 if (!f.exists()) continue
-                if (f.delete()) deleted += f else dbFailures += f
+                if (remove(f)) deleted += f else dbFailures += f
             }
         }
         if (dbFailures.isNotEmpty()) {
@@ -274,25 +300,25 @@ public data class WalletPathsView(val dir: File) {
         // markers must go too: a stale `.sealed` would make a fresh
         // install refuse its own first descriptor.
         rootKdfArtifacts().forEach { f ->
-            if (f.isFile && f.delete()) deleted += f
+            if (f.isFile && remove(f)) deleted += f
         }
-        if (networkFile.isFile && networkFile.delete()) deleted += networkFile
+        if (networkFile.isFile && remove(networkFile)) deleted += networkFile
 
         // Phase 3 — per-wallet dirs, watch state, migration sentinel.
         if (walletsRoot.isDirectory) {
             walletsRoot.listFiles()?.forEach { sub ->
-                if (sub.isDirectory && sub.deleteRecursively()) deleted += sub
+                if (sub.isDirectory && remove(sub)) deleted += sub
             }
             walletsRoot.delete()
         }
         if (watchStateRoot.isDirectory) {
             watchStateRoot.listFiles()?.forEach { f ->
-                if (f.isFile && f.delete()) deleted += f
+                if (f.isFile && remove(f)) deleted += f
             }
             watchStateRoot.delete()
         }
-        if (migrationLockFile.isFile && migrationLockFile.delete()) deleted += migrationLockFile
-        if (migrationBackupDir.isDirectory && migrationBackupDir.deleteRecursively()) {
+        if (migrationLockFile.isFile && remove(migrationLockFile)) deleted += migrationLockFile
+        if (migrationBackupDir.isDirectory && remove(migrationBackupDir)) {
             deleted += migrationBackupDir
         }
 
@@ -321,6 +347,26 @@ public data class WalletPathsView(val dir: File) {
 
     private companion object {
         val SQLITE_SIDECARS = listOf("-wal", "-shm", "-journal")
+
+        /**
+         * Move [f] (file or directory, under [root]) to the same relative
+         * path under [trashDir]. `true` iff [f] is gone afterwards.
+         */
+        fun moveInto(root: File, f: File, trashDir: File): Boolean = runCatching {
+            val target = File(trashDir, f.relativeTo(root).path)
+            target.parentFile?.mkdirs()
+            try {
+                Files.move(f.toPath(), target.toPath())
+            } catch (e: java.io.IOException) {
+                // Directories cannot be moved across file systems in one
+                // step: copy, then delete the source. Files (incl. a
+                // locked DB) just report the failure.
+                if (!f.isDirectory) throw e
+                f.copyRecursively(target, overwrite = false)
+                f.deleteRecursively()
+            }
+            !f.exists()
+        }.getOrDefault(false)
 
         /** `wallet.sqlite.orphan-<ts>` files in [d] (sidecars are handled per DB). */
         fun orphanDbs(d: File): List<File> =
