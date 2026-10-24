@@ -83,7 +83,7 @@ fn regtest_watch() -> (tempfile::TempDir, WatchAccount) {
     (dir, account)
 }
 
-/// Send `sat` from the bdk_testenv faucet to `address`.
+/// Send `sat` from the `bdk_testenv` faucet to `address`.
 fn fund(env: &TestEnv, address: &Address, sat: u64) {
     let checked = Address::from_str(&address.to_string())
         .expect("parse address")
