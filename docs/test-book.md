@@ -2565,3 +2565,25 @@ Gli screenshot della revisione grafica finiscono in `apps/desktop/build/screensh
 | 65.5 | Mappa delle monete  | 1. Scheda UTXO.                                         | Un blocco per UTXO, i più grandi prima; legenda confermato / in attesa. | [auto] screenshot `wallet-dark.png` |
 | 65.6 | Tasto Wallet        | 1. Blocca e sblocca. 2. Tasto Wallet nella barra.       | Si apre il primo wallet tracciato; senza wallet, la Home.       | [auto] UcNavigationSecurityTest.`SEC-145…` |
 | 65.7 | Tema chiaro         | 1. Tema chiaro.                                         | Leggibile.                                                      | [auto] screenshot `wallet-light.png` |
+
+## 66. Portafoglio come proposta B (2026-10-25)
+
+> Allineato alla proposta B del canvas. A sinistra: patrimonio netto con la
+> variazione nel periodo e l'anello delle classi (con "?"), le quattro card di
+> classe in griglia 2×2 (sparkline grande, prime tre voci sotto una riga), i
+> pulsanti "+ Investimento / + Asset manuale / + Debito". A destra il pannello
+> della classe scelta: Valore, Costo, Non realizzato, vs HODL (investimenti;
+> per gli asset manuali la variazione nel periodo; per Bitcoin e Debiti
+> valore, variazione, quota e numero di voci), poi "Voci · ordinate per peso"
+> con barra del peso, percentuale e P&L, e per gli investimenti "Registra
+> acquisto / vendita". Sotto, a tutta larghezza, la card della voce scelta.
+
+| #    | Test              | Passi                                                         | Atteso                                                                  | Pass |
+|------|-------------------|---------------------------------------------------------------|-------------------------------------------------------------------------|------|
+| 66.1 | Pannello classe   | 1. Clic su "Investimenti".                                    | Costo, non realizzato, vs HODL; voci per peso con P&L.                   | [auto] PortfolioClassViewTest.`class panel numbers…` |
+| 66.2 | vs HODL           | 1. Investimento con lotti che hanno il cambio BTC del giorno. | Percentuale; "—" se manca il cambio su un lotto.                         | [auto] PortfolioClassViewTest.`class panel numbers…` |
+| 66.3 | Voce              | 1. Clic su una voce nel pannello.                             | La card sotto mostra quella voce.                                        | [auto] PortfolioClassViewTest.`the first class with items is open…` |
+| 66.4 | Registra          | 1. Investimento scelto. 2. "Registra acquisto" / "vendita".   | Si apre il lotto nuovo / la vendita di quell'investimento.               | [ ] |
+| 66.5 | Aggiungi          | 1. "+ Investimento", "+ Asset manuale", "+ Debito".           | Si apre il modulo giusto.                                                | [ ] |
+| 66.6 | Finestra stretta  | 1. Restringi sotto 1100 px.                                   | Il pannello va sotto le card.                                            | [ ] |
+| 66.7 | Tema chiaro       | 1. Tema chiaro.                                               | Leggibile.                                                               | [auto] screenshot `portfolio-light-investments.png` |

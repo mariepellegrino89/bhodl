@@ -38,6 +38,8 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 /**
  * Portfolio redesign 2026-10 — class cards + list + detail card
@@ -148,7 +150,32 @@ class PortfolioClassViewTest {
     }
 
     @Test
-    fun `the first class with items is open and its biggest item is shown`() = runDesktopComposeUiTest {
+    fun `class panel numbers - cost, unrealized, vs HODL and per-row P&L`() {
+        val inv = classSummary(PortfolioClass.INVESTMENTS, sheet().sections[1].rows, listOf(etf, gold, usd), lots, emptyList())
+        assertEquals("EUR", inv.costCurrency)
+        assertEquals(18.378, inv.rowPl["investments:2"]!!, 0.01, "gold: 320 g × 81.2 vs 21,950")
+        assertEquals(-2.09, inv.rowPl["investments:3"]!!, 0.01)
+        assertTrue(inv.unrealizedPct!! > 0.0)
+        assertNull(inv.vsHodlPct, "no lot has a BTC rate")
+
+        val rated = investment(4, "Rated", "stock", qty = 10.0, cost = 1_000.0, price = 150.0)
+        val ratedLot = lot(41, 4, qty = 10.0, price = 100.0, daysAgo = 100).copy(btcPerUnitAtPurchase = 50_000.0)
+        val hodl = classSummary(
+            PortfolioClass.INVESTMENTS,
+            listOf(row(SheetSection.INVESTMENTS, 4, "Rated", "stock", 1_500_000)),
+            listOf(rated), mapOf(4L to listOf(ratedLot)), emptyList(),
+        )
+        assertEquals(-25.0, hodl.vsHodlPct!!, 0.001, "1,000 EUR at 50,000 = 2,000,000 sat, worth 1,500,000 now")
+
+        val man = classSummary(PortfolioClass.MANUAL_ASSETS, sheet().sections[2].rows, emptyList(), emptyMap(), listOf(house, deposit, car))
+        assertEquals(16.98, man.rowPl["manual_assets:7"]!!, 0.01)
+        assertEquals(-35.71, man.rowPl["manual_assets:9"]!!, 0.01)
+        assertEquals(-0.315, man.rowPl["manual_assets:8"]!!, 0.01, "no purchase value: change over the period")
+        assertEquals(11.945, man.unrealizedPct!!, 0.01)
+    }
+
+    @Test
+    fun `the first class with items is open and its biggest item is shown`() = runDesktopComposeUiTest(width = 1440, height = 2400) {
         setContent { BhodlTheme(useDarkTheme = true) { View() } }
         PortfolioClass.entries.forEach { onNodeWithTag(PortfolioCardsTags.classCard(it)).assertExists() }
         onNodeWithTag(PortfolioCardsTags.DETAIL_TITLE).assertTextContains("Cold storage")
@@ -159,7 +186,7 @@ class PortfolioClassViewTest {
     }
 
     @Test
-    fun `an ETF card shows its lots, sales and TER cost and offers Sell`() = runDesktopComposeUiTest {
+    fun `an ETF card shows its lots, sales and TER cost and offers Sell`() = runDesktopComposeUiTest(width = 1440, height = 2400) {
         var sold: Long? = null
         setContent { BhodlTheme(useDarkTheme = true) { View(onSell = { sold = it }) } }
         onNodeWithTag(PortfolioCardsTags.classCard(PortfolioClass.INVESTMENTS)).performClick()
@@ -171,7 +198,7 @@ class PortfolioClassViewTest {
     }
 
     @Test
-    fun `a mortgage card resolves its linked house and the house shows the LTV`() = runDesktopComposeUiTest {
+    fun `a mortgage card resolves its linked house and the house shows the LTV`() = runDesktopComposeUiTest(width = 1440, height = 2400) {
         setContent { BhodlTheme(useDarkTheme = true) { View() } }
         onNodeWithTag(PortfolioCardsTags.classCard(PortfolioClass.LIABILITIES)).performClick()
         onNode(hasText("Casa", substring = true) and hasAnyAncestor(hasTestTag(PortfolioCardsTags.ATTRS))).assertExists()
@@ -181,7 +208,7 @@ class PortfolioClassViewTest {
     }
 
     @Test
-    fun `Details opens the editor with the row's current values`() = runDesktopComposeUiTest {
+    fun `Details opens the editor with the row's current values`() = runDesktopComposeUiTest(width = 1440, height = 2400) {
         var request: DetailsEditRequest? = null
         setContent { BhodlTheme(useDarkTheme = true) { View(onEditDetails = { request = it }) } }
         onNodeWithTag(PortfolioCardsTags.classCard(PortfolioClass.MANUAL_ASSETS)).performClick()
@@ -194,7 +221,7 @@ class PortfolioClassViewTest {
     }
 
     @Test
-    fun `the details editor saves typed values as canonical JSON`() = runDesktopComposeUiTest {
+    fun `the details editor saves typed values as canonical JSON`() = runDesktopComposeUiTest(width = 1440, height = 2400) {
         var saved: String? = null
         val req = DetailsEditRequest(DetailCategory.MORTGAGE, 20, "Mutuo", mapOf("rate_pct" to "2.9"))
         setContent {
@@ -215,7 +242,7 @@ class PortfolioClassViewTest {
     }
 
     @Test
-    fun `the Cards and Table toggle switches the portfolio view`() = runDesktopComposeUiTest {
+    fun `the Cards and Table toggle switches the portfolio view`() = runDesktopComposeUiTest(width = 1440, height = 2400) {
         var view = PortfolioView.CARDS
         setContent {
             BhodlTheme(useDarkTheme = true) {

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pfb_net_worth">Patrimonio netto</string>
+    <string name="pfb_in_period">nel periodo</string>
+    <string name="pfb_h_ring">Peso di ogni classe; i debiti contano per il loro valore assoluto.</string>
+    <string name="pfb_add_investment">+ Investimento</string>
+    <string name="pfb_add_manual">+ Asset manuale</string>
+    <string name="pfb_add_liability">+ Debito</string>
+    <string name="pfb_add_wallet">+ Wallet (xpub)</string>
+    <string name="pfb_detail">Dettaglio</string>
+    <string name="pfb_cost">Costo</string>
+    <string name="pfb_h_cost">Quanto hai pagato ciò che possiedi ancora, nella valuta di acquisto.</string>
+    <string name="pfb_vs_hodl">vs HODL</string>
+    <string name="pfb_h_vs_hodl">Valore di oggi in sat rispetto ai sat che gli acquisti sono costati il giorno in cui li hai fatti. Negativo: tenere i bitcoin sarebbe andato meglio.</string>
+    <string name="pfb_items_count">Voci</string>
+    <string name="pfb_rows_title">Voci · ordinate per peso</string>
+    <string name="pfb_record_buy">Registra acquisto</string>
+    <string name="pfb_record_sell">Registra vendita</string>
+</resources>
