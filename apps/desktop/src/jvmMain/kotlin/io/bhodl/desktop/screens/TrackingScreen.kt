@@ -330,14 +330,17 @@ public fun TrackingScreen(
     // card and per-wallet rows above are intentionally NOT filtered:
     // they describe wallets, not transactions, and a category filter
     // there would be misleading.
-    val filteredEvents = remember(events, categoryFilter, timeRangeFilter) {
-        filterLedger(events, categoryFilter, timeRangeFilter)
+    // Transactions redesign 2026-10 — the ledger follows the global
+    // period like every other section; a drill-down range replaces it.
+    var txSearch by remember { mutableStateOf("") }
+    val txPeriodEvents = remember(events, period, timeRangeFilter) {
+        if (timeRangeFilter != null) filterLedger(events, null, timeRangeFilter)
+        else filterByPeriod(events, period, System.currentTimeMillis() / 1000L)
     }
-    // Per-category breakdown card. Treats `null`/blank as the implicit
-    // "Uncategorised" bucket so the user sees what hasn't been tagged
-    // yet. Internal transfers (SELF_TRANSFER, send_to_self) are not
-    // income or spending: only a send_to_self's fee counts as outflow.
-    val breakdown = remember(events) { categoryBreakdown(events) }
+    val walletLabels = remember(wallets) { wallets.associate { it.id to it.label } }
+    val filteredEvents = remember(txPeriodEvents, categoryFilter, txSearch, walletLabels) {
+        searchLedger(filterLedger(txPeriodEvents, categoryFilter, null), txSearch) { walletLabels[it] }
+    }
 
     // Phase 3.13 — keyboard shortcut handler. Uses `onKeyEvent` (post-
     // handler) rather than `onPreviewKeyEvent` so any focused text
@@ -535,7 +538,7 @@ public fun TrackingScreen(
             // window is a global mode, not a per-chart toggle). The
             // Transactions ledger keeps its explicit composable
             // filters (category AND time range) instead.
-            if (section != TrackerSection.TRANSACTIONS) {
+            run {
                 PeriodSelector(
                     selected = period,
                     onSelect = { period = it },
@@ -734,13 +737,26 @@ public fun TrackingScreen(
                         },
                         events = events,
                         filteredEvents = filteredEvents,
-                        breakdown = breakdown,
                         categories = categories,
                         categoryFilter = categoryFilter,
                         timeRangeFilter = timeRangeFilter,
                         onClearTimeRange = { timeRangeFilter = null },
                         onSelectCategory = { categoryFilter = it },
                         onEditCategory = { event -> editing = event },
+                        periodEvents = txPeriodEvents,
+                        search = txSearch,
+                        onSearchChange = { txSearch = it },
+                        onQuickCategorize = { event, category ->
+                            val registry = RegistryStore.current() ?: return@HistoryTabBody
+                            scope.launch {
+                                runCatching {
+                                    withContext(Dispatchers.IO) {
+                                        registry.setEventCategory(event.walletId, event.txidOrPaymentId, category)
+                                    }
+                                }.onFailure { e -> lastError = e.message ?: getString(Res.string.trk_err_save_category) }
+                                RegistryStore.bumpDataVersion()
+                            }
+                        },
                     )
                     TrackerSection.BUDGET -> dashboardTab(TrackingTabMode.BUDGET)
                     TrackerSection.GOALS -> dashboardTab(TrackingTabMode.GOALS)

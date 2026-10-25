@@ -108,13 +108,18 @@ internal fun HistoryTabBody(
     onToggleInclude: (walletId: String, included: Boolean) -> Unit,
     events: List<io.bhodl.ffi.PaymentEvent>,
     filteredEvents: List<io.bhodl.ffi.PaymentEvent>,
-    breakdown: List<Pair<String?, CategoryTotals>>,
     categories: List<String>,
     categoryFilter: String?,
     timeRangeFilter: Pair<Long, Long>?,
     onClearTimeRange: () -> Unit,
     onSelectCategory: (String?) -> Unit,
     onEditCategory: (io.bhodl.ffi.PaymentEvent) -> Unit,
+    /** Transactions redesign 2026-10 — the period (or drill-down range)
+     *  the summaries describe, the search box, one-click categorisation. */
+    periodEvents: List<io.bhodl.ffi.PaymentEvent> = filteredEvents,
+    search: String = "",
+    onSearchChange: (String) -> Unit = {},
+    onQuickCategorize: (io.bhodl.ffi.PaymentEvent, String) -> Unit = { _, _ -> },
 ) {
     val labelByWalletId = wallets.associate { it.id to it.label }
     // Phase 3.7 — running balance map keyed by txid. Walk the full
@@ -123,75 +128,47 @@ internal fun HistoryTabBody(
     // running tail as their balance (best-effort). Looking up the
     // running balance for a row is then O(1) by txid.
     // send_to_self legs only move the fee out of custody.
-    val runningBalance = remember(events) { runningBalances(events) }
+    var visible by remember(filteredEvents) { mutableStateOf(50) }
+    val walletLabel: (String) -> String = { id -> labelByWalletId[id] ?: "?" }
+    val unknownWallet = stringResource(Res.string.trk_hist_unknown_wallet)
+    val uncategorized = remember(periodEvents) {
+        periodEvents.filter { it.category.isNullOrBlank() && it.direction != io.bhodl.ffi.PaymentDirection.SELF_TRANSFER }
+            .distinctBy { it.txidOrPaymentId to it.walletId }
+            .sortedByDescending { it.timestampUnix ?: ULong.MAX_VALUE }
+    }
+    val quick = remember(events) { frequentCategories(events) }
     Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .widthIn(max = 720.dp),
+        modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         if (timeRangeFilter != null) {
-            ActiveRangeFilterChip(
-                range = timeRangeFilter,
-                onClear = onClearTimeRange,
-            )
+            ActiveRangeFilterChip(range = timeRangeFilter, onClear = onClearTimeRange)
         }
-        Text(
-            text = stringResource(Res.string.trk_hist_wallets),
-            style = BhodlTheme.typography.labelMedium,
-            color = BhodlTheme.colors.textSecondary,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 8.dp),
-        )
-        if (wallets.isEmpty()) {
-            if (refreshing) {
-                repeat(2) { SkeletonRow() }
-            } else {
+        if (events.isNotEmpty()) TxSummaryRow(periodEvents)
+
+        // Search + wallets included in the totals, then the category pills.
+        androidx.compose.foundation.layout.FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            TxSearchField(search, onSearchChange, Modifier.widthIn(min = 280.dp, max = 460.dp))
+            if (wallets.isEmpty() && refreshing) {
+                SkeletonRow()
+            } else if (wallets.isEmpty()) {
                 Text(
                     text = stringResource(Res.string.tracker_reports_empty_wallets),
                     style = BhodlTheme.typography.bodyMedium,
                     color = BhodlTheme.colors.textTertiary,
                 )
             }
-        } else {
-            groupedWallets.forEach { group ->
-                val included = group.memberIds.any { it !in excludedWalletIds }
-                GroupedWalletRow(
-                    group = group,
-                    included = included,
-                    onToggleInclude = {
-                        // All member ids share the include/exclude
-                        // state — toggling flips every one of them so
-                        // a single click on a "signing (tracked)" row
-                        // hides both the signing UUID and its mirror.
-                        group.memberIds.forEach { id ->
-                            onToggleInclude(id, !included)
-                        }
-                    },
-                )
+        }
+        if (groupedWallets.isNotEmpty()) {
+            WalletIncludeChips(groupedWallets, excludedWalletIds) { group, include ->
+                // All member ids share the include/exclude state.
+                group.memberIds.forEach { id -> onToggleInclude(id, include) }
             }
         }
-
-        // Phase 3.4 — per-category breakdown card. Hidden when the
-        // registry has zero events to avoid an empty box on first
-        // launch.
-        if (events.isNotEmpty()) {
-            CategoryBreakdownCard(breakdown = breakdown)
-        }
-
-        Text(
-            text = stringResource(Res.string.trk_hist_history),
-            style = BhodlTheme.typography.labelMedium,
-            color = BhodlTheme.colors.textSecondary,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 8.dp),
-        )
-
-        // Phase 3.4 — filter chips above the history list. Always
-        // shown when at least one event exists so the user has a
-        // discoverable way to scope down by tag.
         if (events.isNotEmpty()) {
             CategoryFilterRow(
                 categories = categories,
@@ -211,30 +188,41 @@ internal fun HistoryTabBody(
                     color = BhodlTheme.colors.textTertiary,
                 )
             }
-        } else if (filteredEvents.isEmpty()) {
-            Text(
-                text = stringResource(Res.string.trk_hist_no_match),
-                style = BhodlTheme.typography.bodyMedium,
-                color = BhodlTheme.colors.textTertiary,
-            )
-        } else {
-            filteredEvents.take(50).forEach { event ->
-                PaymentEventRow(
-                    event = event,
-                    walletLabel = labelByWalletId[event.walletId]
-                        ?: stringResource(Res.string.trk_hist_unknown_wallet),
-                    runningBalanceSat = runningBalance[event.txidOrPaymentId],
-                    onEditCategory = { onEditCategory(event) },
-                )
-            }
-            if (filteredEvents.size > 50) {
+            return@Column
+        }
+        val timeline: @Composable (Modifier) -> Unit = { m ->
+            if (filteredEvents.isEmpty()) {
                 Text(
-                    text = stringResource(Res.string.trk_hist_showing_50, filteredEvents.size),
+                    text = stringResource(Res.string.trk_hist_no_match),
                     style = BhodlTheme.typography.bodyMedium,
                     color = BhodlTheme.colors.textTertiary,
-                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                    textAlign = TextAlign.Center,
+                    modifier = m,
                 )
+            } else {
+                TxTimeline(
+                    events = filteredEvents,
+                    visible = visible,
+                    onShowMore = { visible += 50 },
+                    walletLabel = { labelByWalletId[it] ?: unknownWallet },
+                    chip = { e -> CategoryChip(category = e.category, onClick = { onEditCategory(e) }) },
+                    modifier = m,
+                )
+            }
+        }
+        androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth()) {
+            val lane = uncategorized.isNotEmpty() && quick.isNotEmpty()
+            if (!lane) {
+                timeline(Modifier.fillMaxWidth())
+            } else if (maxWidth < 900.dp) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    TxReviewLane(uncategorized, quick, walletLabel, onQuickCategorize, onEditCategory, Modifier.fillMaxWidth())
+                    timeline(Modifier.fillMaxWidth())
+                }
+            } else {
+                Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    timeline(Modifier.weight(0.66f))
+                    TxReviewLane(uncategorized, quick, walletLabel, onQuickCategorize, onEditCategory, Modifier.weight(0.34f))
+                }
             }
         }
     }
@@ -290,112 +278,6 @@ private fun ActiveRangeFilterChip(
                 text = "✕",
                 style = BhodlTheme.typography.labelMedium,
                 color = BhodlTheme.colors.brandPrimary,
-            )
-        }
-    }
-}
-
-@Composable
-private fun PaymentEventRow(
-    event: io.bhodl.ffi.PaymentEvent,
-    walletLabel: String,
-    runningBalanceSat: Long?,
-    onEditCategory: () -> Unit,
-) {
-    val directionLabel = when (event.direction) {
-        io.bhodl.ffi.PaymentDirection.INCOMING -> stringResource(Res.string.trk_hist_received)
-        io.bhodl.ffi.PaymentDirection.OUTGOING -> stringResource(Res.string.trk_hist_sent)
-        io.bhodl.ffi.PaymentDirection.SELF_TRANSFER -> stringResource(Res.string.trk_hist_self_transfer)
-    }
-    val sign = when (event.direction) {
-        io.bhodl.ffi.PaymentDirection.INCOMING -> "+"
-        io.bhodl.ffi.PaymentDirection.OUTGOING -> "−"
-        io.bhodl.ffi.PaymentDirection.SELF_TRANSFER -> ""
-    }
-    // Phase 3.10 — semantic colors with the +/− sign prefix as the
-    // secondary cue (CVD-safe double encoding). Outgoing rows take the
-    // negative semantic color; self-transfers stay neutral.
-    val color = when (event.direction) {
-        io.bhodl.ffi.PaymentDirection.INCOMING -> BhodlTheme.colors.financialPositive
-        io.bhodl.ffi.PaymentDirection.OUTGOING -> BhodlTheme.colors.financialNegative
-        io.bhodl.ffi.PaymentDirection.SELF_TRANSFER -> BhodlTheme.colors.financialNeutral
-    }
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .bhodlCard()
-            .padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "$directionLabel · $walletLabel",
-                    style = BhodlTheme.typography.titleMedium,
-                    color = BhodlTheme.colors.textPrimary,
-                )
-                // Phase 3.11 — mempool / pending rows render the
-                // timestamp in the dedicated `financialPending` amber
-                // (Sparrow / Wasabi convention) so the user can tell
-                // at a glance which rows are not yet final.
-                val isPending = event.timestampUnix == null
-                Text(
-                    text = formatEventTimestamp(event.timestampUnix, event.blockHeight),
-                    style = BhodlTheme.typography.bodyMedium,
-                    color = if (isPending) BhodlTheme.colors.financialPending
-                    else BhodlTheme.colors.textTertiary,
-                )
-                Text(
-                    text = event.txidOrPaymentId.take(8) + "…" +
-                        event.txidOrPaymentId.takeLast(8),
-                    style = BhodlTheme.typography.bodyMedium.copy(
-                        fontFamily = FontFamily.Monospace,
-                    ),
-                    color = BhodlTheme.colors.textTertiary,
-                )
-            }
-            Column(horizontalAlignment = Alignment.End) {
-                Text(
-                    text = "$sign${displayAmount(event.amountSat)}",
-                    style = BhodlTheme.typography.titleMedium,
-                    color = color,
-                )
-                // Phase 3.7 — running balance column (Sparrow pattern).
-                // Cumulative wallet-wide net flow at the moment of
-                // this event. Null when the running balance is
-                // unknown (no timestamp anchor).
-                if (runningBalanceSat != null) {
-                    Text(
-                        text = stringResource(
-                            Res.string.trk_hist_running_balance,
-                            displayAmount(runningBalanceSat.coerceAtLeast(0L).toULong()),
-                        ),
-                        style = BhodlTheme.typography.bodyMedium,
-                        color = BhodlTheme.colors.textTertiary,
-                    )
-                }
-            }
-        }
-        // Phase 3.4 — category chip. Click to open the inline editor
-        // dialog. Empty / null reads as "Add category" so the user
-        // sees a clear affordance for tagging.
-        // Phase 7.10 — crypto event kind badge sits to the right of
-        // the category chip. Hidden when the kind is REGULAR (= no
-        // override) so the row stays clean for ordinary tx.
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            CategoryChip(
-                category = event.category,
-                onClick = onEditCategory,
-            )
-            CryptoEventKindBadge(
-                kind = CryptoEventKind.fromWire(event.cryptoEventKind),
             )
         }
     }
@@ -512,66 +394,6 @@ private fun FilterChipPill(
             color = if (selected) BhodlTheme.colors.background
             else BhodlTheme.colors.textPrimary,
         )
-    }
-}
-
-/**
- * Per-category breakdown card. Lists each bucket with its incoming /
- * outgoing totals and the raw event count. The "Uncategorised"
- * bucket (key = null) only appears when at least one event is
- * untagged so a fully-categorised registry shows a clean list.
- */
-@Composable
-private fun CategoryBreakdownCard(breakdown: List<Pair<String?, CategoryTotals>>) {
-    if (breakdown.isEmpty()) return
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .bhodlCard()
-            .padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Text(
-            text = stringResource(Res.string.trk_hist_per_category),
-            style = BhodlTheme.typography.labelMedium,
-            color = BhodlTheme.colors.textSecondary,
-        )
-        breakdown.forEach { (category, totals) ->
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = categoryDisplayName(category),
-                        style = BhodlTheme.typography.titleMedium,
-                        color = BhodlTheme.colors.textPrimary,
-                    )
-                    Text(
-                        text = stringResource(Res.string.trk_hist_tx_count, totals.count),
-                        style = BhodlTheme.typography.bodyMedium,
-                        color = BhodlTheme.colors.textTertiary,
-                    )
-                }
-                Column(horizontalAlignment = Alignment.End) {
-                    if (totals.incomingSat > 0UL) {
-                        Text(
-                            text = "+${displayAmount(totals.incomingSat)}",
-                            style = BhodlTheme.typography.bodyMedium,
-                            color = BhodlTheme.colors.financialPositive,
-                        )
-                    }
-                    if (totals.outgoingSat > 0UL) {
-                        Text(
-                            text = "−${displayAmount(totals.outgoingSat)}",
-                            style = BhodlTheme.typography.bodyMedium,
-                            color = BhodlTheme.colors.financialNegative,
-                        )
-                    }
-                }
-            }
-        }
     }
 }
 

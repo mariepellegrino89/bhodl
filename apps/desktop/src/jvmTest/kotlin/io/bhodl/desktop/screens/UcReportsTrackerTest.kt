@@ -196,7 +196,7 @@ class UcReportsTrackerTest {
                     HistoryTabBody(
                         wallets = listOf(w1), refreshing = false, groupedWallets = listOf(group("Cold", "w1", balance = 31_415UL)),
                         excludedWalletIds = emptySet(), onToggleInclude = { _, _ -> }, events = events, filteredEvents = events,
-                        breakdown = categoryBreakdown(events), categories = listOf("Food"), categoryFilter = null,
+                        categories = listOf("Food"), categoryFilter = null,
                         timeRangeFilter = null, onClearTimeRange = {}, onSelectCategory = {}, onEditCategory = {},
                     )
                 }

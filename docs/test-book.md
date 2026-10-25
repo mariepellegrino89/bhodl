@@ -2441,3 +2441,31 @@ Gli screenshot della revisione grafica finiscono in `apps/desktop/build/screensh
   --tests "io.bhodl.desktop.screens.UcHomeTrackerTest"
 ```
 
+## 60. Transazioni a cronologia (2026-10-25)
+
+> Proposta C scelta per le Transazioni. In alto **Entrate e uscite** (due
+> barre e quanto è rimasto) e **Dove sono andati i sat** (barra a segmenti per
+> categoria, le cinque più grandi con nome). Poi ricerca, wallet inclusi come
+> pillole e filtri per categoria. Sotto, la cronologia per giorno con riquadro
+> colorato, pillola della categoria e totale del giorno; a lato **Da rivedere**
+> con le categorie più usate da applicare con un clic. Ora la sezione segue il
+> periodo globale (un intervallo dal grafico lo sostituisce) e mostra 50
+> righe con "mostra altre" al posto del limite fisso.
+
+| #    | Test                  | Passi                                                                  | Atteso                                                                                 | Pass |
+|------|-----------------------|------------------------------------------------------------------------|----------------------------------------------------------------------------------------|------|
+| 60.1 | Riepiloghi            | 1. Tracker › Transazioni con entrate e uscite nel periodo.             | Barre entrate/uscite e "Risparmiato nel periodo"; segmenti per categoria con percentuali. | [auto] TransactionsTimelineTest |
+| 60.2 | Cronologia            | 1. Scorri.                                                             | In attesa per prime, poi i giorni dal più recente, con il totale di ogni giorno.        | [auto] TransactionsTimelineTest.`days come newest first…` |
+| 60.3 | Da rivedere           | 1. Una transazione senza categoria. 2. Clic su una pillola.             | La transazione prende la categoria e sparisce dalla colonna.                            | [auto] TransactionsTimelineTest.`summaries, review lane…` |
+| 60.4 | Ricerca               | 1. Scrivi parte di categoria, wallet, txid o importo.                   | Restano solo le righe che corrispondono; l'export CSV segue la ricerca.                | [auto] TransactionsTimelineTest.`the ledger follows the period…` |
+| 60.5 | Periodo               | 1. Cambia periodo (7g / 30g / …).                                       | Riepiloghi e cronologia seguono il periodo.                                             | [ ] |
+| 60.6 | Mostra altre          | 1. Più di 50 transazioni.                                               | "Mostrate 50 di N · mostra altre" aggiunge 50 righe.                                    | [auto] UcTransactionsTrackerTest.`TRK-142…` |
+| 60.7 | Wallet inclusi        | 1. Clic su una pillola wallet.                                          | Diventa "Escluso" e i totali non lo contano più.                                        | [auto] UcTransactionsTrackerTest.`TRK-027…` |
+
+### Verifiche automatizzate
+
+```
+./gradlew :apps:desktop:jvmTest --tests "io.bhodl.desktop.screens.TransactionsTimelineTest" \
+  --tests "io.bhodl.desktop.screens.UcTransactionsTrackerTest"
+```
+
