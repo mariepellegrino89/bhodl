@@ -1,6 +1,27 @@
 package io.bhodl.desktop.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
+import io.bhodl.desktop.ui.bhodlCard
+import io.bhodl.shared.resources.stg_general
+import io.bhodl.shared.resources.stg_general_sub
+import io.bhodl.shared.resources.stg_appearance_sub
+import io.bhodl.shared.resources.stg_network
+import io.bhodl.shared.resources.stg_network_sub
+import io.bhodl.shared.resources.stg_lens
+import io.bhodl.shared.resources.stg_lens_sub
+import io.bhodl.shared.resources.stg_tracker
+import io.bhodl.shared.resources.stg_tracker_sub
+import io.bhodl.shared.resources.stg_security
+import io.bhodl.shared.resources.stg_security_sub
+import io.bhodl.shared.resources.stg_data
+import io.bhodl.shared.resources.stg_data_sub
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -122,156 +143,215 @@ public fun SettingsScreen(
     // BitcoinLensSection.
     val showFiatOverlayOnNwChart by SettingsStore.showFiatOverlayOnNwChart
 
+    // Settings redesign 2026-10 (proposal A) — two columns: the group
+    // index on the left, every group as a card on the right. Clicking a
+    // group scrolls to it; nothing is hidden, so every control stays
+    // reachable (and searchable by the tests) from one page.
+    val scroll = rememberScrollState()
+    val scope = rememberCoroutineScope()
+    val groupY = remember { mutableStateMapOf<SettingsGroup, Int>() }
+    var current by remember { mutableStateOf(SettingsGroup.GENERAL) }
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(BhodlTheme.colors.background),
         contentAlignment = Alignment.TopCenter,
     ) {
-        Column(
+        Row(
             modifier = Modifier
-                .verticalScroll(rememberScrollState())
-                .widthIn(max = 480.dp)
-                .padding(horizontal = 32.dp, vertical = 40.dp),
-            verticalArrangement = Arrangement.spacedBy(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
+                .widthIn(max = 1180.dp)
+                .fillMaxSize()
+                .padding(horizontal = 32.dp, vertical = 32.dp),
+            horizontalArrangement = Arrangement.spacedBy(28.dp),
         ) {
-            BhodlTopBar(title = stringResource(Res.string.settings_title), onBack = onBack)
-
-            NetworkSection()
-
-            if (onOpenSecurityHub != null) {
-                OutlinedButton(
-                    onClick = onOpenSecurityHub,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag(SecurityHubTags.SETTINGS_ENTRY),
-                ) { Text(stringResource(Res.string.security_hub_open)) }
+            Column(
+                modifier = Modifier.width(220.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                BhodlTopBar(title = stringResource(Res.string.settings_title), onBack = onBack)
+                Spacer(Modifier.height(12.dp))
+                SettingsGroup.entries.forEach { g ->
+                    if (g == SettingsGroup.SECURITY && onOpenSecurityHub == null) return@forEach
+                    val on = g == current
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (on) BhodlTheme.colors.brandPrimary.copy(alpha = 0.12f) else Color.Transparent)
+                            .clickable(role = androidx.compose.ui.semantics.Role.Tab) {
+                                current = g
+                                groupY[g]?.let { y -> scope.launch { scroll.animateScrollTo(y) } }
+                            }
+                            .padding(horizontal = 10.dp, vertical = 8.dp)
+                            .testTag(SettingsTags.group(g)),
+                    ) {
+                        Text(
+                            stringResource(g.title),
+                            style = BhodlTheme.typography.bodyMedium,
+                            color = if (on) BhodlTheme.colors.brandPrimary else BhodlTheme.colors.textPrimary,
+                        )
+                        Text(stringResource(g.subtitle), style = BhodlTheme.typography.labelMedium, color = BhodlTheme.colors.textTertiary)
+                    }
+                }
             }
-
-            // UX review 2026-10 — Settings › Appearance: theme, bitcoin
-            // unit and density grouped under one heading.
             Column(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag(SettingsTags.APPEARANCE_SECTION),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
+                    .weight(1f)
+                    .widthIn(max = 760.dp)
+                    .verticalScroll(scroll),
+                verticalArrangement = Arrangement.spacedBy(20.dp),
             ) {
-                Text(
-                    text = stringResource(Res.string.settings_appearance_section),
-                    style = BhodlTheme.typography.titleMedium,
-                    color = BhodlTheme.colors.textPrimary,
-                )
-                ThemeSection(
-                    selected = themeMode,
-                    onSelected = { SettingsStore.setThemeMode(it) },
-                )
-                BitcoinUnitSection(
-                    selected = unitFormat,
-                    onSelected = { SettingsStore.setUnitFormat(it) },
-                    bip177 = bip177Notation,
-                    onBip177Change = { SettingsStore.setBip177Notation(it) },
-                )
-                DensitySection(
-                    selected = density,
-                    onSelected = { SettingsStore.setDensity(it) },
-                )
-            }
-
-            // Per-network override: the section edits ONLY the loaded
-            // wallet's network, captured here so Save / Reset can never
-            // land on another network's entry.
-            val esploraNetwork = WalletStore.network()
-            EsploraEndpointSection(
-                network = esploraNetwork,
-                currentOverride = esploraUrls[esploraNetwork],
-                onSave = { SettingsStore.setEsploraUrl(esploraNetwork, it) },
-                onReset = { SettingsStore.setEsploraUrl(esploraNetwork, null) },
-            )
-
-            TorSection(
-                enabled = torEnabled,
-                proxyUrl = torProxyUrl,
-                onEnabledChange = { SettingsStore.setTorEnabled(it) },
-                onProxyUrlChange = { SettingsStore.setTorProxyUrl(it) },
-            )
-
-            LanguageSection(
-                currentTag = localeOverride,
-                onSelected = { SettingsStore.setLocaleOverride(it) },
-            )
-
-            // Phase 3.10 / 3.11 — display preferences sit after the
-            // existing top-half settings (theme / Esplora / Tor /
-            // language) so the at-a-glance order of importance for
-            // first-time users stays: appearance → connection →
-            // language → display tweaks → wallet operations. Pre-
-            // existing screen tests rely on the Esplora / Tor / lang
-            // controls being above mid-scroll, so the new sections
-            // land below them.
-            ColorConventionSection(
-                selected = colorConvention,
-                onSelected = { SettingsStore.setColorConvention(it) },
-            )
-
-            FiatCurrencySection(
-                selected = fiatCurrency,
-                onSelected = { SettingsStore.setFiatCurrency(it) },
-            )
-
-            InvestmentPriceFetchSection(
-                enabled = autoFetchInvestments,
-                onToggle = { SettingsStore.setAutoFetchInvestmentPrices(it) },
-            )
-
-            PrivacySection(
-                startHidden = privacyAutoHide,
-                onStartHiddenChange = { SettingsStore.setPrivacyAutoHide(it) },
-                hiddenNow = balancesHidden,
-                onHiddenNowChange = { SettingsStore.setBalancesHidden(it) },
-            )
-
-            TrackerModulesSection()
-
-            BitcoinLensSection(
-                showFiatInBankCsv = showFiatBankCsv,
-                onShowFiatInBankCsvChange = { SettingsStore.setShowFiatInBankCsv(it) },
-                showFiatInCurrentMonthFiatTx = showFiatCurrentMonth,
-                onShowFiatInCurrentMonthFiatTxChange = {
-                    SettingsStore.setShowFiatInCurrentMonthFiatTx(it)
-                },
-                showFiatInTaxExports = showFiatTaxExports,
-                onShowFiatInTaxExportsChange = {
-                    SettingsStore.setShowFiatInTaxExports(it)
-                },
-                showFiatInInvoiceReceipts = showFiatInvoices,
-                onShowFiatInInvoiceReceiptsChange = {
-                    SettingsStore.setShowFiatInInvoiceReceipts(it)
-                },
-                showFiatOverlayOnNwChart = showFiatOverlayOnNwChart,
-                onShowFiatOverlayOnNwChartChange = {
-                    SettingsStore.setShowFiatOverlayOnNwChart(it)
-                },
-            )
-
-            // UX review 2026-10 (§4 item 5) — the wallet-scoped sections
-            // (switch, rename, add to tracker, backup, BIP-329 labels,
-            // recovery phrase, descriptor, delete) moved to the wallet
-            // workspace's "Wallet settings" tab; this page keeps the
-            // app-wide preferences and the full data wipe.
-            WalletSettingsPointer(onOpenWalletSettings = onOpenWalletSettings)
-
-            WipeSection(onWiped = onWalletWiped, dataDir = dataDir)
-
-            OutlinedButton(
-                onClick = onBack,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag(SettingsTags.BACK),
-            ) {
-                Text(stringResource(Res.string.action_back))
+                SettingsGroupCard(SettingsGroup.GENERAL, groupY) {
+                    LanguageSection(
+                        currentTag = localeOverride,
+                        onSelected = { SettingsStore.setLocaleOverride(it) },
+                    )
+                    FiatCurrencySection(
+                        selected = fiatCurrency,
+                        onSelected = { SettingsStore.setFiatCurrency(it) },
+                    )
+                }
+                SettingsGroupCard(SettingsGroup.APPEARANCE, groupY) {
+                    ThemeSection(
+                        selected = themeMode,
+                        onSelected = { SettingsStore.setThemeMode(it) },
+                    )
+                    BitcoinUnitSection(
+                        selected = unitFormat,
+                        onSelected = { SettingsStore.setUnitFormat(it) },
+                        bip177 = bip177Notation,
+                        onBip177Change = { SettingsStore.setBip177Notation(it) },
+                    )
+                    DensitySection(
+                        selected = density,
+                        onSelected = { SettingsStore.setDensity(it) },
+                    )
+                    ColorConventionSection(
+                        selected = colorConvention,
+                        onSelected = { SettingsStore.setColorConvention(it) },
+                    )
+                }
+                SettingsGroupCard(SettingsGroup.NETWORK, groupY) {
+                    NetworkSection()
+                    // Per-network override: the section edits ONLY the loaded
+                    // wallet's network, captured here so Save / Reset can never
+                    // land on another network's entry.
+                    val esploraNetwork = WalletStore.network()
+                    EsploraEndpointSection(
+                        network = esploraNetwork,
+                        currentOverride = esploraUrls[esploraNetwork],
+                        onSave = { SettingsStore.setEsploraUrl(esploraNetwork, it) },
+                        onReset = { SettingsStore.setEsploraUrl(esploraNetwork, null) },
+                    )
+                    TorSection(
+                        enabled = torEnabled,
+                        proxyUrl = torProxyUrl,
+                        onEnabledChange = { SettingsStore.setTorEnabled(it) },
+                        onProxyUrlChange = { SettingsStore.setTorProxyUrl(it) },
+                    )
+                    InvestmentPriceFetchSection(
+                        enabled = autoFetchInvestments,
+                        onToggle = { SettingsStore.setAutoFetchInvestmentPrices(it) },
+                    )
+                    PrivacySection(
+                        startHidden = privacyAutoHide,
+                        onStartHiddenChange = { SettingsStore.setPrivacyAutoHide(it) },
+                        hiddenNow = balancesHidden,
+                        onHiddenNowChange = { SettingsStore.setBalancesHidden(it) },
+                    )
+                }
+                SettingsGroupCard(SettingsGroup.LENS, groupY) {
+                    BitcoinLensSection(
+                        showFiatInBankCsv = showFiatBankCsv,
+                        onShowFiatInBankCsvChange = { SettingsStore.setShowFiatInBankCsv(it) },
+                        showFiatInCurrentMonthFiatTx = showFiatCurrentMonth,
+                        onShowFiatInCurrentMonthFiatTxChange = {
+                            SettingsStore.setShowFiatInCurrentMonthFiatTx(it)
+                        },
+                        showFiatInTaxExports = showFiatTaxExports,
+                        onShowFiatInTaxExportsChange = {
+                            SettingsStore.setShowFiatInTaxExports(it)
+                        },
+                        showFiatInInvoiceReceipts = showFiatInvoices,
+                        onShowFiatInInvoiceReceiptsChange = {
+                            SettingsStore.setShowFiatInInvoiceReceipts(it)
+                        },
+                        showFiatOverlayOnNwChart = showFiatOverlayOnNwChart,
+                        onShowFiatOverlayOnNwChartChange = {
+                            SettingsStore.setShowFiatOverlayOnNwChart(it)
+                        },
+                    )
+                }
+                SettingsGroupCard(SettingsGroup.TRACKER, groupY) {
+                    TrackerModulesSection()
+                }
+                if (onOpenSecurityHub != null) {
+                    SettingsGroupCard(SettingsGroup.SECURITY, groupY) {
+                        OutlinedButton(
+                            onClick = onOpenSecurityHub,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag(SecurityHubTags.SETTINGS_ENTRY),
+                        ) { Text(stringResource(Res.string.security_hub_open)) }
+                    }
+                }
+                SettingsGroupCard(SettingsGroup.DATA, groupY) {
+                    // UX review 2026-10 (§4 item 5) — the wallet-scoped
+                    // sections live in the wallet workspace's "Wallet
+                    // settings" tab; this page keeps the app-wide
+                    // preferences and the full data wipe.
+                    WalletSettingsPointer(onOpenWalletSettings = onOpenWalletSettings)
+                    WipeSection(onWiped = onWalletWiped, dataDir = dataDir)
+                }
+                OutlinedButton(
+                    onClick = onBack,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag(SettingsTags.BACK),
+                ) {
+                    Text(stringResource(Res.string.action_back))
+                }
             }
         }
+    }
+}
+
+/** Settings redesign 2026-10 — the groups of the left index. */
+public enum class SettingsGroup(
+    internal val title: org.jetbrains.compose.resources.StringResource,
+    internal val subtitle: org.jetbrains.compose.resources.StringResource,
+) {
+    GENERAL(Res.string.stg_general, Res.string.stg_general_sub),
+    APPEARANCE(Res.string.settings_appearance_section, Res.string.stg_appearance_sub),
+    NETWORK(Res.string.stg_network, Res.string.stg_network_sub),
+    LENS(Res.string.stg_lens, Res.string.stg_lens_sub),
+    TRACKER(Res.string.stg_tracker, Res.string.stg_tracker_sub),
+    SECURITY(Res.string.stg_security, Res.string.stg_security_sub),
+    DATA(Res.string.stg_data, Res.string.stg_data_sub),
+}
+
+@Composable
+private fun SettingsGroupCard(
+    group: SettingsGroup,
+    groupY: MutableMap<SettingsGroup, Int>,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            // Offset inside the scrolled column = the scroll target.
+            .onGloballyPositioned { coords -> groupY[group] = coords.positionInParent().y.toInt() }
+            .bhodlCard()
+            .padding(20.dp)
+            .testTag(SettingsTags.groupCard(group)),
+        verticalArrangement = Arrangement.spacedBy(18.dp),
+    ) {
+        Text(stringResource(group.title), style = BhodlTheme.typography.titleMedium, color = BhodlTheme.colors.textPrimary)
+        Column(
+            modifier = if (group == SettingsGroup.APPEARANCE) Modifier.testTag(SettingsTags.APPEARANCE_SECTION) else Modifier,
+            verticalArrangement = Arrangement.spacedBy(18.dp),
+        ) { content() }
     }
 }
 
@@ -301,6 +381,9 @@ internal fun isPlaintextRemoteHttp(url: String): Boolean {
 
 public object SettingsTags {
     public const val BACK: String = "settings.back"
+    /** Settings redesign 2026-10 — group index entries and group cards. */
+    public fun group(g: SettingsGroup): String = "settings.group.${g.name.lowercase()}"
+    public fun groupCard(g: SettingsGroup): String = "settings.group-card.${g.name.lowercase()}"
     public const val NETWORK_VALUE: String = "settings.network.value"
     public fun themeChip(mode: ThemeMode): String = "settings.theme.${mode.name.lowercase()}"
     /** Phase 3.10 — color convention chip test tag. */

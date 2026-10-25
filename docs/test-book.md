@@ -2512,3 +2512,18 @@ Gli screenshot della revisione grafica finiscono in `apps/desktop/build/screensh
 | 62.3 | Senza budget         | 1. Spese in una categoria senza budget.                        | Pillola "Categoria · importo +" che apre il budget.                     | [ ] |
 | 62.4 | Bollette             | 1. Bollette nei prossimi 30 giorni. 2. "Segna pagata".         | Evidenziate se entro 3 giorni; pagata passa al mese dopo se entro 30 giorni. | [auto] BudgetCardsTest.`upcoming bills…` + UcRegistryWiringTrackerTest |
 | 62.5 | Tema chiaro          | 1. Tema chiaro.                                                | Leggibile.                                                               | [auto] screenshot `budget-light.png` |
+
+## 63. Impostazioni a due colonne (2026-10-25)
+
+> Proposta A scelta. A sinistra l'indice dei gruppi (Generale, Aspetto, Rete e
+> privacy, Bitcoin Lens, Tracker, Sicurezza, Dati) con una riga di sottotitolo;
+> a destra ogni gruppo è una card con il suo titolo. Clic su un gruppo: la
+> colonna destra scorre fino a lì. Rete, Esplora, Tor, prezzi e privacy sono
+> ora nello stesso gruppo; la colonna non è più larga solo 480 px.
+
+| #    | Test              | Passi                                       | Atteso                                                   | Pass |
+|------|-------------------|---------------------------------------------|----------------------------------------------------------|------|
+| 63.1 | Indice            | 1. Settings. 2. Clic su "Dati".             | Scorre fino a impostazioni wallet e reset di fabbrica.   | [auto] SettingsGroupsTest.`every group has a card and the index scrolls to it` |
+| 63.2 | Gruppi            | 1. Scorri tutta la colonna.                 | Ogni controllo di prima c'è, nel gruppo giusto.          | [auto] SettingsScreenTest (tutti) |
+| 63.3 | Finestra stretta  | 1. Restringi la finestra.                   | Indice e card restano leggibili.                         | [ ] |
+| 63.4 | Tema chiaro       | 1. Tema chiaro.                             | Leggibile.                                               | [auto] screenshot `settings-light.png` |
