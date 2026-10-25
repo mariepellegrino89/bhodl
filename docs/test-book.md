@@ -2568,22 +2568,25 @@ Gli screenshot della revisione grafica finiscono in `apps/desktop/build/screensh
 
 ## 66. Portafoglio come proposta B (2026-10-25)
 
-> Allineato alla proposta B del canvas. A sinistra: patrimonio netto con la
-> variazione nel periodo e l'anello delle classi (con "?"), le quattro card di
-> classe in griglia 2×2 (sparkline grande, prime tre voci sotto una riga), i
-> pulsanti "+ Investimento / + Asset manuale / + Debito". A destra il pannello
-> della classe scelta: Valore, Costo, Non realizzato, vs HODL (investimenti;
-> per gli asset manuali la variazione nel periodo; per Bitcoin e Debiti
-> valore, variazione, quota e numero di voci), poi "Voci · ordinate per peso"
-> con barra del peso, percentuale e P&L, e per gli investimenti "Registra
-> acquisto / vendita". Sotto, a tutta larghezza, la card della voce scelta.
+> Tale e quale alla proposta B del canvas. A sinistra: titolo "Portafoglio"
+> (con Schede / Tabella), patrimonio "sat netti" con la variazione nel periodo,
+> l'anello delle classi; le quattro card di classe in griglia 2×2 (riga di
+> dettaglio tipo "3 titoli · 4 lotti · FIFO", linea a 30 giorni senza riempimento,
+> prime tre voci in forma breve "120,0M"); i pulsanti tratteggiati
+> "+ Investimento / + Asset manuale / + Debito / + Wallet (xpub)". A destra il
+> pannello "Dettaglio" della classe con la × per chiuderlo: Valore, Costo, Non
+> realizzato, vs HODL ("—" dove il dato non c'è), "Voci · ordinate per peso"
+> con barra, peso e P&L (per i debiti la quota rimborsata), "Registra acquisto /
+> vendita" per gli investimenti. Clic su una voce: si apre la sua pagina con il
+> percorso "Portafoglio › Classe › Voce" (proposta D, card di E).
 
 | #    | Test              | Passi                                                         | Atteso                                                                  | Pass |
 |------|-------------------|---------------------------------------------------------------|-------------------------------------------------------------------------|------|
 | 66.1 | Pannello classe   | 1. Clic su "Investimenti".                                    | Costo, non realizzato, vs HODL; voci per peso con P&L.                   | [auto] PortfolioClassViewTest.`class panel numbers…` |
 | 66.2 | vs HODL           | 1. Investimento con lotti che hanno il cambio BTC del giorno. | Percentuale; "—" se manca il cambio su un lotto.                         | [auto] PortfolioClassViewTest.`class panel numbers…` |
-| 66.3 | Voce              | 1. Clic su una voce nel pannello.                             | La card sotto mostra quella voce.                                        | [auto] PortfolioClassViewTest.`the first class with items is open…` |
-| 66.4 | Registra          | 1. Investimento scelto. 2. "Registra acquisto" / "vendita".   | Si apre il lotto nuovo / la vendita di quell'investimento.               | [ ] |
-| 66.5 | Aggiungi          | 1. "+ Investimento", "+ Asset manuale", "+ Debito".           | Si apre il modulo giusto.                                                | [ ] |
-| 66.6 | Finestra stretta  | 1. Restringi sotto 1100 px.                                   | Il pannello va sotto le card.                                            | [ ] |
-| 66.7 | Tema chiaro       | 1. Tema chiaro.                                               | Leggibile.                                                               | [auto] screenshot `portfolio-light-investments.png` |
+| 66.3 | Pagina voce       | 1. Clic su una voce del pannello. 2. Clic su "Portafoglio".   | 1: pagina della voce con il percorso. 2: torna al pannello.              | [auto] PortfolioClassViewTest.`the first class with items is open…` |
+| 66.4 | Chiudi pannello   | 1. × sul pannello. 2. Clic su una card.                       | 1: le card occupano tutta la larghezza. 2: il pannello torna.            | [auto] PortfolioClassViewTest.`the first class with items is open…` |
+| 66.5 | Registra          | 1. "Registra acquisto" con più titoli.                        | Chiede quale titolo, poi apre il lotto nuovo; con un solo titolo lo apre subito. | [ ] |
+| 66.6 | Aggiungi          | 1. I quattro pulsanti tratteggiati.                           | Si apre il modulo giusto; "+ Wallet (xpub)" apre l'aggiunta wallet.      | [ ] |
+| 66.7 | Finestra stretta  | 1. Restringi sotto 1100 px.                                   | Il pannello va sotto le card.                                            | [ ] |
+| 66.8 | Tema chiaro       | 1. Tema chiaro.                                               | Leggibile.                                                               | [auto] screenshot `portfolio-light-liabilities.png` |

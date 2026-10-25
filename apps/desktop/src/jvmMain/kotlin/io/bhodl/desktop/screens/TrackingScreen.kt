@@ -560,6 +560,7 @@ public fun TrackingScreen(
                 // content; the mode selects which cards appear.
                 val dashboardTab: @Composable (TrackingTabMode) -> Unit = { tabMode ->
                     TrackingDashboardTab(
+                        onAddWallet = onAddWatch,
                         onEditEvent = { event -> editing = event },
                         events = includedEvents,
                         period = period,

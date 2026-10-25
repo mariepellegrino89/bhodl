@@ -178,11 +178,16 @@ class PortfolioClassViewTest {
     fun `the first class with items is open and its biggest item is shown`() = runDesktopComposeUiTest(width = 1440, height = 2400) {
         setContent { BhodlTheme(useDarkTheme = true) { View() } }
         PortfolioClass.entries.forEach { onNodeWithTag(PortfolioCardsTags.classCard(it)).assertExists() }
-        onNodeWithTag(PortfolioCardsTags.DETAIL_TITLE).assertTextContains("Cold storage")
+        onNodeWithTag(PortfolioCardsTags.PANEL).assertExists()
+        onNodeWithTag(PortfolioCardsTags.item("wallets:Cold storage")).assertExists()
+        assertEquals(0, onAllNodes(hasTestTag(PortfolioCardsTags.DETAIL)).fetchSemanticsNodes().size, "proposal B: no item card under the panel")
         onNodeWithTag(PortfolioCardsTags.classCard(PortfolioClass.INVESTMENTS)).performClick()
-        onNodeWithTag(PortfolioCardsTags.DETAIL_TITLE).assertTextContains("VWCE", substring = true)
         onNodeWithTag(PortfolioCardsTags.item("investments:2")).performClick()
         onNodeWithTag(PortfolioCardsTags.DETAIL_TITLE).assertTextContains("Oro", substring = true)
+        onNodeWithTag(PortfolioCardsTags.BACK).performClick()
+        onNodeWithTag(PortfolioCardsTags.PANEL).assertExists()
+        onNodeWithTag(PortfolioCardsTags.PANEL_CLOSE).performClick()
+        assertEquals(0, onAllNodes(hasTestTag(PortfolioCardsTags.PANEL)).fetchSemanticsNodes().size)
     }
 
     @Test
@@ -190,6 +195,7 @@ class PortfolioClassViewTest {
         var sold: Long? = null
         setContent { BhodlTheme(useDarkTheme = true) { View(onSell = { sold = it }) } }
         onNodeWithTag(PortfolioCardsTags.classCard(PortfolioClass.INVESTMENTS)).performClick()
+        onNodeWithTag(PortfolioCardsTags.item("investments:1")).performClick()
         onNode(hasText("IE00BK5BQT80", substring = true) and hasAnyAncestor(hasTestTag(PortfolioCardsTags.ATTRS))).assertExists()
         onNode(hasText("Yearly fund cost", substring = true) and hasAnyAncestor(hasTestTag(PortfolioCardsTags.ATTRS))).assertExists()
         waitUntilAtLeastOneExists(hasText("Sales"))
@@ -201,9 +207,12 @@ class PortfolioClassViewTest {
     fun `a mortgage card resolves its linked house and the house shows the LTV`() = runDesktopComposeUiTest(width = 1440, height = 2400) {
         setContent { BhodlTheme(useDarkTheme = true) { View() } }
         onNodeWithTag(PortfolioCardsTags.classCard(PortfolioClass.LIABILITIES)).performClick()
+        onNodeWithTag(PortfolioCardsTags.item("liabilities:20")).performClick()
         onNode(hasText("Casa", substring = true) and hasAnyAncestor(hasTestTag(PortfolioCardsTags.ATTRS))).assertExists()
         onNode(hasText("Repaid", substring = true) and hasAnyAncestor(hasTestTag(PortfolioCardsTags.METER))).assertExists()
+        onNodeWithTag(PortfolioCardsTags.BACK).performClick()
         onNodeWithTag(PortfolioCardsTags.classCard(PortfolioClass.MANUAL_ASSETS)).performClick()
+        onNodeWithTag(PortfolioCardsTags.item("manual_assets:7")).performClick()
         onNode(hasText("LTV", substring = true) and hasAnyAncestor(hasTestTag(PortfolioCardsTags.METER))).assertExists()
     }
 
@@ -284,6 +293,11 @@ class PortfolioClassViewTest {
             waitForIdle()
             shot("portfolio-${c.name.lowercase()}")
         }
+        onNodeWithTag(PortfolioCardsTags.classCard(PortfolioClass.INVESTMENTS)).performClick()
+        onNodeWithTag(PortfolioCardsTags.item("investments:1")).performClick()
+        waitForIdle()
+        shot("portfolio-drilldown-etf")
+        onNodeWithTag(PortfolioCardsTags.BACK).performClick()
         onNodeWithTag(PortfolioCardsTags.classCard(PortfolioClass.MANUAL_ASSETS)).performClick()
         onNodeWithTag(PortfolioCardsTags.item("manual_assets:8")).performClick()
         waitForIdle()

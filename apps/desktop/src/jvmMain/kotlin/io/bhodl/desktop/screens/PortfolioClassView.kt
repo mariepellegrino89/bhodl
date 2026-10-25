@@ -1,10 +1,19 @@
 package io.bhodl.desktop.screens
 
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.ui.graphics.compositeOver
+import io.bhodl.shared.resources.pfb_title
+import io.bhodl.shared.resources.pfb_net
+import io.bhodl.shared.resources.pfb_meta_wallets
+import io.bhodl.shared.resources.pfb_meta_holdings
+import io.bhodl.shared.resources.pfb_meta_items
+import io.bhodl.shared.resources.pfb_meta_stale
+import io.bhodl.shared.resources.pfb_meta_leverage
+import io.bhodl.shared.resources.pfb_unrealized
+import io.bhodl.shared.resources.pfb_repaid_short
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.semantics.contentDescription
-import io.bhodl.shared.resources.pfb_net_worth
 import io.bhodl.shared.resources.pfb_in_period
-import io.bhodl.shared.resources.pfb_h_ring
 import io.bhodl.shared.resources.pfb_add_investment
 import io.bhodl.shared.resources.pfb_add_manual
 import io.bhodl.shared.resources.pfb_add_liability
@@ -13,7 +22,6 @@ import io.bhodl.shared.resources.pfb_cost
 import io.bhodl.shared.resources.pfb_vs_hodl
 import io.bhodl.shared.resources.pfb_h_cost
 import io.bhodl.shared.resources.pfb_h_vs_hodl
-import io.bhodl.shared.resources.pfb_items_count
 import io.bhodl.shared.resources.pfb_detail
 import io.bhodl.shared.resources.pfb_rows_title
 import io.bhodl.shared.resources.pfb_record_buy
@@ -147,6 +155,7 @@ import io.bhodl.shared.resources.pfc_k_utilization
 import io.bhodl.shared.resources.pfc_k_value
 import io.bhodl.shared.resources.pfc_k_weight
 import io.bhodl.shared.resources.common_cancel
+import io.bhodl.shared.resources.common_close
 import io.bhodl.shared.resources.pfc_add_lot
 import io.bhodl.shared.resources.pfc_class_bitcoin
 import io.bhodl.shared.resources.pfc_class_investments
@@ -210,6 +219,8 @@ internal object PortfolioCardsTags {
     const val SELL: String = "portfolio-cards.detail.sell"
     const val EMPTY_CLASS: String = "portfolio-cards.empty-class"
     const val HERO: String = "portfolio-cards.hero"
+    const val BACK: String = "portfolio-cards.back"
+    const val PANEL_CLOSE: String = "portfolio-cards.panel.close"
     const val PANEL: String = "portfolio-cards.panel"
     const val PANEL_BUY: String = "portfolio-cards.panel.buy"
     const val PANEL_SELL: String = "portfolio-cards.panel.sell"
@@ -231,9 +242,10 @@ internal data class DetailsEditRequest(
 )
 
 /**
- * Portfolio redesign 2026-10 (canvas B + D + E) — hero, 2×2 class
- * cards and add shortcuts on the left, the selected class in a side
- * panel on the right, the selected item's detail card below. Every number comes from [sheet] (the same model
+ * Portfolio redesign 2026-10 (canvas B + D + E) — proposal B: title,
+ * net worth and class ring, 2×2 class cards and add shortcuts on the
+ * left, the selected class in a side panel on the right. A click on an
+ * item of the panel opens its page (proposal D, cards of E). Every number comes from [sheet] (the same model
  * as the balance-sheet table) or from the per-category builders in
  * `PortfolioDetails.kt`.
  */
@@ -263,6 +275,8 @@ internal fun PortfolioClassView(
     onAddLiability: () -> Unit = {},
     /** Hidden when null. */
     onAddWallet: (() -> Unit)? = null,
+    /** Proposal B — controls next to the title (Cards / Table, fetch prices). */
+    heroActions: @Composable () -> Unit = {},
     /** Shown under the panes while the Bitcoin class is selected. */
     bitcoinExtra: @Composable () -> Unit = {},
     events: List<PaymentEvent> = emptyList(),
@@ -278,89 +292,40 @@ internal fun PortfolioClassView(
                 ?: PortfolioClass.INVESTMENTS,
         )
     }
-    val selectedKeys = remember { mutableStateMapOf<PortfolioClass, String>() }
     val series = rememberClassHistory(history, period, events)
     val fiatCode = SettingsStore.fiatCurrency.value.code
 
-    Column(verticalArrangement = Arrangement.spacedBy(BhodlTheme.spacing.md), modifier = Modifier.testTag(PortfolioCardsTags.VIEW)) {
-        val rows = sections[selectedClass.section]?.rows.orEmpty()
-            .sortedByDescending { kotlin.math.abs(it.valueSat ?: 0L) }
-        val selectedRow = rows.firstOrNull { it.key == selectedKeys[selectedClass] } ?: rows.firstOrNull()
-        val summary = remember(selectedClass, rows, investments, lotsByInvestmentId, manualAssets) {
-            classSummary(selectedClass, rows, investments, lotsByInvestmentId, manualAssets)
-        }
-        // Proposal B: hero + 2×2 class cards + add buttons on the left, the
-        // selected class in a side panel on the right; the selected item's
-        // card (proposal D / E) below, full width.
-        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-            val wide = maxWidth >= 1100.dp
-            val left: @Composable (Modifier) -> Unit = { m ->
-                Column(m, verticalArrangement = Arrangement.spacedBy(BhodlTheme.spacing.md)) {
-                    PortfolioHero(sheet)
-                    BoxWithConstraints(Modifier.fillMaxWidth()) {
-                        val columns = if (maxWidth < 560.dp) 1 else 2
-                        Column(verticalArrangement = Arrangement.spacedBy(BhodlTheme.spacing.sm)) {
-                            PortfolioClass.entries.chunked(columns).forEach { rowClasses ->
-                                // Equal heights: a class with fewer items keeps the row even.
-                                Row(
-                                    horizontalArrangement = Arrangement.spacedBy(BhodlTheme.spacing.sm),
-                                    modifier = Modifier.height(IntrinsicSize.Min),
-                                ) {
-                                    rowClasses.forEach { cls ->
-                                        ClassCard(
-                                            cls = cls,
-                                            section = sections[cls.section],
-                                            points = series[cls].orEmpty(),
-                                            selected = cls == selectedClass,
-                                            onClick = { selectedClass = cls },
-                                            modifier = Modifier.weight(1f).fillMaxHeight(),
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    AddButtonsRow(onAddInvestment, onAddManualAsset, onAddLiability, onAddWallet)
-                }
-            }
-            val investmentId = selectedRow?.recordId?.takeIf { selectedClass == PortfolioClass.INVESTMENTS }
-            val right: @Composable (Modifier) -> Unit = { m ->
-                ClassDetailPanel(
-                    cls = selectedClass,
-                    section = sections[selectedClass.section],
-                    rows = rows,
-                    summary = summary,
-                    selectedKey = selectedRow?.key,
-                    onSelect = { selectedKeys[selectedClass] = it },
-                    onRecordBuy = investmentId?.let { id -> { onAddLot(id) } },
-                    onRecordSell = investmentId?.let { id -> { onSell(id) } },
-                    modifier = m,
-                )
-            }
-            if (wide) {
-                Row(horizontalArrangement = Arrangement.spacedBy(BhodlTheme.spacing.md)) {
-                    left(Modifier.weight(1.7f))
-                    right(Modifier.weight(1f))
-                }
-            } else {
-                Column(verticalArrangement = Arrangement.spacedBy(BhodlTheme.spacing.md)) {
-                    left(Modifier.fillMaxWidth())
-                    right(Modifier.fillMaxWidth())
-                }
-            }
-        }
+    val rows = sections[selectedClass.section]?.rows.orEmpty()
+        .sortedByDescending { kotlin.math.abs(it.valueSat ?: 0L) }
+    val summary = remember(selectedClass, rows, investments, lotsByInvestmentId, manualAssets, liabilities, details) {
+        classSummary(selectedClass, rows, investments, lotsByInvestmentId, manualAssets, liabilities, details)
+    }
+    // Proposal D — a click on an item of the panel opens its page.
+    var openKey by remember { mutableStateOf<String?>(null) }
+    val openRow = sheet.sections.flatMap { it.rows }.firstOrNull { it.key == openKey }
 
-        if (selectedRow == null) {
-            Box(Modifier.fillMaxWidth().bhodlCard().padding(BhodlTheme.spacing.lg)) {
+    if (openRow != null) {
+        val openClass = PortfolioClass.entries.first { it.section == openRow.section }
+        Column(verticalArrangement = Arrangement.spacedBy(BhodlTheme.spacing.md), modifier = Modifier.testTag(PortfolioCardsTags.VIEW)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    stringResource(Res.string.pfc_no_selection),
+                    stringResource(Res.string.pfb_title),
                     style = BhodlTheme.typography.bodyMedium,
                     color = BhodlTheme.colors.textSecondary,
+                    modifier = Modifier.clickable(role = Role.Button) { openKey = null }.testTag(PortfolioCardsTags.BACK),
                 )
+                Text("›", style = BhodlTheme.typography.bodyMedium, color = BhodlTheme.colors.textTertiary)
+                Text(
+                    stringResource(classLabel(openClass)),
+                    style = BhodlTheme.typography.bodyMedium,
+                    color = BhodlTheme.colors.textSecondary,
+                    modifier = Modifier.clickable(role = Role.Button) { selectedClass = openClass; openKey = null },
+                )
+                Text("›", style = BhodlTheme.typography.bodyMedium, color = BhodlTheme.colors.textTertiary)
+                Text(openRow.name, style = BhodlTheme.typography.bodyMedium, color = BhodlTheme.colors.textPrimary)
             }
-        } else {
             ItemDetail(
-                row = selectedRow,
+                row = openRow,
                 sheet = sheet,
                 walletGroups = walletGroups,
                 investments = investments,
@@ -383,8 +348,73 @@ internal fun PortfolioClassView(
                 onDeleteSell = onDeleteSell,
                 modifier = Modifier.fillMaxWidth(),
             )
+            if (openClass == PortfolioClass.BITCOIN) bitcoinExtra()
         }
-        if (selectedClass == PortfolioClass.BITCOIN) bitcoinExtra()
+        return
+    }
+
+    // Proposal B: hero, 2×2 class cards and add buttons on the left; the
+    // selected class in a side panel on the right.
+    var panelOpen by remember { mutableStateOf(true) }
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth().testTag(PortfolioCardsTags.VIEW)) {
+        val wide = maxWidth >= 1100.dp
+        val left: @Composable (Modifier) -> Unit = { m ->
+            Column(m, verticalArrangement = Arrangement.spacedBy(18.dp)) {
+                PortfolioHero(sheet, period, heroActions)
+                BoxWithConstraints(Modifier.fillMaxWidth()) {
+                    val columns = if (maxWidth < 660.dp) 1 else 2
+                    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                        PortfolioClass.entries.chunked(columns).forEach { rowClasses ->
+                            // Equal heights: a class with fewer items keeps the row even.
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                modifier = Modifier.height(IntrinsicSize.Min),
+                            ) {
+                                rowClasses.forEach { cls ->
+                                    ClassCard(
+                                        cls = cls,
+                                        section = sections[cls.section],
+                                        meta = classMeta(cls, sheet, investments, lotsByInvestmentId, nowUnix),
+                                        points = series[cls].orEmpty(),
+                                        selected = panelOpen && cls == selectedClass,
+                                        onClick = { selectedClass = cls; panelOpen = true },
+                                        modifier = Modifier.weight(1f).fillMaxHeight(),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+                AddButtonsRow(onAddInvestment, onAddManualAsset, onAddLiability, onAddWallet)
+            }
+        }
+        val right: @Composable (Modifier) -> Unit = { m ->
+            ClassDetailPanel(
+                cls = selectedClass,
+                section = sections[selectedClass.section],
+                rows = rows,
+                summary = summary,
+                onOpen = { openKey = it },
+                onClose = { panelOpen = false },
+                investmentChoices = if (selectedClass == PortfolioClass.INVESTMENTS) rows.filter { it.recordId != null } else emptyList(),
+                onRecordBuy = onAddLot,
+                onRecordSell = onSell,
+                modifier = m,
+            )
+        }
+        if (!panelOpen) {
+            left(Modifier.fillMaxWidth())
+        } else if (wide) {
+            Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+                left(Modifier.weight(1.8f))
+                right(Modifier.weight(1f))
+            }
+        } else {
+            Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
+                left(Modifier.fillMaxWidth())
+                right(Modifier.fillMaxWidth())
+            }
+        }
     }
 }
 
@@ -486,6 +516,7 @@ private val PFC_HELP: Map<StringResource, StringResource> = mapOf(
     Res.string.pfc_k_term_elapsed to Res.string.pfc_h_term_elapsed,
     Res.string.pfc_k_freshness to Res.string.pfc_h_freshness,
     Res.string.pfb_cost to Res.string.pfb_h_cost,
+    Res.string.pfb_unrealized to Res.string.pfc_h_unrealized,
     Res.string.pfb_vs_hodl to Res.string.pfb_h_vs_hodl,
 )
 
@@ -506,93 +537,128 @@ private fun GlyphTile(glyph: String, color: Color, size: Int = 32) {
     }
 }
 
+/** Proposal B — the second line of a class card ("4 holdings · 7 lots · FIFO"). */
+@Composable
+private fun classMeta(
+    cls: PortfolioClass,
+    sheet: PortfolioSheet,
+    investments: List<TrackingInvestmentFfi>,
+    lotsByInvestmentId: Map<Long, List<TrackingInvestmentLotFfi>>,
+    nowUnix: Long,
+): String {
+    val rows = sheet.sections.firstOrNull { it.section == cls.section }?.rows.orEmpty()
+    return when (cls) {
+        PortfolioClass.BITCOIN -> stringResource(Res.string.pfb_meta_wallets, rows.size)
+        PortfolioClass.INVESTMENTS -> {
+            val ids = rows.mapNotNull { it.recordId }.toSet()
+            val lots = ids.sumOf { id -> lotsByInvestmentId[id].orEmpty().count { it.quantity > 0.0 } }
+            val method = investments.filter { it.id in ids }.map { it.costBasisMethod.uppercase() }.distinct().singleOrNull()
+            listOfNotNull(stringResource(Res.string.pfb_meta_holdings, rows.size, lots), method).joinToString(" · ")
+        }
+        PortfolioClass.MANUAL_ASSETS -> {
+            val stale = rows.count { r -> r.updatedUnix?.let { nowUnix - it > 90L * 86_400L } == true }
+            val items = stringResource(Res.string.pfb_meta_items, rows.size)
+            if (stale > 0) items + " · " + stringResource(Res.string.pfb_meta_stale, stale) else items
+        }
+        PortfolioClass.LIABILITIES -> {
+            val gross = sheet.sections.filter { it.subtotalSat > 0L }.sumOf { it.subtotalSat }
+            val debt = kotlin.math.abs(rows.sumOf { it.valueSat ?: 0L })
+            val items = stringResource(Res.string.pfb_meta_items, rows.size)
+            if (gross > 0L && debt > 0L) {
+                items + " · " + stringResource(Res.string.pfb_meta_leverage, formatPct(debt * 100.0 / gross, signed = false))
+            } else {
+                items
+            }
+        }
+    }
+}
+
+/** Top-three values in a class card: "120.0M" in sats, the full amount otherwise or when masked. */
+@Composable
+private fun compactAmount(sat: Long): String {
+    if (amountsMasked() || SettingsStore.btcUnit.value != io.bhodl.shared.BtcUnit.SAT) return displayAmount(sat)
+    val abs = kotlin.math.abs(sat)
+    val body = when {
+        abs >= 1_000_000L -> String.format(Locale.getDefault(), "%.1fM", abs / 1_000_000.0)
+        abs >= 1_000L -> String.format(Locale.getDefault(), "%.1fk", abs / 1_000.0)
+        else -> abs.toString()
+    }
+    return amountSign(sat, plusForPositive = false) + body
+}
+
 @Composable
 private fun ClassCard(
     cls: PortfolioClass,
     section: SheetSectionModel?,
+    meta: String,
     points: List<Pair<Long, Double>>,
     selected: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val color = classColor(cls)
-    val shape = BhodlTheme.shapes.hero
+    val shape = RoundedCornerShape(14.dp)
     val rows = section?.rows.orEmpty()
     Column(
         modifier = modifier
-            .bhodlCard()
-            .then(if (selected) Modifier.border(1.5.dp, color, shape) else Modifier)
+            .clip(shape)
+            .background(if (selected) color.copy(alpha = 0.05f).compositeOver(BhodlTheme.colors.surface) else BhodlTheme.colors.surface)
+            .border(1.dp, if (selected) color else BhodlTheme.colors.outline, shape)
             .clickable(role = Role.Tab, onClick = onClick)
             .semantics { this.selected = selected }
-            .padding(BhodlTheme.spacing.md)
+            .padding(horizontal = 18.dp, vertical = 16.dp)
             .testTag(PortfolioCardsTags.classCard(cls)),
-        verticalArrangement = Arrangement.spacedBy(BhodlTheme.spacing.sm),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            GlyphTile(classGlyph(cls), color)
-            Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(stringResource(classLabel(cls)), style = BhodlTheme.typography.titleMedium, color = BhodlTheme.colors.textPrimary)
-                    HelpTip(stringResource(classHelp(cls)))
-                }
-                Text(
-                    stringResource(Res.string.pfc_items, rows.size),
-                    style = BhodlTheme.typography.labelMedium,
-                    color = BhodlTheme.colors.textSecondary,
-                )
+            GlyphTile(classGlyph(cls), color, size = 34)
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(stringResource(classLabel(cls)), style = BhodlTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = BhodlTheme.colors.textPrimary)
+                Text(meta, style = BhodlTheme.typography.labelMedium, color = BhodlTheme.colors.textSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             section?.pctOfNetWorth?.let {
                 Text(formatPct(it, signed = false), style = BhodlTheme.typography.mono, color = BhodlTheme.colors.textSecondary)
             }
         }
-        Row(verticalAlignment = Alignment.Bottom) {
-            Column(modifier = Modifier.weight(1f)) {
+        Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                val subtotal = section?.subtotalSat ?: 0L
                 Text(
-                    displayAmount(section?.subtotalSat ?: 0L),
-                    style = BhodlTheme.typography.amountMedium,
+                    displayAmount(subtotal),
+                    style = BhodlTheme.typography.amountMedium.copy(fontSize = 20.sp, fontWeight = FontWeight.SemiBold),
                     color = if (cls == PortfolioClass.LIABILITIES) BhodlTheme.colors.financialNegative else BhodlTheme.colors.textPrimary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 section?.changeSat?.let { ch ->
-                    Text(
-                        displaySignedAmount(ch),
-                        style = BhodlTheme.typography.mono,
-                        color = signedAmountColor(
-                            ch.toDouble(),
-                            positive = BhodlTheme.colors.financialPositive,
-                            negative = BhodlTheme.colors.financialNegative,
-                            neutral = BhodlTheme.colors.textSecondary,
-                        ),
-                    )
+                    val base = subtotal - ch
+                    val pct = if (base != 0L) " · " + formatPct(ch * 100.0 / kotlin.math.abs(base), signed = true) else ""
+                    Text(displaySignedAmount(ch) + pct, style = BhodlTheme.typography.mono, color = pnlColor(ch.toDouble()))
                 }
             }
             if (points.size >= 2) {
-                Sparkline(points = points, lineColor = color, modifier = Modifier.width(140.dp).height(44.dp))
+                // Proposal B — a plain line, no area fill.
+                androidx.compose.foundation.Canvas(Modifier.width(140.dp).height(44.dp)) {
+                    val ys = points.map { it.second }
+                    val min = ys.min()
+                    val range = (ys.max() - min).takeIf { it > 0.0 } ?: 1.0
+                    val path = androidx.compose.ui.graphics.Path()
+                    points.forEachIndexed { i, (_, v) ->
+                        val x = i * size.width / (points.size - 1)
+                        val y = size.height - ((v - min) / range).toFloat() * (size.height - 4.dp.toPx()) - 2.dp.toPx()
+                        if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                    }
+                    drawPath(path, color, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx()))
+                }
             }
         }
-        if (rows.isNotEmpty()) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Box(Modifier.fillMaxWidth().height(1.dp).background(BhodlTheme.colors.outline))
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                rows.sortedByDescending { kotlin.math.abs(it.valueSat ?: 0L) }.take(3).forEach { r ->
-                    Row {
-                        Text(
-                            r.name,
-                            style = BhodlTheme.typography.labelMedium,
-                            color = BhodlTheme.colors.textSecondary,
-                            modifier = Modifier.weight(1f),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        Text(
-                            r.valueSat?.let { displayAmount(it) } ?: "—",
-                            style = BhodlTheme.typography.mono,
-                            color = BhodlTheme.colors.textTertiary,
-                        )
-                    }
+            Spacer(Modifier.height(4.dp))
+            rows.sortedByDescending { kotlin.math.abs(it.valueSat ?: 0L) }.take(3).forEach { r ->
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(r.name, style = BhodlTheme.typography.labelMedium, color = BhodlTheme.colors.textSecondary, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(r.valueSat?.let { compactAmount(it) } ?: "—", style = BhodlTheme.typography.mono, color = BhodlTheme.colors.textTertiary)
                 }
             }
         }
@@ -611,6 +677,8 @@ internal data class ClassSummary(
     /** Per row: unrealized % (investments, manual assets with a purchase
      *  value) or the change over the period (the rest). */
     val rowPl: Map<String, Double?>,
+    /** Debts: share already repaid, in percent, when the original amount is known. */
+    val rowRepaidPct: Map<String, Double> = emptyMap(),
 )
 
 internal fun classSummary(
@@ -619,6 +687,8 @@ internal fun classSummary(
     investments: List<TrackingInvestmentFfi>,
     lotsByInvestmentId: Map<Long, List<TrackingInvestmentLotFfi>>,
     manualAssets: List<TrackingManualAssetFfi>,
+    liabilities: List<TrackingLiabilityFfi> = emptyList(),
+    details: PortfolioDetails = PortfolioDetails(),
 ): ClassSummary {
     fun periodPct(r: SheetRow): Double? {
         val v = r.valueSat ?: return null
@@ -691,13 +761,23 @@ internal fun classSummary(
                 rowPl = pl,
             )
         }
-        else -> ClassSummary(null, null, null, null, rows.associate { it.key to periodPct(it) })
+        PortfolioClass.LIABILITIES -> {
+            val byId = liabilities.associateBy { it.id }
+            val repaid = rows.mapNotNull { r ->
+                val l = r.recordId?.let { byId[it] } ?: return@mapNotNull null
+                val original = details.liabilities[l.id]?.get("original_amount_sat")?.toLongOrNull()?.takeIf { it > 0L }
+                    ?: return@mapNotNull null
+                r.key to ((1.0 - l.amountSat.toDouble() / original) * 100.0).coerceIn(0.0, 100.0)
+            }.toMap()
+            ClassSummary(null, null, null, null, rows.associate { it.key to periodPct(it) }, repaid)
+        }
+        PortfolioClass.BITCOIN -> ClassSummary(null, null, null, null, rows.associate { it.key to periodPct(it) })
     }
 }
 
-/** Proposal B — net worth with its change and the class ring. */
+/** Proposal B — title, net worth with its change and the class ring. */
 @Composable
-private fun PortfolioHero(sheet: PortfolioSheet) {
+private fun PortfolioHero(sheet: PortfolioSheet, period: TrackingPeriod, actions: @Composable () -> Unit) {
     val shares = sheet.sections.mapNotNull { s ->
         PortfolioClass.entries.firstOrNull { it.section == s.section }?.let { it to kotlin.math.abs(s.subtotalSat) }
     }.filter { it.second > 0L }
@@ -707,38 +787,55 @@ private fun PortfolioHero(sheet: PortfolioSheet) {
     val ringLabel = shares.map { stringResource(classLabel(it.first)) + " " + (it.second * 100 / total) + "%" }.joinToString()
     Row(
         Modifier.fillMaxWidth().testTag(PortfolioCardsTags.HERO),
-        verticalAlignment = Alignment.CenterVertically,
+        verticalAlignment = Alignment.Bottom,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(stringResource(Res.string.pfb_net_worth).uppercase(), style = BhodlTheme.typography.labelMedium, color = BhodlTheme.colors.textTertiary)
-            Text(displayAmount(sheet.netWorthSat), style = BhodlTheme.typography.amountMedium.copy(fontSize = 30.sp, fontWeight = FontWeight.SemiBold), color = BhodlTheme.colors.textPrimary)
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    stringResource(Res.string.pfb_title),
+                    style = BhodlTheme.typography.titleMedium.copy(fontSize = 26.sp, fontWeight = FontWeight.Bold),
+                    color = BhodlTheme.colors.textPrimary,
+                )
+                actions()
+            }
+            Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    displayAmount(sheet.netWorthSat),
+                    style = BhodlTheme.typography.amountMedium.copy(fontSize = 30.sp, fontWeight = FontWeight.SemiBold),
+                    color = BhodlTheme.colors.textPrimary,
+                )
+                Text(
+                    stringResource(Res.string.pfb_net),
+                    style = BhodlTheme.typography.mono.copy(fontSize = 15.sp),
+                    color = BhodlTheme.colors.textSecondary,
+                    modifier = Modifier.padding(bottom = 4.dp),
+                )
+            }
             sheet.netWorthChangeSat?.let { ch ->
                 val base = sheet.netWorthSat - ch
                 val pct = if (base != 0L) " · " + formatPct(ch * 100.0 / kotlin.math.abs(base), signed = true) else ""
                 Text(
-                    displaySignedAmount(ch) + pct + " " + stringResource(Res.string.pfb_in_period),
+                    displaySignedAmount(ch) + pct + " " + stringResource(Res.string.pfb_in_period, stringResource(period.labelRes)),
                     style = BhodlTheme.typography.mono,
                     color = pnlColor(ch.toDouble()),
                 )
             }
         }
         if (shares.isNotEmpty()) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                HelpTip(stringResource(Res.string.pfb_h_ring))
-                androidx.compose.foundation.Canvas(
-                    Modifier.size(96.dp).semantics { contentDescription = ringLabel },
-                ) {
-                    val stroke = 14.dp.toPx()
-                    val inset = stroke / 2
-                    val arcSize = androidx.compose.ui.geometry.Size(size.width - stroke, size.height - stroke)
-                    val topLeft = androidx.compose.ui.geometry.Offset(inset, inset)
-                    drawArc(track, 0f, 360f, false, topLeft, arcSize, style = androidx.compose.ui.graphics.drawscope.Stroke(stroke))
-                    var start = -90f
-                    shares.forEachIndexed { i, (_, v) ->
-                        val sweep = v.toFloat() / total * 360f
-                        drawArc(colors[i], start, (sweep - 1.5f).coerceAtLeast(0.5f), false, topLeft, arcSize, style = androidx.compose.ui.graphics.drawscope.Stroke(stroke))
-                        start += sweep
-                    }
+            androidx.compose.foundation.Canvas(
+                Modifier.size(132.dp).semantics { contentDescription = ringLabel },
+            ) {
+                val stroke = size.width * 5f / 42f
+                val inset = size.width * (21f - 15.9f) / 42f
+                val arcSize = androidx.compose.ui.geometry.Size(size.width - 2 * inset, size.height - 2 * inset)
+                val topLeft = androidx.compose.ui.geometry.Offset(inset, inset)
+                drawArc(track, 0f, 360f, false, topLeft, arcSize, style = androidx.compose.ui.graphics.drawscope.Stroke(stroke))
+                var start = -90f
+                shares.forEachIndexed { i, (_, v) ->
+                    val sweep = v.toFloat() / total * 360f
+                    drawArc(colors[i], start, sweep, false, topLeft, arcSize, style = androidx.compose.ui.graphics.drawscope.Stroke(stroke))
+                    start += sweep
                 }
             }
         }
@@ -759,10 +856,10 @@ private fun AddButtonsRow(
         add(Triple(Res.string.pfb_add_liability, onAddLiability, PortfolioCardsTags.ADD_LIABILITY))
         onAddWallet?.let { add(Triple(Res.string.pfb_add_wallet, it, PortfolioCardsTags.ADD_WALLET)) }
     }
-    val outline = BhodlTheme.colors.outline
+    val dash = BhodlTheme.colors.outline
     androidx.compose.foundation.layout.FlowRow(
-        horizontalArrangement = Arrangement.spacedBy(BhodlTheme.spacing.sm),
-        verticalArrangement = Arrangement.spacedBy(BhodlTheme.spacing.sm),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         items.forEach { (label, action, tag) ->
             Box(
@@ -771,17 +868,17 @@ private fun AddButtonsRow(
                     .drawBehind {
                         val r = 10.dp.toPx()
                         drawRoundRect(
-                            color = outline,
+                            color = dash,
                             cornerRadius = androidx.compose.ui.geometry.CornerRadius(r, r),
                             style = androidx.compose.ui.graphics.drawscope.Stroke(
                                 width = 1.dp.toPx(),
-                                pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(6.dp.toPx(), 4.dp.toPx())),
+                                pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(5.dp.toPx(), 4.dp.toPx())),
                             ),
                         )
                     }
                     .clickable(role = Role.Button, onClick = action)
-                    .heightIn(min = 40.dp)
-                    .padding(horizontal = 14.dp, vertical = 10.dp)
+                    .heightIn(min = 44.dp)
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
                     .testTag(tag),
                 contentAlignment = Alignment.Center,
             ) {
@@ -791,17 +888,57 @@ private fun AddButtonsRow(
     }
 }
 
-/** Proposal B — the selected class: four KPIs, its items by weight, actions. */
+/** Proposal B — one of the four figures of the class panel. */
+@Composable
+private fun PanelKpi(k: CardKpi, modifier: Modifier) {
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(BhodlTheme.colors.background)
+            .border(1.dp, BhodlTheme.colors.outline, RoundedCornerShape(10.dp))
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                stringResource(k.label).uppercase(),
+                style = BhodlTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = BhodlTheme.colors.textSecondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            helpFor(k.label)?.let { HelpTip(stringResource(it)) }
+        }
+        Text(
+            k.value?.let { formatCardValue(it) } ?: "—",
+            style = BhodlTheme.typography.mono.copy(fontSize = 16.sp, fontWeight = FontWeight.SemiBold),
+            color = when (if (amountsMasked()) Tone.NEUTRAL else k.tone) {
+                Tone.POSITIVE -> BhodlTheme.colors.financialPositive
+                Tone.NEGATIVE -> BhodlTheme.colors.financialNegative
+                Tone.ACCENT -> BhodlTheme.colors.brandPrimary
+                Tone.NEUTRAL -> BhodlTheme.colors.textPrimary
+            },
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+/** Proposal B — the selected class: four figures, its items by weight, actions. */
 @Composable
 private fun ClassDetailPanel(
     cls: PortfolioClass,
     section: SheetSectionModel?,
     rows: List<SheetRow>,
     summary: ClassSummary,
-    selectedKey: String?,
-    onSelect: (String) -> Unit,
-    onRecordBuy: (() -> Unit)?,
-    onRecordSell: (() -> Unit)?,
+    onOpen: (String) -> Unit,
+    onClose: () -> Unit,
+    /** Investments only: pick the holding, then record a lot / a sale. */
+    investmentChoices: List<SheetRow> = emptyList(),
+    onRecordBuy: ((Long) -> Unit)?,
+    onRecordSell: ((Long) -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
     val color = classColor(cls)
@@ -810,103 +947,165 @@ private fun ClassDetailPanel(
         v > 0.0 -> Tone.POSITIVE
         else -> Tone.NEGATIVE
     }
+    val closeLabel = stringResource(Res.string.common_close)
     val subtotal = section?.subtotalSat ?: 0L
-    val change = section?.changeSat
-    val kpis = when (cls) {
-        PortfolioClass.INVESTMENTS, PortfolioClass.MANUAL_ASSETS -> listOf(
-            CardKpi(Res.string.pfc_k_value, CardValue.Sat(subtotal)),
-            CardKpi(Res.string.pfb_cost, summary.costFiat?.let { CardValue.Fiat(it, summary.costCurrency.orEmpty()) }),
-            CardKpi(Res.string.pfc_k_unrealized, summary.unrealizedPct?.let { CardValue.Pct(it, signed = true) }, tone(summary.unrealizedPct)),
-            if (cls == PortfolioClass.INVESTMENTS) {
-                CardKpi(Res.string.pfb_vs_hodl, summary.vsHodlPct?.let { CardValue.Pct(it, signed = true) }, tone(summary.vsHodlPct))
-            } else {
-                CardKpi(Res.string.pfc_k_change, change?.let { CardValue.Sat(it, signed = true) }, tone(change?.toDouble()))
-            },
-        )
-        else -> listOf(
-            CardKpi(Res.string.pfc_k_value, CardValue.Sat(subtotal)),
-            CardKpi(Res.string.pfc_k_change, change?.let { CardValue.Sat(it, signed = true) }, tone(change?.toDouble())),
-            CardKpi(Res.string.pfc_k_weight, section?.pctOfNetWorth?.let { CardValue.Pct(it) }),
-            CardKpi(Res.string.pfb_items_count, CardValue.Text(rows.size.toString())),
-        )
-    }
+    val kpis = listOf(
+        CardKpi(Res.string.pfc_k_value, CardValue.Sat(subtotal), if (cls == PortfolioClass.LIABILITIES) Tone.NEGATIVE else Tone.NEUTRAL),
+        CardKpi(Res.string.pfb_cost, summary.costFiat?.let { CardValue.Fiat(it, summary.costCurrency.orEmpty()) }),
+        CardKpi(Res.string.pfb_unrealized, summary.unrealizedPct?.let { CardValue.Pct(it, signed = true) }, tone(summary.unrealizedPct)),
+        CardKpi(Res.string.pfb_vs_hodl, summary.vsHodlPct?.let { CardValue.Pct(it, signed = true) }, tone(summary.vsHodlPct)),
+    )
     Column(
-        modifier = modifier.bhodlCard().padding(BhodlTheme.spacing.md).testTag(PortfolioCardsTags.PANEL),
-        verticalArrangement = Arrangement.spacedBy(BhodlTheme.spacing.md),
+        modifier = modifier
+            .clip(RoundedCornerShape(14.dp))
+            .background(BhodlTheme.colors.surface)
+            .border(1.dp, BhodlTheme.colors.outline, RoundedCornerShape(14.dp))
+            .padding(20.dp)
+            .testTag(PortfolioCardsTags.PANEL),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(stringResource(Res.string.pfb_detail).uppercase(), style = BhodlTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = color)
-            Text(stringResource(classLabel(cls)), style = BhodlTheme.typography.titleMedium, color = BhodlTheme.colors.textPrimary)
-        }
-        kpis.chunked(2).forEach { pair ->
-            Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(BhodlTheme.spacing.sm)) {
-                pair.forEach { KpiTile(it, Modifier.weight(1f).fillMaxHeight()) }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(stringResource(Res.string.pfb_detail).uppercase(), style = BhodlTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = color)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        stringResource(classLabel(cls)),
+                        style = BhodlTheme.typography.titleMedium.copy(fontSize = 18.sp, fontWeight = FontWeight.Bold),
+                        color = BhodlTheme.colors.textPrimary,
+                    )
+                    HelpTip(stringResource(classHelp(cls)))
+                }
+            }
+            Box(
+                Modifier
+                    .size(36.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .border(1.dp, BhodlTheme.colors.outline, RoundedCornerShape(8.dp))
+                    .clickable(role = Role.Button, onClick = onClose)
+                    .semantics { contentDescription = closeLabel }
+                    .testTag(PortfolioCardsTags.PANEL_CLOSE),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("×", style = BhodlTheme.typography.titleMedium, color = BhodlTheme.colors.textSecondary)
             }
         }
-        Text(stringResource(Res.string.pfb_rows_title).uppercase(), style = BhodlTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = BhodlTheme.colors.textTertiary)
-        if (rows.isEmpty()) {
-            Text(
-                stringResource(Res.string.pfc_empty_class),
-                style = BhodlTheme.typography.bodyMedium,
-                color = BhodlTheme.colors.textSecondary,
-                modifier = Modifier.testTag(PortfolioCardsTags.EMPTY_CLASS),
-            )
-        } else {
+        kpis.chunked(2).forEach { pair ->
+            Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                pair.forEach { PanelKpi(it, Modifier.weight(1f).fillMaxHeight()) }
+            }
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(stringResource(Res.string.pfb_rows_title).uppercase(), style = BhodlTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = BhodlTheme.colors.textSecondary)
+            if (rows.isEmpty()) {
+                Text(
+                    stringResource(Res.string.pfc_empty_class),
+                    style = BhodlTheme.typography.bodyMedium,
+                    color = BhodlTheme.colors.textSecondary,
+                    modifier = Modifier.testTag(PortfolioCardsTags.EMPTY_CLASS),
+                )
+            }
             val total = rows.sumOf { kotlin.math.abs(it.valueSat ?: 0L) }.coerceAtLeast(1L)
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                rows.forEach { r ->
-                    val on = r.key == selectedKey
-                    val w = kotlin.math.abs(r.valueSat ?: 0L).toDouble() / total
-                    val pl = summary.rowPl[r.key]
-                    Column(
-                        Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(if (on) color.copy(alpha = 0.12f) else Color.Transparent)
-                            .border(1.dp, if (on) color else BhodlTheme.colors.outline, RoundedCornerShape(8.dp))
-                            .clickable(role = Role.Button) { onSelect(r.key) }
-                            .semantics { this.selected = on }
-                            .padding(horizontal = 10.dp, vertical = 8.dp)
-                            .testTag(PortfolioCardsTags.item(r.key)),
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(r.name, style = BhodlTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = BhodlTheme.colors.textPrimary, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(r.valueSat?.let { displayAmount(it) } ?: "—", style = BhodlTheme.typography.mono, color = BhodlTheme.colors.textPrimary)
+            val repaidLabel = stringResource(Res.string.pfb_repaid_short)
+            rows.forEach { r ->
+                val w = kotlin.math.abs(r.valueSat ?: 0L).toDouble() / total
+                val repaid = summary.rowRepaidPct[r.key]
+                val pl = summary.rowPl[r.key]
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .border(1.dp, BhodlTheme.colors.outline, RoundedCornerShape(10.dp))
+                        .clickable(role = Role.Button) { onOpen(r.key) }
+                        .padding(horizontal = 12.dp, vertical = 10.dp)
+                        .testTag(PortfolioCardsTags.item(r.key)),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(r.name, style = BhodlTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = BhodlTheme.colors.textPrimary, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(r.valueSat?.let { displayAmount(it) } ?: "—", style = BhodlTheme.typography.mono, color = BhodlTheme.colors.textPrimary)
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Box(Modifier.weight(1f).height(6.dp).clip(RoundedCornerShape(3.dp)).background(BhodlTheme.colors.surfaceVariant)) {
+                            Box(Modifier.fillMaxHeight().fillMaxWidth(w.toFloat()).background(color))
                         }
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Box(Modifier.weight(1f).height(6.dp).clip(RoundedCornerShape(3.dp)).background(BhodlTheme.colors.surfaceVariant)) {
-                                Box(Modifier.fillMaxHeight().fillMaxWidth(w.toFloat()).background(color))
-                            }
-                            Text(
-                                formatPct(w * 100.0, signed = false),
-                                style = BhodlTheme.typography.labelMedium,
-                                color = BhodlTheme.colors.textTertiary,
-                                modifier = Modifier.width(52.dp),
-                                textAlign = androidx.compose.ui.text.style.TextAlign.End,
-                            )
-                            Text(
-                                pl?.let { formatPct(it, signed = true) } ?: "—",
-                                style = BhodlTheme.typography.labelMedium,
-                                color = pl?.let { pnlColor(it) } ?: BhodlTheme.colors.textTertiary,
-                                modifier = Modifier.width(60.dp),
-                                textAlign = androidx.compose.ui.text.style.TextAlign.End,
-                            )
-                        }
+                        Text(
+                            formatPct(w * 100.0, signed = false),
+                            style = BhodlTheme.typography.labelMedium,
+                            color = BhodlTheme.colors.textSecondary,
+                            modifier = Modifier.width(52.dp),
+                            textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                        )
+                        Text(
+                            when {
+                                repaid != null -> formatPct(repaid, signed = false) + " " + repaidLabel
+                                pl != null -> formatPct(pl, signed = true)
+                                else -> "—"
+                            },
+                            style = BhodlTheme.typography.labelMedium,
+                            color = when {
+                                repaid != null -> BhodlTheme.colors.financialPositive
+                                pl != null -> pnlColor(pl)
+                                else -> BhodlTheme.colors.textTertiary
+                            },
+                            modifier = Modifier.width(96.dp),
+                            maxLines = 1,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                        )
                     }
                 }
             }
         }
-        if (onRecordBuy != null && onRecordSell != null) {
-            Row(horizontalArrangement = Arrangement.spacedBy(BhodlTheme.spacing.sm)) {
-                androidx.compose.material3.Button(
-                    onClick = onRecordBuy,
-                    modifier = Modifier.weight(1f).testTag(PortfolioCardsTags.PANEL_BUY),
-                ) { Text(stringResource(Res.string.pfb_record_buy)) }
-                androidx.compose.material3.OutlinedButton(
-                    onClick = onRecordSell,
-                    modifier = Modifier.weight(1f).testTag(PortfolioCardsTags.PANEL_SELL),
-                ) { Text(stringResource(Res.string.pfb_record_sell)) }
+        if (onRecordBuy != null && onRecordSell != null && investmentChoices.isNotEmpty()) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                PickHoldingButton(Res.string.pfb_record_buy, investmentChoices, filled = true, color = color, onPick = onRecordBuy, tag = PortfolioCardsTags.PANEL_BUY, modifier = Modifier.weight(1f))
+                PickHoldingButton(Res.string.pfb_record_sell, investmentChoices, filled = false, color = color, onPick = onRecordSell, tag = PortfolioCardsTags.PANEL_SELL, modifier = Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+/** "Record purchase / sale": one holding opens it straight away, more ask which one. */
+@Composable
+private fun PickHoldingButton(
+    label: StringResource,
+    choices: List<SheetRow>,
+    filled: Boolean,
+    color: Color,
+    onPick: (Long) -> Unit,
+    tag: String,
+    modifier: Modifier,
+) {
+    var open by remember { mutableStateOf(false) }
+    Box(modifier) {
+        val click = {
+            val only = choices.singleOrNull()?.recordId
+            if (only != null) onPick(only) else open = true
+        }
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .background(if (filled) color else Color.Transparent)
+                .border(1.dp, if (filled) color else BhodlTheme.colors.outline, RoundedCornerShape(8.dp))
+                .clickable(role = Role.Button, onClick = click)
+                .heightIn(min = 44.dp)
+                .padding(horizontal = 12.dp, vertical = 10.dp)
+                .testTag(tag),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                stringResource(label),
+                style = BhodlTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Bold,
+                color = if (filled) BhodlTheme.colors.background else BhodlTheme.colors.textPrimary,
+            )
+        }
+        androidx.compose.material3.DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            choices.forEach { r ->
+                androidx.compose.material3.DropdownMenuItem(
+                    text = { Text(r.name) },
+                    onClick = { open = false; r.recordId?.let(onPick) },
+                )
             }
         }
     }

@@ -133,6 +133,8 @@ internal fun TrackingDashboardTab(
     /** Phase 9.0 — selects which section's cards render; see
      *  [TrackingTabMode]. All modes share the same compute. */
     mode: TrackingTabMode = TrackingTabMode.HOME,
+    /** Portfolio cards view — "+ Wallet (xpub)". */
+    onAddWallet: (() -> Unit)? = null,
     /** Phase 3.6 — invoked when the user clicks a donut slice. The
      *  parameter is the category label ("" for the Uncategorised
      *  bucket); the host switches to the History tab and applies
@@ -490,6 +492,7 @@ internal fun TrackingDashboardTab(
                 onEditManualAsset = onEditManualAsset,
                 onAddLiability = onAddLiability,
                 onEditLiability = onEditLiability,
+                onAddWallet = onAddWallet,
                 onRefreshPrices = onRefreshPrices,
                 // Item 9 — the change column follows the global period.
                 events = events,

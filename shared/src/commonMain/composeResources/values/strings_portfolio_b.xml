@@ -1,8 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="pfb_net_worth">Net worth</string>
-    <string name="pfb_in_period">in the period</string>
-    <string name="pfb_h_ring">Share of each class, debts included at their absolute value.</string>
+    <string name="pfb_title">Portfolio</string>
+    <string name="pfb_net">net</string>
+    <string name="pfb_in_period">in %1$s</string>
+    <string name="pfb_meta_wallets">%1$d wallets</string>
+    <string name="pfb_meta_holdings">%1$d holdings · %2$d lots</string>
+    <string name="pfb_meta_items">%1$d items</string>
+    <string name="pfb_meta_stale">%1$d to update</string>
+    <string name="pfb_meta_leverage">leverage %1$s</string>
     <string name="pfb_add_investment">+ Investment</string>
     <string name="pfb_add_manual">+ Manual asset</string>
     <string name="pfb_add_liability">+ Debt</string>
@@ -10,10 +15,11 @@
     <string name="pfb_detail">Detail</string>
     <string name="pfb_cost">Cost</string>
     <string name="pfb_h_cost">What you paid for what you still hold, in the purchase currency.</string>
+    <string name="pfb_unrealized">Unrealized</string>
     <string name="pfb_vs_hodl">vs HODL</string>
     <string name="pfb_h_vs_hodl">Value now in sat against the sats the purchases cost on their day. Negative: keeping the bitcoin would have done better.</string>
-    <string name="pfb_items_count">Items</string>
     <string name="pfb_rows_title">Items · by weight</string>
+    <string name="pfb_repaid_short">repaid</string>
     <string name="pfb_record_buy">Record purchase</string>
     <string name="pfb_record_sell">Record sale</string>
 </resources>
