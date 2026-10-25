@@ -1,5 +1,6 @@
 package io.bhodl.desktop.screens
 
+import io.bhodl.ffi.PaymentEvent
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -409,3 +410,18 @@ internal fun BillsCalendarStrip(
 
 /** Today in the system zone (test seam friendly). */
 internal fun todayLocal(): LocalDate = LocalDate.now(ZoneId.systemDefault())
+
+/**
+ * Budget redesign 2026-10 — budgets are monthly and follow the calendar
+ * month: the events from the 1st of [today]'s month (local time) on.
+ */
+internal fun eventsThisMonth(events: List<PaymentEvent>, today: LocalDate, zone: ZoneId = ZoneId.systemDefault()): List<PaymentEvent> {
+    val start = today.withDayOfMonth(1).atStartOfDay(zone).toEpochSecond()
+    return events.filter { (it.timestampUnix?.toLong() ?: Long.MAX_VALUE) >= start }
+}
+
+/** Days left in [today]'s month, today included. */
+internal fun daysLeftInMonth(today: LocalDate): Int = today.lengthOfMonth() - today.dayOfMonth + 1
+
+/** A monthly budget as a weekly figure (52 weeks / 12 months). */
+internal fun weeklyFromMonthly(monthlySat: Long): Long = kotlin.math.round(monthlySat * 12.0 / 52.0).toLong()

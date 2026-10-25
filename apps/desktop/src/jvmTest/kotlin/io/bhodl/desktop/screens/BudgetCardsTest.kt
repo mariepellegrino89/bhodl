@@ -58,6 +58,21 @@ class BudgetCardsTest {
         TrackingBillFfi(id, name, 100_000UL, day.toUInt(), paidUnix, null, 0)
 
     @Test
+    fun `budgets follow the calendar month`() {
+        val zone = java.time.ZoneOffset.UTC
+        val today = LocalDate.of(2026, 10, 25)
+        fun at(d: LocalDate) = PaymentEvent("w", d.toString(), PaymentKind.ON_CHAIN, PaymentDirection.OUTGOING, 1_000UL, null,
+            d.atTime(12, 0).toEpochSecond(zone).toULong(), null, "Cibo", null)
+        val events = listOf(at(LocalDate.of(2026, 9, 30)), at(LocalDate.of(2026, 10, 1)), at(LocalDate.of(2026, 10, 24)))
+        assertEquals(listOf("2026-10-01", "2026-10-24"), eventsThisMonth(events, today, zone).map { it.txidOrPaymentId })
+        assertEquals(7, daysLeftInMonth(today), "25 to 31 October, today included")
+        assertEquals(1, daysLeftInMonth(LocalDate.of(2026, 10, 31)))
+        // A monthly budget counts in full against the month (no proration).
+        assertEquals(400_000UL, prorateBudget(400_000UL, "monthly", DAYS_PER_MONTH))
+        assertEquals(27_692L, weeklyFromMonthly(120_000L), "52 weeks / 12 months")
+    }
+
+    @Test
     fun `upcoming bills are the next 30 days, paid ones move to next month`() {
         val today = LocalDate.of(2026, 10, 25)
         val paidThisMonth = LocalDate.of(2026, 10, 2).toEpochDay() * 86_400L

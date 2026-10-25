@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="bgm_month_left">%1$s · %2$d days left</string>
+    <string name="bgm_monthly_label">Monthly budget (sat)</string>
+    <string name="bgm_weekly_hint">About %1$s a week</string>
+</resources>

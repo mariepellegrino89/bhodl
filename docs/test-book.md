@@ -2657,3 +2657,18 @@ Gli screenshot della revisione grafica finiscono in `apps/desktop/build/screensh
 | 70.2 | Server di riserva    | —                                                             | Solo signet e solo sul server predefinito.                       | [auto] EsploraEndpointTest.`signet falls back…` |
 | 70.3 | Pagamento nuovo      | 1. Ricevi su un indirizzo nuovo. 2. Aspetta l'aggiornamento automatico. | Il pagamento compare senza premere Aggiorna.                     | [ ] |
 | 70.4 | Server occupato      | 1. Con BHODL_DEBUG=1, guarda il log durante una sync.         | Se il primo server fallisce compare "trying https://mempool.space/signet/api" e la sync riesce. | [ ] |
+
+## 71. Budget solo mensili, sul mese di calendario (2026-10-25)
+
+> La sezione Budget e bollette non dipende più dal periodo scelto in alto (che lì
+> non compare): confronta le spese dal 1° del mese a oggi con il budget mensile
+> pieno, e l'intestazione dice il mese e quanti giorni mancano ("Ottobre 2026 ·
+> mancano 7 giorni"). Nella finestra del budget il campo si chiama "Budget mensile"
+> e sotto compare l'equivalente settimanale (mensile × 12 / 52).
+
+| #    | Test                 | Passi                                                         | Atteso                                                           | Pass |
+|------|----------------------|---------------------------------------------------------------|------------------------------------------------------------------|------|
+| 71.1 | Mese di calendario   | —                                                             | Contano solo le spese dal 1° del mese; budget mensile pieno.     | [auto] BudgetCardsTest.`budgets follow the calendar month` |
+| 71.2 | Inizio mese          | 1. Il 1° del mese apri Budget.                                | Speso riparte da zero; "mancano 30/31 giorni".                   | [ ] |
+| 71.3 | Equivalente settimanale | 1. Imposta un budget di 120.000.                           | Sotto: "Circa 27.692 sat a settimana".                           | [auto] BudgetCardsTest (calcolo) |
+| 71.4 | Altre sezioni        | 1. Passa a Report.                                            | Il selettore del periodo torna e vale lì.                        | [ ] |

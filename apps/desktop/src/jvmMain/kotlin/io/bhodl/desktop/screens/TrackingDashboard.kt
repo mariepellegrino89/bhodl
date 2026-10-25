@@ -1,4 +1,5 @@
 package io.bhodl.desktop.screens
+import io.bhodl.shared.resources.bgm_month_left
 import io.bhodl.desktop.domain.RecurringCandidate
 import io.bhodl.desktop.domain.dayOfMonth
 
@@ -334,12 +335,22 @@ internal fun TrackingDashboardTab(
         // of the selected window (a monthly budget over 90g is ~2.96×),
         // and (B3) each budget lives in the direction its category's
         // full history belongs to.
-        val budgetDays = remember(period, inPeriod) { budgetWindowDays(period, inPeriod, nowUnix) }
-        val incomeRows = remember(inPeriod, events, budgets, budgetDays) {
-            computeBudgetRows(inPeriod, budgets, TrackingDirection.INCOME, budgetDays, events)
+        // Budget redesign 2026-10 — the Budget section is monthly: the
+        // calendar month so far against the full monthly budget, whatever
+        // the period chosen elsewhere.
+        val budgetMonth = mode == TrackingTabMode.BUDGET
+        val budgetToday = todayLocal()
+        val budgetEvents = remember(budgetMonth, inPeriod, events, budgetToday) {
+            if (budgetMonth) eventsThisMonth(events, budgetToday) else inPeriod
         }
-        val expenseRows = remember(inPeriod, events, budgets, budgetDays) {
-            computeBudgetRows(inPeriod, budgets, TrackingDirection.EXPENSE, budgetDays, events)
+        val budgetDays = remember(period, budgetEvents, budgetMonth) {
+            if (budgetMonth) DAYS_PER_MONTH else budgetWindowDays(period, budgetEvents, nowUnix)
+        }
+        val incomeRows = remember(budgetEvents, events, budgets, budgetDays) {
+            computeBudgetRows(budgetEvents, budgets, TrackingDirection.INCOME, budgetDays, events)
+        }
+        val expenseRows = remember(budgetEvents, events, budgets, budgetDays) {
+            computeBudgetRows(budgetEvents, budgets, TrackingDirection.EXPENSE, budgetDays, events)
         }
         // Phase 9.0 — module gating moved up to the NavigationRail
         // (a disabled module's section simply has no rail entry), so
@@ -371,8 +382,10 @@ internal fun TrackingDashboardTab(
             // "previous" window); no fiat currency → no split.
             val fiatCurrency by SettingsStore.fiatCurrency
             var priceHistory by remember { mutableStateOf<List<io.bhodl.desktop.prices.HistoricalPricePoint>>(emptyList()) }
-            LaunchedEffect(period, fiatCurrency) {
-                val days = period.days
+            // The month so far against the same stretch of the month before.
+            val monthDays = budgetToday.dayOfMonth
+            LaunchedEffect(monthDays, fiatCurrency) {
+                val days: Int? = monthDays
                 priceHistory = if (days == null) {
                     emptyList()
                 } else {
@@ -380,7 +393,7 @@ internal fun TrackingDashboardTab(
                 }
             }
             fun movesFor(rows: List<BudgetRow>, direction: TrackingDirection): Map<String, BudgetMove> {
-                val days = period.days ?: return emptyMap()
+                val days = monthDays
                 if (priceHistory.isEmpty()) return emptyMap()
                 val rateAt = rateLookup(priceHistory)
                 return rows.filter { it.budgetForPeriodSat != null }.mapNotNull { r ->
@@ -400,7 +413,10 @@ internal fun TrackingDashboardTab(
             val incomeBudget = incomeRows.filter { it.budgetForPeriodSat != null }
             val incomeFraction = incomeBudget.sumOf { it.budgetForPeriodSat!!.toLong() }.takeIf { it > 0L }
                 ?.let { incomeBudget.sumOf { r -> r.actualSat.toLong() }.toFloat() / it }
-            BudgetSummaryCard(summary = summary, incomeFraction = incomeFraction, periodLabel = period.label, modifier = Modifier.fillMaxWidth())
+            val monthLabel = budgetToday.month.getDisplayName(java.time.format.TextStyle.FULL_STANDALONE, java.util.Locale.getDefault())
+                .replaceFirstChar { it.titlecase(java.util.Locale.getDefault()) } + " " + budgetToday.year
+            val monthCaption = stringResource(Res.string.bgm_month_left, monthLabel, daysLeftInMonth(budgetToday))
+            BudgetSummaryCard(summary = summary, incomeFraction = incomeFraction, periodLabel = monthCaption, modifier = Modifier.fillMaxWidth())
             if (expenseRows.isNotEmpty()) {
                 BudgetCategoryGrid(
                     rows = expenseRows,
@@ -419,10 +435,10 @@ internal fun TrackingDashboardTab(
             )
             if (incomeRows.any { it.budgetForPeriodSat != null }) {
                 BudgetBreakdownCard(
-                    title = stringResource(Res.string.trk_chart_income_breakdown, period.label),
+                    title = stringResource(Res.string.trk_chart_income_breakdown, monthLabel),
                     rows = incomeRows,
                     onEditBudget = onEditBudget,
-                    proratedToLabel = period.label,
+                    proratedToLabel = monthLabel,
                     moves = incomeMoves,
                 )
             }

@@ -532,7 +532,8 @@ public fun TrackingScreen(
             // window is a global mode, not a per-chart toggle). The
             // Transactions ledger keeps its explicit composable
             // filters (category AND time range) instead.
-            run {
+            // Budget redesign 2026-10 — the Budget section is monthly.
+            if (section != TrackerSection.BUDGET) {
                 PeriodSelector(
                     selected = period,
                     onSelect = { period = it },

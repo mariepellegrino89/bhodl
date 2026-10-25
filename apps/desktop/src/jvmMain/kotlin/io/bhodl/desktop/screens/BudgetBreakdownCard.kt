@@ -1,5 +1,7 @@
 package io.bhodl.desktop.screens
 
+import io.bhodl.shared.resources.bgm_monthly_label
+import io.bhodl.shared.resources.bgm_weekly_hint
 import androidx.compose.foundation.layout.heightIn
 import io.bhodl.desktop.ui.tableRowFocusable
 import io.bhodl.desktop.ui.tableCell
@@ -378,6 +380,7 @@ internal fun BudgetEditDialog(
                     value = input,
                     onValueChange = { input = it.filter { ch -> ch.isDigit() } },
                     singleLine = true,
+                    label = { Text(stringResource(Res.string.bgm_monthly_label)) },
                     placeholder = { Text(stringResource(Res.string.trp_hint_budget)) },
                     modifier = Modifier
                         .fillMaxWidth()
@@ -386,6 +389,15 @@ internal fun BudgetEditDialog(
                         keyboardType = KeyboardType.Number,
                     ),
                 )
+                // Budget redesign 2026-10 — the weekly figure, derived.
+                parsed?.let {
+                    Text(
+                        text = stringResource(Res.string.bgm_weekly_hint, io.bhodl.desktop.ui.displayAmount(weeklyFromMonthly(it.toLong()))),
+                        style = BhodlTheme.typography.labelMedium,
+                        color = BhodlTheme.colors.textSecondary,
+                        modifier = Modifier.testTag(BudgetTags.WEEKLY_HINT),
+                    )
+                }
             }
         },
         confirmButton = {
@@ -528,6 +540,7 @@ internal fun computeBudgetRows(
 }
 
 internal object BudgetTags {
+    const val WEEKLY_HINT: String = "budget.weekly-hint"
     const val SAVE: String = "budget.save"
     const val CLEAR: String = "budget.clear"
     const val INPUT: String = "budget.input"
