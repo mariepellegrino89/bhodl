@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="wlc_add">+ Add wallet</string>
+    <string name="wlc_synced">synced</string>
+    <string name="wlc_stale">stale</string>
+    <string name="wlc_stale_help">The last sync of this wallet failed or is old: the balance may be out of date. Open it and press Sync.</string>
+    <string name="wlc_kind_xpub">xpub</string>
+    <string name="wlc_kind_addresses">address list</string>
+    <string name="wlc_receive">Receive</string>
+    <string name="wlc_coin_map">Coin map</string>
+    <string name="wlc_coin_map_help">Each block is one UTXO, its width proportional to the amount. Many small coins cost more in fees to spend.</string>
+    <string name="wlc_coin_confirmed">confirmed</string>
+    <string name="wlc_coin_pending">pending</string>
+</resources>

@@ -35,7 +35,9 @@ server cannot link your addresses to your IP address.
   SLIP-132 `zpub` / `ypub` accepted). The core also supports Sparrow / Specter HD
   descriptors (fingerprint + derivation path + xpub) and explicit address lists; the
   desktop form for those is not built yet.
-- Sparrow-style workspace: Transactions · Receive · Addresses · UTXOs · Wallet settings.
+- Sparrow-style workspace: Transactions · Receive · Addresses · UTXOs · Wallet settings,
+  under one card per tracked wallet (balance, 30-day sparkline, sync state) and with a
+  coin map of the UTXOs.
 - Receive: fresh addresses derived from the xpub, label-first (the label and category you
   set on an address are copied onto the payment that arrives), BIP-21 QR codes.
 - BIP-329 labels import / export, local address book, public descriptor export.
@@ -63,8 +65,8 @@ server cannot link your addresses to your IP address.
   it; transfers between your own wallets are left out automatically. Not tax advice.
 - Budgets, bills, recurring-payment detection, auto-categorization rules, savings and
   sinking-fund goals, KPIs on the home (savings rate, burn, FIRE, runway, opportunity cost),
-  90-day cash-flow forecast, monthly review reminder, reports (Sankey, breakdowns) and CSV
-  export.
+  90-day cash-flow forecast, monthly review reminder, reports (category pie and
+  period-over-period comparison, per-wallet table), Sankey cash-flow chart and CSV export.
 - Wallet labels and categories flow into the tracker: label an address once on Receive and
   the incoming payment is already categorized.
 

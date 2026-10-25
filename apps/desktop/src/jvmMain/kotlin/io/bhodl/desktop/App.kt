@@ -27,6 +27,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
 import io.bhodl.desktop.navigation.Route
 import io.bhodl.desktop.navigation.TrackerSection
+import io.bhodl.desktop.data.TrackerCache
 import io.bhodl.desktop.screens.AddWatchScreen
 import io.bhodl.desktop.screens.AddressBookScreen
 import io.bhodl.desktop.screens.DashboardScreen
@@ -409,18 +410,22 @@ internal fun NavController.navigateToSection(section: TrackerSection) {
 /**
  * Shared NavigationRail dispatch for every shell-wrapped route. Tracker
  * sections route to [navigateToSection]; Wallet opens the workspace of
- * the wallet already open, or the tracker HOME wallet list when none is;
+ * the wallet already open, else the first tracked wallet (wallet
+ * redesign 2026-10), else the tracker HOME wallet list;
  * Settings is a full-screen action route.
  */
 internal fun NavController.handleRailTab(
     tab: Tab,
     current: Tab,
     walletOpen: Boolean = WalletStore.current() != null,
+    firstWalletId: String? = TrackerCache.wallets.value.firstOrNull()?.id,
 ) {
     if (tab == current) return
     when (tab) {
         Tab.Wallet -> {
-            if (!walletOpen) {
+            if (!walletOpen && firstWalletId != null) {
+                navigate(Route.OpenWallet(walletId = firstWalletId))
+            } else if (!walletOpen) {
                 navigateToSection(TrackerSection.HOME)
             } else {
                 navigate(Route.Dashboard) {
@@ -500,6 +505,8 @@ private fun WalletWorkspaceRoute(navController: NavController, initialTab: Walle
                 WalletStore.clear()
                 navController.navigateToSection(TrackerSection.HOME)
             },
+            onOpenWallet = { id -> navController.navigate(Route.OpenWallet(walletId = id)) },
+            onAddWallet = { navController.navigate(Route.AddWatch) },
         )
     }
 }

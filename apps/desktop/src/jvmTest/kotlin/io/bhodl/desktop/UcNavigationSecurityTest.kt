@@ -60,6 +60,7 @@ class UcNavigationSecurityTest {
                 composable<Route.Settings> { Text("settings") }
                 composable<Route.Dashboard> { Text("dashboard") }
                 composable<Route.SecurityHub> { Text("hub") }
+                composable<Route.OpenWallet> { Text("open") }
             }
         }
         waitForIdle()
@@ -73,6 +74,7 @@ class UcNavigationSecurityTest {
         destination.hasRoute<Route.Welcome>() -> "welcome"
         destination.hasRoute<Route.DevicePinUnlock>() -> "unlock"
         destination.hasRoute<Route.SecurityHub>() -> "hub"
+        destination.hasRoute<Route.OpenWallet>() -> "open:" + toRoute<Route.OpenWallet>().walletId
         else -> destination.route.orEmpty()
     }
 
@@ -99,14 +101,22 @@ class UcNavigationSecurityTest {
     }
 
     @Test
-    fun `SEC-145 Wallet without an open wallet goes to the tracker HOME`() = runDesktopComposeUiTest {
+    fun `SEC-145 Wallet with no wallet open and none tracked goes to the tracker HOME`() = runDesktopComposeUiTest {
         val nc = host(Route.Tracking(section = TrackerSection.BUDGET.wire))
-        runOnIdle { nc.handleRailTab(Tab.Wallet, current = Tab.Budget, walletOpen = false) }
+        runOnIdle { nc.handleRailTab(Tab.Wallet, current = Tab.Budget, walletOpen = false, firstWalletId = null) }
         waitForIdle()
         runOnIdle {
             assertEquals("tracking:home", nc.currentBackStackEntry!!.describe())
             assertNull(nc.previousBackStackEntry)
         }
+    }
+
+    @Test
+    fun `SEC-145 Wallet without an open wallet opens the first tracked one`() = runDesktopComposeUiTest {
+        val nc = host(Route.Tracking())
+        runOnIdle { nc.handleRailTab(Tab.Wallet, current = Tab.Home, walletOpen = false, firstWalletId = "w1") }
+        waitForIdle()
+        runOnIdle { assertEquals("open:w1", nc.currentBackStackEntry!!.describe()) }
     }
 
     @Test

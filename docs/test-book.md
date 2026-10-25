@@ -2527,3 +2527,41 @@ Gli screenshot della revisione grafica finiscono in `apps/desktop/build/screensh
 | 63.2 | Gruppi            | 1. Scorri tutta la colonna.                 | Ogni controllo di prima c'è, nel gruppo giusto.          | [auto] SettingsScreenTest (tutti) |
 | 63.3 | Finestra stretta  | 1. Restringi la finestra.                   | Indice e card restano leggibili.                         | [ ] |
 | 63.4 | Tema chiaro       | 1. Tema chiaro.                             | Leggibile.                                               | [auto] screenshot `settings-light.png` |
+
+## 64. Report con elenco a sinistra e torte (2026-10-25)
+
+> Proposta "A + torte di C". A sinistra l'elenco dei report (Per categoria,
+> Per wallet); a destra un report alla volta. Per categoria: totali del periodo
+> (uscite, entrate, netto, risparmiato) con la variazione sul periodo prima,
+> tre insight (cresciuta di più, scesa di più, prima voce), torta delle uscite
+> con legenda cliccabile e barre "questo periodo / periodo prima", poi la
+> tabella. Il segnaposto "Controparti" è stato tolto.
+
+| #    | Test              | Passi                                                  | Atteso                                                                   | Pass |
+|------|-------------------|--------------------------------------------------------|--------------------------------------------------------------------------|------|
+| 64.1 | Confronto         | 1. Periodo 30 giorni, spese anche nei 30 prima.        | Percentuali di variazione per categoria e sui totali.                     | [auto] ReportsOverviewTest.`categories compare with the previous window` |
+| 64.2 | Periodo "Tutto"   | 1. Periodo Tutto.                                      | Nessuna variazione, nessuna barra sottile.                                | [ ] |
+| 64.3 | Legenda           | 1. Clic su una categoria nella legenda della torta.    | Fetta e barra di quella categoria evidenziate.                            | [ ] |
+| 64.4 | Elenco report     | 1. Clic su "Per wallet".                               | Solo la tabella per wallet.                                               | [auto] ReportsOverviewTest.`the report list switches…` |
+| 64.5 | Tema chiaro       | 1. Tema chiaro.                                        | Leggibile.                                                                | [auto] screenshot `reports-light.png` |
+
+## 65. Wallet: card dei conti e mappa delle monete (2026-10-25)
+
+> Mix delle proposte A e C. Sopra il workspace una fila di card, una per
+> wallet tracciato: nome, tipo, rete, saldo, sparkline a 30 giorni e stato
+> (sincronizzato / non aggiornato, con "?"). Il wallet aperto è evidenziato,
+> clic su un altro lo apre; l'ultima card aggiunge un wallet. Nell'header c'è
+> "Ricevi". Nella scheda UTXO, sopra la tabella, la mappa delle monete: un
+> blocco per UTXO largo in proporzione all'importo, confermati e in attesa
+> con colori diversi. Il tasto Wallet della barra laterale, senza wallet
+> aperto, apre il primo wallet tracciato.
+
+| #    | Test                | Passi                                                   | Atteso                                                          | Pass |
+|------|---------------------|---------------------------------------------------------|-----------------------------------------------------------------|------|
+| 65.1 | Card dei conti      | 1. Apri un wallet con almeno due wallet tracciati. 2. Clic sull'altra card. | Si apre l'altro wallet.                          | [auto] WalletCardsTest.`cards show every wallet…` |
+| 65.2 | Sparkline           | 1. Wallet con movimenti negli ultimi 30 giorni.        | Linea che segue il saldo; nessuna linea se il saldo non è cambiato. | [auto] WalletCardsTest.`balance series…` |
+| 65.3 | Non aggiornato      | 1. Fai fallire la sync di un wallet.                    | Card "non aggiornato" con "?" che spiega cosa fare.            | [ ] |
+| 65.4 | Ricevi              | 1. Clic su "Ricevi" nell'header.                        | Scheda Ricevi. Assente sui wallet a lista di indirizzi.         | [auto] WalletCardsTest.`the workspace shows the cards…` |
+| 65.5 | Mappa delle monete  | 1. Scheda UTXO.                                         | Un blocco per UTXO, i più grandi prima; legenda confermato / in attesa. | [auto] screenshot `wallet-dark.png` |
+| 65.6 | Tasto Wallet        | 1. Blocca e sblocca. 2. Tasto Wallet nella barra.       | Si apre il primo wallet tracciato; senza wallet, la Home.       | [auto] UcNavigationSecurityTest.`SEC-145…` |
+| 65.7 | Tema chiaro         | 1. Tema chiaro.                                         | Leggibile.                                                      | [auto] screenshot `wallet-light.png` |
