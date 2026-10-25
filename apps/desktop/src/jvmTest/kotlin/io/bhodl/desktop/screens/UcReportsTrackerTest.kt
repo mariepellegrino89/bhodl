@@ -190,7 +190,7 @@ class UcReportsTrackerTest {
             BhodlTheme {
                 androidx.compose.foundation.layout.Column {
                     BudgetBreakdownCard("Spending", rows, onEditBudget = { _, _ -> })
-                    BillsTrackerCard(listOf(TrackingBillFfi(1, "Rent", 27_182UL, 5u, null, null, 0)), {}, {}, { _, _ -> })
+                    BillsCalendarStrip(listOf(TrackingBillFfi(1, "Rent", 27_182UL, 5u, null, null, 0)), todayLocal(), { _, _ -> }, {}, {})
                     RecurringCard(listOf(candidate), {}, {})
                     RulesCard(listOf(TrackingRuleFfi(1, "Big", "amount", "gt", "31415", "category", "Big", 0, true, 0)), {}, {}, {})
                     HistoryTabBody(

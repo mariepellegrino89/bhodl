@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="bgc_summary">Budget · %1$s</string>
+    <string name="bgc_summary_help">Budget di spesa proporzionati al periodo scelto. Anello esterno: quanto hai speso del budget. Anello interno: entrate ricevute rispetto a quelle previste. I budget sono in sat, quindi li muove anche il prezzo di BTC.</string>
+    <string name="bgc_left_center">restano</string>
+    <string name="bgc_over_center">oltre il budget</string>
+    <string name="bgc_budget">Budget</string>
+    <string name="bgc_spent">Speso</string>
+    <string name="bgc_unbudgeted">Speso senza budget</string>
+    <string name="bgc_price_effect">Effetto prezzo</string>
+    <string name="bgc_spent_ring">Speso / budget</string>
+    <string name="bgc_income_ring">Entrate / previste</string>
+    <string name="bgc_categories">Categorie</string>
+    <string name="bgc_categories_help">Una card per categoria con budget, la più usata per prima. Clic su una card per cambiare il budget; sotto le categorie con spese ma senza budget.</string>
+    <string name="bgc_left">Restano %1$s</string>
+    <string name="bgc_over">Sforato di %1$s</string>
+    <string name="bgc_price_line">Prezzo %1$s · spesa %2$s rispetto al periodo prima</string>
+    <string name="bgc_view_tx">Vedi transazioni</string>
+    <string name="bgc_no_budget">Senza budget:</string>
+    <string name="bgc_bills">Bollette · prossimi 30 giorni</string>
+    <string name="bgc_bills_help">Le bollette dei prossimi 30 giorni. Evidenziate se scadono entro 3 giorni; segnale come pagate da qui. Una bolletta già pagata questo mese mostra la data successiva.</string>
+    <string name="bgc_bills_none">Nessuna bolletta nei prossimi 30 giorni.</string>
+    <string name="bgc_add_bill">+ Bolletta</string>
+    <string name="bgc_paid">Pagata ✓</string>
+    <string name="bgc_mark_paid">Segna pagata</string>
+</resources>

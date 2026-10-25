@@ -174,36 +174,6 @@ class UcCardsTrackerTest {
     }
 
     @Test
-    fun `TRK-093 bills card shows the paid chip only for this month and toggles it`() = runDesktopComposeUiTest {
-        val paidNow = TrackingBillFfi(1, "Rent", 1_000UL, 5u, now, "flat 2B", 0)
-        val paidLastYear = TrackingBillFfi(2, "Gym", 500UL, 9u, now - 400L * 86_400L, null, 0)
-        val toggles = mutableListOf<Pair<Long, Boolean>>()
-        setContent {
-            BhodlTheme {
-                BillsTrackerCard(listOf(paidNow, paidLastYear), onAdd = {}, onEdit = {}, onTogglePaid = { b, p -> toggles += b.id to p })
-            }
-        }
-        waitUntilAtLeastOneExists(hasText("✓ Paid"))
-        assertEquals(1, countText("✓ Paid"))
-        assertEquals(1, countText("Mark paid"))
-        assertEquals(1, countText("flat 2B"))
-        onNodeWithTag(BillTags.paidChip(1)).performClick()
-        onNodeWithTag(BillTags.paidChip(2)).performClick()
-        assertEquals(listOf(1L to false, 2L to true), toggles)
-    }
-
-    @Test
-    fun `TRK-093 empty bills card shows its hint and Add`() = runDesktopComposeUiTest {
-        var added = 0
-        setContent { BhodlTheme { BillsTrackerCard(emptyList(), onAdd = { added++ }, onEdit = {}, onTogglePaid = { _, _ -> }) } }
-        waitUntilAtLeastOneExists(hasText("No bills yet", substring = true))
-        onNodeWithTag(BillTags.ADD).performClick()
-        assertEquals(1, added)
-    }
-
-    // ─── TRK-099 / TRK-104 — budgets ────────────────────────────────
-
-    @Test
     fun `TRK-099 budget dialog saves only a whole number of sats`() = runDesktopComposeUiTest {
         var saved: ULong? = null
         setContent {

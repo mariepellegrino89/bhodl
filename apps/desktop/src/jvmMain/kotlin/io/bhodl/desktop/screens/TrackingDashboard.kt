@@ -392,21 +392,36 @@ internal fun TrackingDashboardTab(
             val expenseMoves = remember(expenseRows, priceHistory, events) {
                 movesFor(expenseRows, TrackingDirection.EXPENSE)
             }
-            if (incomeRows.isNotEmpty() || expenseRows.isNotEmpty()) {
+            // Budget redesign 2026-10 (proposal C): summary rings, one card
+            // per category, the 30-day bills strip, then recurring and rules.
+            val summary = remember(expenseRows, expenseMoves) { budgetSummary(expenseRows, expenseMoves) }
+            val incomeBudget = incomeRows.filter { it.budgetForPeriodSat != null }
+            val incomeFraction = incomeBudget.sumOf { it.budgetForPeriodSat!!.toLong() }.takeIf { it > 0L }
+                ?.let { incomeBudget.sumOf { r -> r.actualSat.toLong() }.toFloat() / it }
+            BudgetSummaryCard(summary = summary, incomeFraction = incomeFraction, periodLabel = period.label, modifier = Modifier.fillMaxWidth())
+            if (expenseRows.isNotEmpty()) {
+                BudgetCategoryGrid(
+                    rows = expenseRows,
+                    moves = expenseMoves,
+                    onEditBudget = onEditBudget,
+                    onViewTransactions = onCategoryDrillDown,
+                )
+            }
+            BillsCalendarStrip(
+                bills = bills,
+                today = todayLocal(),
+                onToggleBillPaid = onToggleBillPaid,
+                onEditBill = onEditBill,
+                onAddBill = onAddBill,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            if (incomeRows.any { it.budgetForPeriodSat != null }) {
                 BudgetBreakdownCard(
                     title = stringResource(Res.string.trk_chart_income_breakdown, period.label),
                     rows = incomeRows,
                     onEditBudget = onEditBudget,
                     proratedToLabel = period.label,
                     moves = incomeMoves,
-                )
-                BudgetBreakdownCard(
-                    title = stringResource(Res.string.trk_chart_expense_breakdown, period.label),
-                    rows = expenseRows,
-                    onEditBudget = onEditBudget,
-                    proratedToLabel = period.label,
-                    moves = expenseMoves,
-                    showSatsNote = true,
                 )
             }
 
@@ -415,23 +430,6 @@ internal fun TrackingDashboardTab(
                 onAccept = onAcceptRecurring,
                 onDismiss = onDismissRecurring,
             )
-
-            BillsTrackerCard(
-                bills = bills, onAdd = onAddBill,
-                onEdit = onEditBill, onTogglePaid = onToggleBillPaid,
-            )
-
-            if (inPeriod.any { it.direction == PaymentDirection.OUTGOING }) {
-                ChartCard(
-                    title = stringResource(Res.string.trk_chart_expense_by_category, period.label),
-                    height = null,
-                ) {
-                    ExpenseLollipopChart(
-                        events = inPeriod,
-                        onCategoryClick = onCategoryDrillDown,
-                    )
-                }
-            }
 
             // Automation block — rules are configuration, not
             // monitoring; they close the page instead of crowding it.

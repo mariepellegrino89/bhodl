@@ -2493,3 +2493,22 @@ Gli screenshot della revisione grafica finiscono in `apps/desktop/build/screensh
 ./gradlew :apps:desktop:jvmTest --tests "io.bhodl.desktop.screens.GoalsCardsTest" \
   --tests "io.bhodl.desktop.screens.SavingsGoalsCard*"
 ```
+
+## 62. Budget e bollette a card (2026-10-25)
+
+> Proposta C scelta. In alto il riepilogo con due anelli (esterno: speso sul
+> budget del periodo; interno: entrate ricevute su quelle previste, se ci sono
+> budget di entrata) e quattro numeri (budget, speso, speso senza budget,
+> effetto prezzo). Poi una card per categoria con anello, "restano" o
+> "sforato di", la parte di prezzo e di spesa, e "Vedi transazioni"; le
+> categorie senza budget sono pillole "+". Poi il calendario delle bollette dei
+> prossimi 30 giorni, i ricorrenti e le regole. Il grafico a lecca-lecca delle
+> spese è stato tolto: le card lo sostituiscono.
+
+| #    | Test                 | Passi                                                          | Atteso                                                                   | Pass |
+|------|----------------------|----------------------------------------------------------------|--------------------------------------------------------------------------|------|
+| 62.1 | Riepilogo            | 1. Budget su alcune categorie, spese nel periodo.              | Totali dei soli budget; "restano" al centro dell'anello.                 | [auto] BudgetCardsTest.`summary totals only the budgeted categories…` |
+| 62.2 | Card categoria       | 1. Clic su una card. 2. "Vedi transazioni".                    | 1: apre il budget. 2: Transazioni filtrate su quella categoria.          | [auto] UcRegistryWiringTrackerTest.`TRK-099…` |
+| 62.3 | Senza budget         | 1. Spese in una categoria senza budget.                        | Pillola "Categoria · importo +" che apre il budget.                     | [ ] |
+| 62.4 | Bollette             | 1. Bollette nei prossimi 30 giorni. 2. "Segna pagata".         | Evidenziate se entro 3 giorni; pagata passa al mese dopo se entro 30 giorni. | [auto] BudgetCardsTest.`upcoming bills…` + UcRegistryWiringTrackerTest |
+| 62.5 | Tema chiaro          | 1. Tema chiaro.                                                | Leggibile.                                                               | [auto] screenshot `budget-light.png` |
