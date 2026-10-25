@@ -600,22 +600,33 @@ public object TrackerCache {
                                             IllegalStateException("unknown network '${row.network}'"),
                                         )
                                     } else {
-                                        val full = fullScan || row.id !in fullyScanned
-                                        fun syncAgainst(url: String) = runCatching {
+                                        val wantFull = fullScan || row.id !in fullyScanned
+                                        fun syncAgainst(url: String, full: Boolean): Result<Unit> = runCatching {
                                             if (full) {
                                                 handle.syncWithEsplora(url, proxy)
                                             } else {
                                                 handle.syncWithEsploraIncremental(url, proxy)
                                             }
                                         }
-                                        var attempt = syncAgainst(EsploraEndpoint.current(network))
+                                        var attempt = syncAgainst(EsploraEndpoint.current(network), wantFull)
                                         // The built-in signet server failed: try the other public one.
                                         val fallback = EsploraEndpoint.fallback(network)
                                         if (attempt.isFailure && fallback != null) {
                                             debugLog("sync of '${row.label}' failed on the default server, trying $fallback")
-                                            attempt = syncAgainst(fallback)
+                                            attempt = syncAgainst(fallback, wantFull)
                                         }
-                                        attempt.onSuccess { if (full) fullyScanned += row.id }
+                                        if (attempt.isSuccess && wantFull) fullyScanned += row.id
+                                        // Last resort: a full scan failed everywhere — at least the
+                                        // incremental one (the wallet keeps the addresses it already
+                                        // knows from earlier sessions). Not marked as fully scanned:
+                                        // the next full pass tries again.
+                                        if (attempt.isFailure && wantFull) {
+                                            val last = fallback ?: EsploraEndpoint.current(network)
+                                            debugLog("full scan of '${row.label}' failed, trying an incremental sync on $last")
+                                            val incremental = syncAgainst(last, full = false)
+                                            if (incremental.isSuccess) attempt = incremental
+                                        }
+                                        attempt
                                     }
                                     result.exceptionOrNull()?.let { e ->
                                         syncFailures++
