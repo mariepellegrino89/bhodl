@@ -62,6 +62,7 @@ import io.bhodl.shared.resources.privacy_hide_amounts
 import io.bhodl.shared.resources.privacy_show_amounts
 import io.bhodl.shared.resources.security_hub_open
 import org.jetbrains.compose.resources.stringResource
+import io.bhodl.desktop.ui.userMessage
 import io.bhodl.desktop.ui.bhodlCard
 import io.bhodl.desktop.ui.displayAmount
 import io.bhodl.desktop.wizard.RegistryStore
@@ -95,6 +96,7 @@ import io.bhodl.shared.resources.trp_cb_err_save
 import io.bhodl.shared.resources.trk_err_save_event_kind
 import io.bhodl.shared.resources.trk_err_save_goal
 import io.bhodl.shared.resources.trk_err_save_investment
+import io.bhodl.shared.resources.trk_err_save_details
 import io.bhodl.shared.resources.trk_err_save_liability
 import io.bhodl.shared.resources.trk_err_save_lot
 import io.bhodl.shared.resources.trk_err_save_manual_asset
@@ -237,6 +239,8 @@ public fun TrackingScreen(
     var goalDialog by remember { mutableStateOf<io.bhodl.ffi.TrackingSavingsGoalFfi?>(null) }
     var showNewGoal by remember { mutableStateOf(false) }
     var liabilityDialog by remember { mutableStateOf<io.bhodl.ffi.TrackingLiabilityFfi?>(null) }
+    // Portfolio redesign 2026-10 — kind-specific details editor.
+    var detailsRequest by remember { mutableStateOf<DetailsEditRequest?>(null) }
     var showNewLiability by remember { mutableStateOf(false) }
     // Phase 7.4 — same Add/Edit pair for manual assets.
     var manualAssetDialog by remember { mutableStateOf<io.bhodl.ffi.TrackingManualAssetFfi?>(null) }
@@ -614,6 +618,7 @@ public fun TrackingScreen(
                                 RegistryStore.bumpDataVersion()
                             }
                         },
+                        onEditDetails = { req -> detailsRequest = req },
                         // Phase 7.2.4 — feed the SavingsGoalsCard the
                         // NW context it needs to derive `current_sat`
                         // for non-manual buckets and render the live
@@ -872,6 +877,34 @@ public fun TrackingScreen(
                     }
                     showNewInvestment = false
                     investmentDialog = null
+                    RegistryStore.bumpDataVersion()
+                }
+            },
+        )
+    }
+
+    // Portfolio redesign 2026-10 — details of one investment / manual
+    // asset / liability (registry v6 `details_json`).
+    detailsRequest?.let { req ->
+        PortfolioDetailsDialog(
+            request = req,
+            linkableAssets = manualAssets,
+            onDismiss = { detailsRequest = null },
+            onSave = { json ->
+                val registry = RegistryStore.current()
+                val table = req.category.detailsTable
+                if (registry == null || table == null) {
+                    lastError = registryNotOpen
+                    detailsRequest = null
+                    return@PortfolioDetailsDialog
+                }
+                scope.launch {
+                    runCatching {
+                        withContext(Dispatchers.IO) { registry.setPortfolioDetails(table, req.recordId, json) }
+                    }.onFailure { e ->
+                        lastError = e.userMessage(getString(Res.string.trk_err_save_details))
+                    }
+                    detailsRequest = null
                     RegistryStore.bumpDataVersion()
                 }
             },

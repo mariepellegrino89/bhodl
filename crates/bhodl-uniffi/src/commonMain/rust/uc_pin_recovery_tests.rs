@@ -235,3 +235,35 @@ fn typed_codes_are_normalized_for_look_alikes_and_separators() {
     assert!(normalize_recovery_code("0123456789ABCDEFGHJKMNPQR").is_none());
     assert!(normalize_recovery_code("0123456789ABCDEFGHJKMNPé").is_none());
 }
+
+#[test]
+fn portfolio_details_survive_a_reopen_and_reject_bad_objects() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let id = {
+        let handle = open(dir.path(), PIN).unwrap();
+        let id = handle
+            .add_liability("Mutuo".into(), 1_000, "mortgage".into(), None)
+            .unwrap();
+        assert!(
+            handle
+                .set_portfolio_details("liability".into(), id, r#"{"rate_pct":2.9}"#.into())
+                .unwrap()
+        );
+        assert!(matches!(
+            handle.set_portfolio_details("liability".into(), id, "[1]".into()),
+            Err(WalletError::InvalidArgument { .. })
+        ));
+        id
+    };
+    let handle = open(dir.path(), PIN).unwrap();
+    let rows = handle.list_portfolio_details("liability".into()).unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].id, id);
+    assert_eq!(rows[0].details_json, r#"{"rate_pct":2.9}"#);
+    assert!(
+        handle
+            .list_portfolio_details("investment".into())
+            .unwrap()
+            .is_empty()
+    );
+}

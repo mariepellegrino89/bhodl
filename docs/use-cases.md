@@ -24,8 +24,8 @@ Aree:
 | A. Sicurezza, impostazioni | 172 | 162 | 9 | 1 |
 | B. Wallet watch-only | 130 | 125 | 1 | 4 |
 | C. Tracker | 171 | 150 | 15 | 6 |
-| D. Portafoglio | 150 | 141 | 9 | 0 |
-| E. Casi aggiunti in revisione | 37 | 28 | 6 | 3 |
+| D. Portafoglio | 154 | 145 | 9 | 0 |
+| E. Casi aggiunti in revisione | 38 | 29 | 6 | 3 |
 
 I PARTIAL/UNCOVERED rimasti hanno una motivazione nella sezione F
 (wiring in `Main.kt`, card non montate, funzioni mancanti, scenari che
@@ -1111,6 +1111,10 @@ Stato: COVERED = logica + persistenza testate in automatico; PARTIAL = parte tes
 | PRT-148 | Conversione fiat→sat nella valuta propria di ogni riga (rateFor), righe senza tasso escluse | GoalBuckets.kt:fiatToSatInCurrency; PriceCache.kt:rateFor | GoalBucketsTest::rateFor converts each row at its own currency, ::rows without a rate are left out, ::MANUAL_ASSET bucket converts at the asset currency | COVERED |
 | PRT-149 | Totali investimenti cross-currency: valore BTC sconosciuto con motivo se manca un tasso corrente | InvestmentsCard.kt:computeInvestmentsTotals | InvestmentsTotalsTest::B2 a missing current rate makes the BTC value unknown and says why, ::B2 BTC value total covers every row at its own currency rate | COVERED |
 | PRT-150 | Riga BTC di investimenti/manual asset esteri tramite i tassi per valuta di PriceCache (AAPL/USD su dashboard EUR) | AssetPortfolioCard.kt:resolveRate; ManualAssetsCard/InvestmentsCard | ManualAssetsCardBitcoinLensTest::delta BTC renders percentage for cross-currency asset when rate is cached | **PARTIAL + BUG** (test in §F; prima: PARTIAL) |
+| PRT-151 | Vista Schede del Portafoglio: quattro card di classe (valore, peso, variazione nel periodo, andamento, prime tre voci), elenco della classe e card della voce scelta | K/screens/PortfolioClassView.kt:PortfolioClassView | K/screens/PortfolioClassViewTest::the first class with items is open…, ::render the portfolio cards… | COVERED |
+| PRT-152 | Card di dettaglio per categoria (19 categorie: wallet, azione, ETF, fondo, valuta, materia prima, liquidità, conto titoli, immobile, veicolo, collezione, partecipazione, prestito a terzi, mutuo, prestito, carta…) con numeri derivati (costo TER, interesse, LTV ed equity, rimborsato, utilizzo plafond, valore stimato…) | K/screens/PortfolioDetails.kt:investmentCardModel/manualAssetCardModel/liabilityCardModel/walletCardModel | K/screens/PortfolioDetailsTest (16 test); K/screens/PortfolioClassViewTest::an ETF card…, ::a mortgage card… | COVERED |
+| PRT-153 | Dettagli facoltativi per tipo (registry v6 `details_json`): editor, validazione, collegamento debito → bene | R:set_details/list_details/validate_details_json; U/lib.rs:set_portfolio_details/list_portfolio_details; K/screens/PortfolioClassView.kt:PortfolioDetailsDialog | R::details_round_trip_on_every_portfolio_table, R::details_reject_unknown_tables_and_malformed_objects; U/uc_pin_recovery_tests::portfolio_details_survive_a_reopen_and_reject_bad_objects; K::the details editor saves typed values…, ::Details opens the editor… | COVERED |
+| PRT-154 | Interruttore Schede ⇄ Tabella (la Tabella mantiene bilancio, costo medio BTC, investimenti e asset manuali) | K/screens/AssetPortfolioCard.kt:PortfolioViewToggle; TrackingDashboard.kt (PORTFOLIO) | K::the Cards and Table toggle switches the portfolio view | COVERED |
 
 ### Riepilogo
 
@@ -1166,6 +1170,7 @@ Percorsi abbreviati: `D/` = `apps/desktop/src/jvmMain/kotlin/io/bhodl/desktop/`,
 | GAP-024 | La rimozione di un wallet lascia il suo id in `excludedWalletIds` (settings.json non cifrato) | D/screens/SettingsWalletSections.kt:RemoveThisWalletSection, D/settings/SettingsStore.kt | — | **COVERED** (test in §F; prima: UNCOVERED:) |
 | GAP-025 | Migrazione registry v3→v4: backfill di `wallets.mirror_of` solo quando è univoco (label generata dall'app + stessa xpub e rete + candidato unico nei due sensi) | O/registry.rs:backfill_mirror_links, is_pairing_mirror_label | O/registry.rs::pairing_mirror_label_matching (solo le label) | **COVERED** (test in §F; prima: PARTIAL:) |
 | GAP-026 | Migrazione v4→v5: creazione di `tracking_event_cost_basis` su un registry v4 esistente, con i dati delle altre tabelle intatti | O/registry.rs:ensure_schema (step `< 5`) | — (`event_cost_basis_round_trip_and_reset` gira solo su un DB nuovo) | **COVERED** (test in §F; prima: UNCOVERED:) |
+| GAP-038 | Migrazione v5→v6: colonna `details_json` sulle tre tabelle del portafoglio, dati intatti | O/registry.rs:ensure_schema (step `< 6`) | R::v5_registry_gains_details_columns_and_keeps_its_rows | COVERED |
 | GAP-027 | Atomicità della migrazione: se un passo fallisce, il DB resta alla versione precedente (una sola transazione per migrazioni e stamp) | O/registry.rs:ensure_schema | — | **COVERED** (test in §F; prima: UNCOVERED:) |
 | GAP-028 | Apertura di un registry storico reale (schema pre-versioning con colonne mancanti) fino alla v5 in un colpo solo | O/registry.rs:ensure_schema, apply_schema_v1_baseline | O/registry.rs::schema_version_reconciles_a_legacy_unstamped_db (DB nuovo con l'header riportato a 0, non uno schema vecchio) | **COVERED** (test in §F; prima: PARTIAL:) |
 | GAP-029 | Layout della data dir fisso in `~/.bhodl`, senza override: registry.sqlite, registry.kdf.json (+.sealed/.next), watch-state/, settings.json, pin_failures.json. `chmod 700` solo alla creazione del PIN (settings.json crea la dir prima; watch-state/ non viene ristretta) | D/wizard/WalletPaths.kt:defaultDataDir, restrictToOwner; D/screens/DevicePinSetupScreen.kt | T/wizard/WalletPathsTest::defaultDataDir_lives_under_user_home, ::saltFile_is_inside_the_data_dir | **COVERED (CI Linux)** (test in §F; prima: PARTIAL:) |

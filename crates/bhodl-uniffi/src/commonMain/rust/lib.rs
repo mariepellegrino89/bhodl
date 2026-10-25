@@ -1053,6 +1053,14 @@ pub struct TrackingManualAssetFfi {
     pub purchase_btc_at_time: Option<f64>,
 }
 
+/// Registry v6 — the details object of one portfolio row (investment,
+/// manual asset or liability), a flat JSON object.
+#[derive(uniffi::Record)]
+pub struct PortfolioDetailsFfi {
+    pub id: i64,
+    pub details_json: String,
+}
+
 /// Phase 4.6 — manual liability exposed across the FFI.
 #[derive(uniffi::Record)]
 pub struct TrackingLiabilityFfi {
@@ -2198,6 +2206,41 @@ impl RegistryHandle {
             detail: "registry mutex poisoned".into(),
         })?;
         Ok(guard.delete_liability(id)?)
+    }
+
+    // ----------------------------------------------------------------
+    // Registry v6 — kind-specific details of portfolio rows
+    // ----------------------------------------------------------------
+
+    /// Store the details object of one row of `table` (`investment`,
+    /// `manual_asset` or `liability`). `{}` clears it. Returns `false`
+    /// when the id does not exist. Malformed objects are refused with
+    /// `InvalidArgument`.
+    pub fn set_portfolio_details(
+        &self,
+        table: String,
+        id: i64,
+        details_json: String,
+    ) -> Result<bool, WalletError> {
+        let guard = self.inner.lock().map_err(|_| WalletError::Storage {
+            detail: "registry mutex poisoned".into(),
+        })?;
+        Ok(guard.set_details(&table, id, &details_json)?)
+    }
+
+    /// Details of every row of `table` that has any.
+    pub fn list_portfolio_details(
+        &self,
+        table: String,
+    ) -> Result<Vec<PortfolioDetailsFfi>, WalletError> {
+        let guard = self.inner.lock().map_err(|_| WalletError::Storage {
+            detail: "registry mutex poisoned".into(),
+        })?;
+        Ok(guard
+            .list_details(&table)?
+            .into_iter()
+            .map(|(id, details_json)| PortfolioDetailsFfi { id, details_json })
+            .collect())
     }
 
     // ----------------------------------------------------------------

@@ -193,6 +193,11 @@ public object TrackerCache {
     private val _manualAssets = mutableStateOf<List<TrackingManualAssetFfi>>(emptyList())
     public val manualAssets: State<List<TrackingManualAssetFfi>> get() = _manualAssets
 
+    /** Registry v6 — kind-specific details of investments, manual assets
+     *  and liabilities (Portfolio detail cards). */
+    private val _portfolioDetails = mutableStateOf(io.bhodl.desktop.screens.PortfolioDetails())
+    internal val portfolioDetails: State<io.bhodl.desktop.screens.PortfolioDetails> get() = _portfolioDetails
+
     private val _manualAssetsSat = mutableStateOf<ULong>(0UL)
     public val manualAssetsSat: State<ULong> get() = _manualAssetsSat
 
@@ -344,6 +349,7 @@ public object TrackerCache {
             _bills.value = emptyList()
             _goals.value = emptyList()
             _liabilities.value = emptyList()
+            _portfolioDetails.value = io.bhodl.desktop.screens.PortfolioDetails()
             _investments.value = emptyList()
             _investmentLotsByInvestmentId.value = emptyMap()
             _investmentSellsByInvestmentId.value = emptyMap()
@@ -801,6 +807,7 @@ public object TrackerCache {
                             .getOrDefault(emptyList()),
                         liabilities = runCatching { registry.listLiabilities() }
                             .getOrDefault(emptyList()),
+                        portfolioDetails = loadPortfolioDetails(registry),
                         investments = investmentsList,
                         investmentLotsByInvestmentId = healed.lotsByInvestmentId,
                         investmentSellsByInvestmentId = healed.sellsByInvestmentId,
@@ -844,6 +851,7 @@ public object TrackerCache {
                         _bills.value = snap.bills
                         _goals.value = snap.goals
                         _liabilities.value = snap.liabilities
+                        _portfolioDetails.value = snap.portfolioDetails
                         _investments.value = snap.investments
                         _investmentLotsByInvestmentId.value = snap.investmentLotsByInvestmentId
                         _investmentSellsByInvestmentId.value = snap.investmentSellsByInvestmentId
@@ -959,6 +967,7 @@ public object TrackerCache {
         val bills: List<TrackingBillFfi>,
         val goals: List<TrackingSavingsGoalFfi>,
         val liabilities: List<TrackingLiabilityFfi>,
+        val portfolioDetails: io.bhodl.desktop.screens.PortfolioDetails = io.bhodl.desktop.screens.PortfolioDetails(),
         val investments: List<TrackingInvestmentFfi>,
         val investmentLotsByInvestmentId: Map<Long, List<TrackingInvestmentLotFfi>>,
         val investmentSellsByInvestmentId: Map<Long, List<TrackingInvestmentSellFfi>>,
@@ -972,6 +981,20 @@ public object TrackerCache {
         val eventLegs: List<PaymentEvent> = emptyList(),
         val costBasisInputs: Map<String, io.bhodl.ffi.EventCostBasisFfi> = emptyMap(),
     )
+
+    /** Registry v6 — the three `details_json` tables, parsed. A failing
+     *  table reads as empty (the cards then show no details). */
+    private fun loadPortfolioDetails(registry: io.bhodl.ffi.RegistryHandle): io.bhodl.desktop.screens.PortfolioDetails {
+        fun load(table: String): Map<Long, Map<String, String>> =
+            runCatching { registry.listPortfolioDetails(table) }
+                .getOrDefault(emptyList())
+                .associate { it.id to io.bhodl.desktop.screens.parseDetailsJson(it.detailsJson) }
+        return io.bhodl.desktop.screens.PortfolioDetails(
+            investments = load("investment"),
+            manualAssets = load("manual_asset"),
+            liabilities = load("liability"),
+        )
+    }
 
     /** Test-only seam: prime the cache so a Compose UI test can render
      *  TrackerHome / TrackingScreen without a real registry. */
@@ -987,6 +1010,7 @@ public object TrackerCache {
         investmentsAssetSat: ULong = 0UL,
         investmentsPricingAvailable: Boolean = false,
         liabilities: List<TrackingLiabilityFfi> = emptyList(),
+        portfolioDetails: io.bhodl.desktop.screens.PortfolioDetails = io.bhodl.desktop.screens.PortfolioDetails(),
         investments: List<TrackingInvestmentFfi> = emptyList(),
         investmentLotsByInvestmentId: Map<Long, List<TrackingInvestmentLotFfi>> = emptyMap(),
         investmentSellsByInvestmentId: Map<Long, List<TrackingInvestmentSellFfi>> = emptyMap(),
@@ -1018,6 +1042,7 @@ public object TrackerCache {
         _investmentsPricingAvailable.value = investmentsPricingAvailable
         _totalAssetSat.value = bitcoinAssetSat + investmentsAssetSat + manualAssetsSat
         _liabilities.value = liabilities
+        _portfolioDetails.value = portfolioDetails
         _investments.value = investments
         _investmentLotsByInvestmentId.value = investmentLotsByInvestmentId
         _investmentSellsByInvestmentId.value = investmentSellsByInvestmentId

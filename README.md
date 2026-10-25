@@ -49,6 +49,10 @@ server cannot link your addresses to your IP address.
 
 - Net worth in sats/BTC across watch-only wallets, investments, manual assets (cash, real
   estate, vehicles…) and liabilities, with history.
+- Portfolio as class cards (Bitcoin, investments, manual assets, liabilities) with a
+  detail card per item: each type has its own facts (ETF TER and yearly cost, deposit rate
+  and maturity, house equity and LTV against the linked mortgage, credit card utilisation…).
+  The balance-sheet table is one click away.
 - **Bitcoin Lens**: bitcoin is the unit of account. The BTC chart is not smoothed: if your
   fiat savings lose value against bitcoin, you see it.
 - Investments with tax lots and FIFO / HIFO / Specific-ID cost basis, a sell flow that

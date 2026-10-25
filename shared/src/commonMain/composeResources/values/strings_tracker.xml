@@ -164,6 +164,7 @@
     <string name="trk_err_save_goal">Failed to save goal.</string>
     <string name="trk_err_save_investment">Failed to save investment.</string>
     <string name="trk_err_save_liability">Failed to save liability.</string>
+    <string name="trk_err_save_details">Failed to save the details.</string>
     <string name="trk_err_save_lot">Failed to save lot.</string>
     <string name="trk_err_save_manual_asset">Failed to save manual asset.</string>
     <string name="trk_err_save_rule">Failed to save rule.</string>

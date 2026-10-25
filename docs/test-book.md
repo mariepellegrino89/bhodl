@@ -2376,3 +2376,40 @@ cargo test -p bhodl-uniffi uc_pin_recovery
   --tests "io.bhodl.desktop.ui.SensitiveClipboardTest"
 cargo test -p bhodl-wallet-onchain --lib tor
 ```
+
+## 58. Portafoglio a schede (2026-10-25)
+
+> Proposte B + D + E della tela di design. Tracker › Portfolio apre la vista
+> **Schede**: quattro card di classe (Bitcoin, Investimenti, Asset manuali,
+> Debiti) con valore, peso sul netto, variazione nel periodo, andamento e le
+> prime tre voci; sotto, l'elenco della classe e la card della voce scelta.
+> Ogni tipo ha i suoi dettagli facoltativi (registry v6, colonna
+> `details_json`), modificabili con "Dettagli". "Tabella" riporta il
+> bilancio a righe con le card investimenti / asset manuali sotto.
+
+Dati di esempio: un ETF con lotti e una vendita, un conto deposito, una casa con
+mutuo collegato, una carta di credito.
+
+| #    | Test                               | Passi                                                                                          | Atteso                                                                                                                      | Pass |
+|------|------------------------------------|------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------|------|
+| 58.1 | Apertura                           | 1. Tracker › Portfolio.                                                                        | Vista Schede; si apre la prima classe con voci e la sua voce più grande.                                                     | [auto] PortfolioClassViewTest.`the first class with items is open and its biggest item is shown` |
+| 58.2 | ETF                                | 1. Investimenti › ETF. 2. Dettagli: ISIN, TER 0,22, Accumulazione.                              | Card con valore, quantità, prezzo medio, non realizzato; TER e "Costo annuo del fondo"; lotti con P&L e vendite; Vendi apre la vendita. | [auto] PortfolioClassViewTest.`an ETF card shows its lots, sales and TER cost and offers Sell` |
+| 58.3 | Mutuo e casa                       | 1. Debiti › Mutuo › Dettagli: importo iniziale, tasso, fine, bene collegato = Casa. 2. Asset manuali › Casa. | Mutuo: barra "Rimborsato" verde, tempo residuo, bene collegato. Casa: equity e barra LTV.                                    | [auto] PortfolioClassViewTest.`a mortgage card resolves its linked house and the house shows the LTV` |
+| 58.4 | Editor dei dettagli                | 1. Una voce › Dettagli. 2. Scrivi la rata con la virgola, una data, scegli un'opzione. 3. Salva. | I valori restano dopo il riavvio; numeri con virgola accettati; date non valide scartate.                                    | [auto] PortfolioClassViewTest.`the details editor saves typed values as canonical JSON` + (cargo) `details_round_trip_on_every_portfolio_table` |
+| 58.5 | Conto deposito                     | 1. Liquidità con tasso e scadenza.                                                             | Interesse annuo, scadenza, barra "Vincolo trascorso".                                                                        | [auto] PortfolioDetailsTest |
+| 58.6 | Schede ⇄ Tabella                   | 1. Clic su Tabella. 2. Clic su Schede.                                                         | Tabella: bilancio a righe + costo medio BTC + investimenti + asset manuali. Schede: il costo medio BTC sta sotto la classe Bitcoin. | [auto] PortfolioClassViewTest.`the Cards and Table toggle switches the portfolio view` |
+| 58.7 | Migrazione                         | 1. Avvia con un registry v5.                                                                    | Si apre; i dati ci sono; i dettagli sono vuoti.                                                                              | [auto] (cargo) `v5_registry_gains_details_columns_and_keeps_its_rows` |
+| 58.8 | Finestra stretta                   | 1. Restringi la finestra sotto ~900 px.                                                        | Card di classe su due colonne, elenco sopra la card di dettaglio.                                                           | [ ] |
+| 58.9 | Italiano                           | 1. Lingua italiana.                                                                            | Classi, campi e opzioni tradotti (es. "Tasso d’interesse (%)", "Abitazione principale").                                     | [ ] |
+
+### Verifiche automatizzate
+
+```
+cargo test -p bhodl-wallet-onchain --lib details
+cargo test -p bhodl-uniffi portfolio_details
+./gradlew :apps:desktop:jvmTest --tests "io.bhodl.desktop.screens.PortfolioDetailsTest" \
+  --tests "io.bhodl.desktop.screens.PortfolioClassViewTest"
+```
+
+Gli screenshot della revisione grafica finiscono in `apps/desktop/build/screenshots/`.
+

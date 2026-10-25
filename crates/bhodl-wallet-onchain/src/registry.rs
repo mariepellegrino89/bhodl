@@ -543,10 +543,22 @@ pub fn open_registry_in_memory(conn: Connection) -> Result<Registry, OnchainErro
 ///   heuristic. Backfill is conservative, see [`backfill_mirror_links`].
 /// - v5: `tracking_event_cost_basis` — user price / exclusion per
 ///   transaction for the BTC average-cost view. New table, no backfill.
+/// - v6: `details_json` on `tracking_investments`,
+///   `tracking_manual_assets` and `tracking_liabilities` — the
+///   kind-specific details shown on the Portfolio cards (TER, interest
+///   rate, maturity, linked mortgage…). Default `'{}'`, no backfill.
 ///
 /// Not downgrade-compatible: an older build refuses a registry stamped
 /// with a higher version (see the L9 gate in `ensure_schema`).
-pub(crate) const SCHEMA_VERSION: i64 = 5;
+pub(crate) const SCHEMA_VERSION: i64 = 6;
+
+/// v6 — kind-specific details of a portfolio row, a small JSON object
+/// (see [`Registry::set_details`]).
+const ALTER_DETAILS_JSON_SQL: [&str; 3] = [
+    "ALTER TABLE tracking_investments ADD COLUMN details_json TEXT NOT NULL DEFAULT '{}'",
+    "ALTER TABLE tracking_manual_assets ADD COLUMN details_json TEXT NOT NULL DEFAULT '{}'",
+    "ALTER TABLE tracking_liabilities ADD COLUMN details_json TEXT NOT NULL DEFAULT '{}'",
+];
 
 /// v4 — `wallets.mirror_of`: UUID of the signing wallet a watch row was
 /// created to mirror; `NULL` for user-added watch rows and signing rows.
@@ -636,6 +648,11 @@ fn ensure_schema(conn: &Connection) -> Result<(), OnchainError> {
     if current_version < 5 {
         tx.execute(CREATE_TRACKING_EVENT_COST_BASIS_TABLE_SQL, [])
             .map_err(|e| OnchainError::Storage(e.to_string()))?;
+    }
+    if current_version < 6 {
+        for stmt in ALTER_DETAILS_JSON_SQL {
+            add_column_idempotent(&tx, stmt)?;
+        }
     }
 
     // R1 — stamp the schema version into the DB header. From the next
@@ -2258,6 +2275,52 @@ impl Registry {
             )
             .map_err(|e| OnchainError::Storage(e.to_string()))?;
         Ok(n > 0)
+    }
+
+    /// Store the kind-specific details of one portfolio row (v6).
+    ///
+    /// `table` is `investment`, `manual_asset` or `liability`; `json` is
+    /// a flat JSON object whose values are strings, numbers or booleans
+    /// (see [`validate_details_json`]). The canonical form is stored, so
+    /// `{}` clears it. Returns `false` when no row has that id.
+    ///
+    /// # Errors
+    ///
+    /// [`OnchainError::InvalidArgument`] for an unknown table or a
+    /// malformed / oversized object; [`OnchainError::Storage`] on DB errors.
+    pub fn set_details(&self, table: &str, id: i64, json: &str) -> Result<bool, OnchainError> {
+        let table = details_table(table)?;
+        let canonical = validate_details_json(json)?;
+        let n = self
+            .conn
+            .execute(
+                &format!("UPDATE {table} SET details_json = ?1 WHERE id = ?2"),
+                rusqlite::params![canonical, id],
+            )
+            .map_err(|e| OnchainError::Storage(e.to_string()))?;
+        Ok(n > 0)
+    }
+
+    /// `(id, details_json)` of every row of `table` that has details
+    /// (rows still at `{}` are left out).
+    ///
+    /// # Errors
+    ///
+    /// [`OnchainError::InvalidArgument`] for an unknown table;
+    /// [`OnchainError::Storage`] on DB errors.
+    pub fn list_details(&self, table: &str) -> Result<Vec<(i64, String)>, OnchainError> {
+        let table = details_table(table)?;
+        let mut stmt = self
+            .conn
+            .prepare(&format!(
+                "SELECT id, details_json FROM {table} WHERE details_json <> '{{}}' ORDER BY id"
+            ))
+            .map_err(|e| OnchainError::Storage(e.to_string()))?;
+        let rows = stmt
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .map_err(|e| OnchainError::Storage(e.to_string()))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| OnchainError::Storage(e.to_string()))
     }
 
     /// List all liabilities, ordered by creation time.
@@ -4280,6 +4343,67 @@ pub(crate) const VALID_MANUAL_ASSET_KINDS: &[&str] = &[
     "other",
 ];
 
+/// v6 — the tables that carry `details_json`, by their API name. The
+/// returned name is a compile-time constant, safe to interpolate.
+fn details_table(table: &str) -> Result<&'static str, OnchainError> {
+    match table {
+        "investment" => Ok("tracking_investments"),
+        "manual_asset" => Ok("tracking_manual_assets"),
+        "liability" => Ok("tracking_liabilities"),
+        other => Err(OnchainError::InvalidArgument(format!(
+            "details table must be investment, manual_asset or liability, got {other:?}"
+        ))),
+    }
+}
+
+/// Limits of a `details_json` object.
+pub(crate) const MAX_DETAILS_KEYS: usize = 24;
+pub(crate) const MAX_DETAILS_KEY_LEN: usize = 40;
+pub(crate) const MAX_DETAILS_VALUE_LEN: usize = 200;
+
+/// Validate a details object and return its canonical (compact) form:
+/// a flat JSON object of at most [`MAX_DETAILS_KEYS`] keys made of
+/// `[a-z0-9_]`, whose values are strings of at most
+/// [`MAX_DETAILS_VALUE_LEN`] characters, finite numbers or booleans.
+/// Empty strings are dropped, so a cleared field leaves no key.
+pub(crate) fn validate_details_json(json: &str) -> Result<String, OnchainError> {
+    let bad = |m: String| OnchainError::InvalidArgument(format!("details: {m}"));
+    let value: serde_json::Value =
+        serde_json::from_str(json).map_err(|e| bad(format!("not JSON ({e})")))?;
+    let serde_json::Value::Object(map) = value else {
+        return Err(bad("must be a JSON object".into()));
+    };
+    let mut out = serde_json::Map::new();
+    for (k, v) in map {
+        if k.is_empty()
+            || k.len() > MAX_DETAILS_KEY_LEN
+            || !k
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+        {
+            return Err(bad(format!("invalid key {k:?}")));
+        }
+        match &v {
+            serde_json::Value::String(t) if t.trim().is_empty() => continue,
+            serde_json::Value::String(t) if t.chars().count() > MAX_DETAILS_VALUE_LEN => {
+                return Err(bad(format!("value of {k:?} is too long")));
+            }
+            serde_json::Value::String(_) | serde_json::Value::Bool(_) => {}
+            serde_json::Value::Number(n) if n.as_f64().is_some_and(f64::is_finite) => {}
+            _ => {
+                return Err(bad(format!(
+                    "value of {k:?} must be a string, number or boolean"
+                )));
+            }
+        }
+        out.insert(k, v);
+    }
+    if out.len() > MAX_DETAILS_KEYS {
+        return Err(bad(format!("at most {MAX_DETAILS_KEYS} keys")));
+    }
+    Ok(serde_json::Value::Object(out).to_string())
+}
+
 fn validate_manual_asset_kind(t: &str) -> Result<(), OnchainError> {
     if VALID_MANUAL_ASSET_KINDS.contains(&t) {
         Ok(())
@@ -5663,6 +5787,35 @@ mod tests {
     }
 
     #[test]
+    fn v5_registry_gains_details_columns_and_keeps_its_rows() {
+        let dir = TempDir::new().unwrap();
+        let id = {
+            let r = open_fresh_registry(&dir);
+            let id = r.add_liability("Mutuo", 100, "mortgage", None).unwrap();
+            for t in [
+                "tracking_investments",
+                "tracking_manual_assets",
+                "tracking_liabilities",
+            ] {
+                r.conn
+                    .execute(&format!("ALTER TABLE {t} DROP COLUMN details_json"), [])
+                    .unwrap();
+            }
+            r.conn.execute("PRAGMA user_version = 5", []).unwrap();
+            id
+        };
+        let r = open_fresh_registry(&dir);
+        let v: i64 = r
+            .conn
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(v, SCHEMA_VERSION);
+        assert_eq!(r.list_liabilities().unwrap()[0].name, "Mutuo");
+        assert!(r.list_details("liability").unwrap().is_empty());
+        assert!(r.set_details("liability", id, r#"{"rate_pct":3}"#).unwrap());
+    }
+
+    #[test]
     fn schema_version_reconciles_a_legacy_unstamped_db() {
         // Simulate a DB migrated by the pre-R1 code: full schema present
         // but user_version still 0. ensure_schema must reconcile it to
@@ -6388,6 +6541,110 @@ mod tests {
             Err(OnchainError::InvalidArgument(_))
         ));
         assert_eq!(r.list_liabilities().unwrap()[0].kind, "loan");
+    }
+
+    #[test]
+    fn details_round_trip_on_every_portfolio_table() {
+        let dir = TempDir::new().unwrap();
+        let r = open_fresh_registry(&dir);
+        let liab = r.add_liability("Mutuo", 100, "mortgage", None).unwrap();
+        let asset = r
+            .add_manual_asset(
+                "Casa",
+                "real_estate",
+                300_000.0,
+                "EUR",
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+        let inv = r
+            .add_investment(
+                "VWCE",
+                "etf",
+                Some("VWCE.DE"),
+                10.0,
+                "shares",
+                1000.0,
+                "EUR",
+                0,
+                None,
+                None,
+            )
+            .unwrap();
+        assert!(r.list_details("liability").unwrap().is_empty());
+
+        assert!(
+            r.set_details(
+                "liability",
+                liab,
+                r#"{"rate_pct":2.9,"linked_asset_id":"7"}"#
+            )
+            .unwrap()
+        );
+        assert!(
+            r.set_details(
+                "manual_asset",
+                asset,
+                r#"{"city":"Milano","rented":false,"note":"  "}"#
+            )
+            .unwrap()
+        );
+        assert!(
+            r.set_details("investment", inv, r#"{"ter_pct":0.22}"#)
+                .unwrap()
+        );
+        assert_eq!(
+            r.list_details("liability").unwrap(),
+            vec![(
+                liab,
+                r#"{"linked_asset_id":"7","rate_pct":2.9}"#.to_string()
+            )]
+        );
+        // Blank strings are dropped.
+        assert_eq!(
+            r.list_details("manual_asset").unwrap()[0].1,
+            r#"{"city":"Milano","rented":false}"#
+        );
+
+        // Editing the row keeps its details; `{}` clears them.
+        r.update_liability(liab, "Mutuo casa", 90, "mortgage", None)
+            .unwrap();
+        assert_eq!(r.list_details("liability").unwrap().len(), 1);
+        assert!(r.set_details("investment", inv, "{}").unwrap());
+        assert!(r.list_details("investment").unwrap().is_empty());
+        // Unknown id: nothing written.
+        assert!(!r.set_details("investment", 9_999, "{}").unwrap());
+    }
+
+    #[test]
+    fn details_reject_unknown_tables_and_malformed_objects() {
+        let dir = TempDir::new().unwrap();
+        let r = open_fresh_registry(&dir);
+        let id = r.add_liability("X", 1, "loan", None).unwrap();
+        let invalid = |table: &str, json: &str| {
+            matches!(
+                r.set_details(table, id, json),
+                Err(OnchainError::InvalidArgument(_))
+            )
+        };
+        assert!(invalid("wallets", "{}"));
+        assert!(invalid("liability", "[1,2]"));
+        assert!(invalid("liability", "not json"));
+        assert!(invalid("liability", r#"{"Rate":1}"#));
+        assert!(invalid("liability", r#"{"nested":{"a":1}}"#));
+        assert!(invalid("liability", r#"{"list":[1]}"#));
+        assert!(invalid("liability", r#"{"none":null}"#));
+        let long = "x".repeat(MAX_DETAILS_VALUE_LEN + 1);
+        assert!(invalid("liability", &format!(r#"{{"note":"{long}"}}"#)));
+        let many: Vec<String> = (0..=MAX_DETAILS_KEYS)
+            .map(|i| format!(r#""k{i}":1"#))
+            .collect();
+        assert!(invalid("liability", &format!("{{{}}}", many.join(","))));
+        assert!(r.list_details("liability").unwrap().is_empty());
     }
 
     #[test]

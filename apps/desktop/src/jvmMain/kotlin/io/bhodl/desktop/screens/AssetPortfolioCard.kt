@@ -97,6 +97,10 @@ import io.bhodl.shared.resources.trp_sheet_badge_real_estate
 import io.bhodl.shared.resources.trp_sheet_badge_stock
 import io.bhodl.shared.resources.trp_sheet_badge_watch
 import io.bhodl.shared.resources.trp_sheet_fetch_prices
+import io.bhodl.shared.resources.pfc_view_cards
+import io.bhodl.shared.resources.pfc_view_table
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 
 internal object AssetPortfolioTags {
     const val CARD: String = "asset-portfolio.card"
@@ -108,6 +112,7 @@ internal object AssetPortfolioTags {
     fun section(s: SheetSection): String = "asset-portfolio.section.${s.name.lowercase()}"
     fun row(key: String): String = "asset-portfolio.row.$key"
     fun header(c: SheetColumn): String = "asset-portfolio.col.${c.name.lowercase()}"
+    fun view(v: PortfolioView): String = "asset-portfolio.view.${v.name.lowercase()}"
 }
 
 /**
@@ -145,6 +150,18 @@ internal fun AssetPortfolioCard(
     /** The global period selector; drives the change column. */
     period: TrackingPeriod = TrackingPeriod.D30,
     modifier: Modifier = Modifier,
+    /** Portfolio redesign 2026-10 — class cards or the balance-sheet table. */
+    view: PortfolioView = PortfolioView.TABLE,
+    onViewChange: (PortfolioView) -> Unit = {},
+    sellsByInvestmentId: Map<Long, List<io.bhodl.ffi.TrackingInvestmentSellFfi>> = emptyMap(),
+    disposalsByInvestmentId: Map<Long, List<io.bhodl.ffi.TrackingLotDisposalFfi>> = emptyMap(),
+    details: PortfolioDetails = PortfolioDetails(),
+    onEditDetails: (DetailsEditRequest) -> Unit = {},
+    onAddLot: (Long) -> Unit = {},
+    onEditLot: (TrackingInvestmentLotFfi) -> Unit = {},
+    onSell: (Long) -> Unit = {},
+    onDeleteSell: (io.bhodl.ffi.TrackingInvestmentSellFfi) -> Unit = {},
+    bitcoinExtra: @Composable () -> Unit = {},
 ) {
     val hasStaleInvestments = remember(investments) {
         investments.any { !it.ticker.isNullOrBlank() && it.fetchedCurrentValue == null }
@@ -202,6 +219,50 @@ internal fun AssetPortfolioCard(
         )
     }
 
+    if (view == PortfolioView.CARDS) {
+        Column(
+            modifier = modifier.fillMaxWidth().testTag(AssetPortfolioTags.CARD),
+            verticalArrangement = Arrangement.spacedBy(BhodlTheme.spacing.md),
+        ) {
+            PortfolioHeaderBar(
+                onAddInvestment = onAddInvestment,
+                onAddManualAsset = onAddManualAsset,
+                onAddLiability = onAddLiability,
+                hasStaleInvestments = hasStaleInvestments,
+                onRefreshPrices = onRefreshPrices,
+                view = view,
+                onViewChange = onViewChange,
+                modifier = Modifier.clip(BhodlTheme.shapes.panel).border(1.dp, BhodlTheme.colors.outline, BhodlTheme.shapes.panel),
+            )
+            PortfolioClassView(
+                sheet = sheet,
+                walletGroups = walletGroups,
+                investments = investments,
+                lotsByInvestmentId = investmentLotsByInvestmentId,
+                sellsByInvestmentId = sellsByInvestmentId,
+                disposalsByInvestmentId = disposalsByInvestmentId,
+                manualAssets = manualAssets,
+                liabilities = liabilities,
+                details = details,
+                satToFiat = { sat, ccy ->
+                    resolveRate(ccy, liveBtcRate, dashboardFiat.code)?.let { sat.toDouble() / 100_000_000.0 * it }
+                },
+                onEditInvestment = onEditInvestment,
+                onEditManualAsset = onEditManualAsset,
+                onEditLiability = onEditLiability,
+                onEditDetails = onEditDetails,
+                onAddLot = onAddLot,
+                onEditLot = onEditLot,
+                onSell = onSell,
+                onDeleteSell = onDeleteSell,
+                bitcoinExtra = bitcoinExtra,
+                events = events,
+                period = period,
+            )
+        }
+        return
+    }
+
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -216,6 +277,8 @@ internal fun AssetPortfolioCard(
             onAddLiability = onAddLiability,
             hasStaleInvestments = hasStaleInvestments,
             onRefreshPrices = onRefreshPrices,
+            view = view,
+            onViewChange = onViewChange,
         )
         // UX review 2026-10 (rec 2) — Value and Change share ONE unit (Auto never
         // mixes sats and BTC down a column); the headers carry it.
@@ -271,10 +334,13 @@ private fun PortfolioHeaderBar(
     onAddLiability: () -> Unit,
     hasStaleInvestments: Boolean,
     onRefreshPrices: () -> Unit,
+    view: PortfolioView,
+    onViewChange: (PortfolioView) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .background(BhodlTheme.colors.surfaceVariant)
             .padding(horizontal = BhodlTheme.spacing.md, vertical = BhodlTheme.spacing.sm),
@@ -287,6 +353,7 @@ private fun PortfolioHeaderBar(
             color = BhodlTheme.colors.textSecondary,
             modifier = Modifier.weight(1f),
         )
+        PortfolioViewToggle(view, onViewChange)
         if (hasStaleInvestments) {
             Box(
                 modifier = Modifier
@@ -324,6 +391,36 @@ private fun PortfolioHeaderBar(
                     text = { Text(stringResource(Res.string.trp_sheet_add_liability)) },
                     onClick = { menuExpanded = false; onAddLiability() },
                     modifier = Modifier.testTag(AssetPortfolioTags.ADD_LIABILITY),
+                )
+            }
+        }
+    }
+}
+
+/** Portfolio redesign 2026-10 — class cards (default) or the balance-sheet table. */
+internal enum class PortfolioView { CARDS, TABLE }
+
+@Composable
+private fun PortfolioViewToggle(view: PortfolioView, onViewChange: (PortfolioView) -> Unit) {
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(6.dp))
+            .border(1.dp, BhodlTheme.colors.outline, RoundedCornerShape(6.dp)),
+    ) {
+        PortfolioView.entries.forEach { v ->
+            val on = v == view
+            Box(
+                modifier = Modifier
+                    .background(if (on) BhodlTheme.colors.surface else Color.Transparent)
+                    .clickable(role = androidx.compose.ui.semantics.Role.Tab) { onViewChange(v) }
+                    .semantics { selected = on }
+                    .padding(horizontal = 10.dp, vertical = 4.dp)
+                    .testTag(AssetPortfolioTags.view(v)),
+            ) {
+                Text(
+                    stringResource(if (v == PortfolioView.CARDS) Res.string.pfc_view_cards else Res.string.pfc_view_table),
+                    style = BhodlTheme.typography.labelMedium,
+                    color = if (on) BhodlTheme.colors.textPrimary else BhodlTheme.colors.textSecondary,
                 )
             }
         }

@@ -184,6 +184,10 @@ internal fun TrackingDashboardTab(
     lotDisposalsByInvestmentId: Map<Long, List<io.bhodl.ffi.TrackingLotDisposalFfi>> = emptyMap(),
     onSell: (investmentId: Long) -> Unit = {},
     onDeleteSell: (io.bhodl.ffi.TrackingInvestmentSellFfi) -> Unit = {},
+    /** Portfolio redesign 2026-10 — open the kind-specific details editor. */
+    onEditDetails: (DetailsEditRequest) -> Unit = {},
+    /** Portfolio redesign 2026-10 — initial view of the Portfolio page. */
+    initialPortfolioView: PortfolioView = PortfolioView.CARDS,
     /** Phase 7.4 — manual asset snapshot, used by both the
      *  [ManualAssetsCard] under the dashboard and the savings-goal
      *  MANUAL_ASSET bucket sub-picker. */
@@ -475,6 +479,17 @@ internal fun TrackingDashboardTab(
         }
 
         if (mode == TrackingTabMode.PORTFOLIO) {
+            var portfolioView by remember { mutableStateOf(initialPortfolioView) }
+            val portfolioDetails by io.bhodl.desktop.data.TrackerCache.portfolioDetails
+            val costBasis: @Composable () -> Unit = {
+                // BTC average cost of the tracked wallets — the bitcoin
+                // counterpart of the investments P&L.
+                BtcCostBasisCard(
+                    wallets = wallets,
+                    excludedWalletIds = excludedWalletIds,
+                    onEditEvent = onEditEvent,
+                )
+            }
             AssetPortfolioCard(
                 netWorth = netWorth,
                 walletGroups = trackedWalletGroups(wallets, watchBalances, excludedWalletIds),
@@ -492,38 +507,44 @@ internal fun TrackingDashboardTab(
                 // Item 9 — the change column follows the global period.
                 events = events,
                 period = period,
-            )
-
-            // BTC average cost of the tracked wallets — the bitcoin
-            // counterpart of the investments P&L below.
-            BtcCostBasisCard(
-                wallets = wallets,
-                excludedWalletIds = excludedWalletIds,
-                onEditEvent = onEditEvent,
-            )
-
-            // Detail cards below the sheet: lots / sells / P&L and the
-            // purchase-time view of manual assets. The sheet already
-            // carries liabilities and the net worth, so the old
-            // snapshot + liabilities card is gone from this page.
-            InvestmentsCard(
-                investments = investments,
-                lotsByInvestmentId = investmentLotsByInvestmentId,
+                view = portfolioView,
+                onViewChange = { portfolioView = it },
                 sellsByInvestmentId = investmentSellsByInvestmentId,
                 disposalsByInvestmentId = lotDisposalsByInvestmentId,
-                onAdd = onAddInvestment,
-                onEdit = onEditInvestment,
+                details = portfolioDetails,
+                onEditDetails = onEditDetails,
                 onAddLot = onAddLot,
                 onEditLot = onEditLot,
                 onSell = onSell,
                 onDeleteSell = onDeleteSell,
+                // Cards view: the cost-basis card belongs to the Bitcoin class.
+                bitcoinExtra = costBasis,
             )
 
-            ManualAssetsCard(
-                assets = manualAssets,
-                onAdd = onAddManualAsset,
-                onEdit = onEditManualAsset,
-            )
+            if (portfolioView == PortfolioView.TABLE) {
+                costBasis()
+                // Table view: the detail cards below the sheet (lots /
+                // sells / P&L and the purchase-time view of manual
+                // assets). The cards view carries all of this per item.
+                InvestmentsCard(
+                    investments = investments,
+                    lotsByInvestmentId = investmentLotsByInvestmentId,
+                    sellsByInvestmentId = investmentSellsByInvestmentId,
+                    disposalsByInvestmentId = lotDisposalsByInvestmentId,
+                    onAdd = onAddInvestment,
+                    onEdit = onEditInvestment,
+                    onAddLot = onAddLot,
+                    onEditLot = onEditLot,
+                    onSell = onSell,
+                    onDeleteSell = onDeleteSell,
+                )
+
+                ManualAssetsCard(
+                    assets = manualAssets,
+                    onAdd = onAddManualAsset,
+                    onEdit = onEditManualAsset,
+                )
+            }
 
             return@Column
         }
