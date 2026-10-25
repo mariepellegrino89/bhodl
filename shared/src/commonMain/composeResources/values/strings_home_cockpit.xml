@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="hmc_composition">Composition</string>
+    <string name="hmc_composition_help">How your assets split between bitcoin, investments and manual assets; liabilities are shown as a share of the assets.</string>
+    <string name="hmc_open_portfolio">Open the Portfolio →</string>
+    <string name="hmc_todo">To do</string>
+    <string name="hmc_todo_help">Things that need you: the monthly review, bills due within 7 days, recurring payments to confirm, transactions without a category, values not updated for 6 months.</string>
+    <string name="hmc_todo_none">All in order.</string>
+    <string name="hmc_todo_review">The monthly review is ready</string>
+    <string name="hmc_todo_bill_due">%1$s due in %2$d days</string>
+    <string name="hmc_todo_bill_today">%1$s due today</string>
+    <string name="hmc_todo_recurring">Recurring payments to confirm: %1$d</string>
+    <string name="hmc_todo_uncategorized">Transactions without a category: %1$d</string>
+    <string name="hmc_todo_stale_asset">Value of %1$s updated %2$d months ago</string>
+    <string name="hmc_todo_action_open">Open</string>
+    <string name="hmc_todo_action_view">View</string>
+    <string name="hmc_todo_action_confirm">Confirm</string>
+    <string name="hmc_todo_action_categorize">Categorize</string>
+    <string name="hmc_todo_action_update">Update</string>
+    <string name="hmc_kpi_income">INCOME</string>
+    <string name="hmc_kpi_expenses">EXPENSES</string>
+    <string name="hmc_kpi_tx_count">%1$d tx in the period</string>
+    <string name="hmc_h_income">Incoming payments in the selected period, transfers between your wallets excluded.</string>
+    <string name="hmc_h_expenses">Outgoing payments in the selected period, transfers between your wallets excluded.</string>
+    <string name="hmc_h_savings">Share of income you kept over the last 30 days: (income − expenses) / income.</string>
+    <string name="hmc_h_runway">How many months your liquid assets would last at your average monthly spending.</string>
+    <string name="hmc_h_fire">25 times your yearly spending: the classic 4% rule for financial independence.</string>
+    <string name="hmc_h_opp_cost">What your non-bitcoin assets would be worth today if they had been bitcoin since you bought them, minus what they are worth.</string>
+    <string name="hmc_h_burn">Average monthly spending over the last 90 days.</string>
+</resources>

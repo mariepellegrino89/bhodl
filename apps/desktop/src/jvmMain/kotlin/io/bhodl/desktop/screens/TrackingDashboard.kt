@@ -284,15 +284,6 @@ internal fun TrackingDashboardTab(
         // Phase 9.0 — KPI strip leads the HOME synthesis; the other
         // sections lead with their own cards and Reports/Analytics
         // leads with the YoY toggle + charts.
-        if (mode == TrackingTabMode.HOME) {
-            KpiRow(
-                kpis = kpis,
-                period = period,
-                series = series,
-                prevKpis = prevKpis,
-                balanceSplit = balanceSplit,
-            )
-        }
 
         if (mode == TrackingTabMode.ANALYTICS) {
             // Phase 3.8 — YoY toggle row. Hidden on ALL (no "previous"
@@ -366,10 +357,8 @@ internal fun TrackingDashboardTab(
         val excludedWalletIds by SettingsStore.excludedWalletIds
 
         if (mode == TrackingTabMode.HOME) {
-            // Synthesis only: breakdown donut + inflow/outflow. The
-            // domain cards live on their own section pages.
-            NwBreakdownDonut(netWorth = netWorth)
-            InflowOutflowChart(events = events)
+            // Home redesign 2026-10 — the whole Home (hero, composition,
+            // to-do, KPIs, flows, forecast, wallets) is TrackerHomeSection.
             return@Column
         }
 

@@ -2413,3 +2413,31 @@ cargo test -p bhodl-uniffi portfolio_details
 
 Gli screenshot della revisione grafica finiscono in `apps/desktop/build/screenshots/`.
 
+## 59. Home a cruscotto (2026-10-25)
+
+> Proposta A scelta per la Home. In alto il patrimonio netto con, a destra,
+> **Composizione** (barra bitcoin / investimenti / asset manuali, debiti come
+> quota, link al Portafoglio) e **Da fare** (revisione del mese, bolletta entro
+> 7 giorni, ricorrenti da confermare, transazioni senza categoria, valori non
+> aggiornati da 6 mesi). Sotto una sola striscia di indicatori (entrate, uscite,
+> risparmio, FIRE, autonomia, costo opportunità), poi entrate/uscite e
+> previsione affiancati, poi i wallet. Lo stato della sincronizzazione è solo
+> nella striscia sopra la sezione: niente banner "dati vecchi" nella Home.
+> Ogni indicatore ha il suo "?".
+
+| #    | Test                     | Passi                                                                 | Atteso                                                                                           | Pass |
+|------|--------------------------|-----------------------------------------------------------------------|--------------------------------------------------------------------------------------------------|------|
+| 59.1 | Disposizione             | 1. Tracker › Home a finestra piena, poi sotto ~1000 px.               | Patrimonio e colonna destra affiancati; sotto 1000 px uno sotto l'altro. Una sola striscia KPI.  | [auto] HomeCockpitTest.`render the home for the visual review` |
+| 59.2 | Da fare                  | 1. Una bolletta che scade tra 3 giorni, una transazione senza categoria. | Righe "Luce in scadenza tra 3 giorni" e "Transazioni senza categoria: 1"; clic → Budget / Transazioni. | [auto] HomeCockpitTest + UcHomeTrackerTest.`TRK-168 to-do rows open the section that fixes them` |
+| 59.3 | Revisione del mese       | 1. Primi giorni del mese, con transazioni. 2. "Apri".                 | La riga sparisce e si apre Report.                                                               | [ ] |
+| 59.4 | Tutto in ordine          | 1. Nessuna cosa in sospeso.                                           | "Tutto in ordine."                                                                               | [auto] UcHomeTrackerTest.`TRK-168 the home shows no stale banner…` |
+| 59.5 | Tooltip                  | 1. Passa sui "?" di Composizione, Da fare e di ogni indicatore. 2. Tab fino a un "?". | Spiegazione di cosa misura e come è calcolato; con il Tab compare la stessa spiegazione.           | [ ] |
+| 59.6 | Tema chiaro              | 1. Settings › Tema Chiaro.                                            | Tutto leggibile, colori del tema.                                                                | [auto] screenshot `home-light.png` |
+
+### Verifiche automatizzate
+
+```
+./gradlew :apps:desktop:jvmTest --tests "io.bhodl.desktop.screens.HomeCockpitTest" \
+  --tests "io.bhodl.desktop.screens.UcHomeTrackerTest"
+```
+

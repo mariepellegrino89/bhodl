@@ -717,10 +717,12 @@ public fun TrackingScreen(
                         // section page now.
                         TrackerHomeSection(
                             onOpenReports = { onSectionChange(TrackerSection.REPORTS) },
+                            onOpenPortfolio = { onSectionChange(TrackerSection.PORTFOLIO) },
+                            onOpenBudget = { onSectionChange(TrackerSection.BUDGET) },
+                            onOpenTransactions = { onSectionChange(TrackerSection.TRANSACTIONS) },
                             onOpenWallet = onOpenWallet,
                             onAddWatch = onAddWatch,
                         )
-                        dashboardTab(TrackingTabMode.HOME)
                     }
                     TrackerSection.TRANSACTIONS -> HistoryTabBody(
                         wallets = wallets,

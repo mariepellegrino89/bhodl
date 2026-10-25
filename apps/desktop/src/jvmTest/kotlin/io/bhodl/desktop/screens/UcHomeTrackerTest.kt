@@ -23,7 +23,8 @@ import kotlin.test.assertTrue
 
 /**
  * Area C (section S) — activity parts of the tracker HOME: cold load on
- * mount, stale banner, wallets header actions. Fiat stays NONE, so the
+ * mount, the to-do card (it replaced the stale banner), wallets header
+ * actions. Fiat stays NONE, so the
  * hero never reaches the price / net-worth history network paths.
  */
 @OptIn(ExperimentalTestApi::class)
@@ -68,23 +69,30 @@ class UcHomeTrackerTest {
     }
 
     @Test
-    fun `TRK-168 a stale snapshot shows the banner, and its refresh surfaces the cache error`() = runDesktopComposeUiTest {
+    fun `TRK-168 the home shows no stale banner, the to-do card says all is in order`() = runDesktopComposeUiTest {
+        // Home redesign 2026-10 — the sync state lives once in the shell's
+        // DataStateStrip; an old snapshot adds no banner here.
         TrackerCache.seedForTest(lastSyncUnix = now - 3_600)
         setContent(home())
-        waitUntilAtLeastOneExists(hasTestTag(TrackerHomeTags.STALE_BANNER))
-        waitUntilAtLeastOneExists(hasText("tap to refresh", substring = true))
-        onNodeWithTag(TrackerHomeTags.STALE_BANNER).performClick()
-        // The error itself is rendered once by the TrackingScreen shell.
-        waitUntil("refresh ran", timeoutMillis = 5_000) { TrackerCache.lastError.value == "Registry not open." }
-        assertEquals(0, onAllNodes(hasText("Registry not open.")).fetchSemanticsNodes().size)
+        waitUntilAtLeastOneExists(hasTestTag(HomeCockpitTags.TODO))
+        assertEquals(0, onAllNodes(hasText("tap to refresh", substring = true)).fetchSemanticsNodes().size)
+        onNodeWithTag(HomeCockpitTags.TODO_NONE).assertExists()
+        onNodeWithTag(HomeCockpitTags.COMPOSITION).assertExists()
     }
 
     @Test
-    fun `TRK-168 a fresh snapshot has no banner`() = runDesktopComposeUiTest {
-        TrackerCache.seedForTest(lastSyncUnix = now - 30)
-        setContent(home())
-        waitForIdle()
-        assertEquals(0, onAllNodes(hasTestTag(TrackerHomeTags.STALE_BANNER)).fetchSemanticsNodes().size)
+    fun `TRK-168 to-do rows open the section that fixes them`() = runDesktopComposeUiTest {
+        val event = io.bhodl.ffi.PaymentEvent(
+            walletId = "w1", txidOrPaymentId = "t1", kind = io.bhodl.ffi.PaymentKind.ON_CHAIN,
+            direction = io.bhodl.ffi.PaymentDirection.OUTGOING, amountSat = 1_000UL, feeSat = null,
+            timestampUnix = (now - 3_600).toULong(), blockHeight = null, category = null, cryptoEventKind = null,
+        )
+        TrackerCache.seedForTest(lastSyncUnix = now, events = listOf(event))
+        var tx = 0
+        setContent { BhodlTheme { TrackerHomeSection(onOpenWallet = {}, onAddWatch = {}, onOpenTransactions = { tx++ }) } }
+        waitUntilAtLeastOneExists(hasTestTag(HomeCockpitTags.todo(HomeTodoKind.UNCATEGORIZED)))
+        onNodeWithTag(HomeCockpitTags.todo(HomeTodoKind.UNCATEGORIZED)).performClick()
+        assertEquals(1, tx)
     }
 
     @Test

@@ -366,28 +366,6 @@ class UcCardsTrackerTest {
         DashboardKpis(10_000UL, inflow, outflow, inflow.toLong() - outflow.toLong(), 3)
 
     @Test
-    fun `TRK-112 savings rate is a dash without income and the balance shows the pending split`() = runDesktopComposeUiTest {
-        setContent {
-            BhodlTheme {
-                KpiRow(kpis(0UL, 500UL), TrackingPeriod.D30, emptyList(), prevKpis = null, balanceSplit = BalanceSplit(9_000UL, 1_000L))
-            }
-        }
-        waitUntilAtLeastOneExists(hasText("no income yet"))
-        assertTrue(countText("confirmed") >= 1 && countText("pending") >= 1)
-        assertTrue(countText("3 tx in window") >= 1)
-    }
-
-    @Test
-    fun `TRK-112 a positive savings rate reads as kept and a negative one as overspent`() = runDesktopComposeUiTest {
-        var k by androidx.compose.runtime.mutableStateOf(kpis(1_000UL, 250UL))
-        setContent { BhodlTheme { KpiRow(k, TrackingPeriod.D30, emptyList(), null, BalanceSplit(10_000UL, 0L)) } }
-        waitUntilAtLeastOneExists(hasText("kept this period"))
-        assertTrue(countText("75") >= 1)
-        k = kpis(1_000UL, 3_000UL)
-        waitUntilAtLeastOneExists(hasText("overspent this period"))
-    }
-
-    @Test
     fun `TRK-113 delta labels compare with the previous period`() = runDesktopComposeUiTest {
         val labels = mutableMapOf<String, String>()
         setContent {
@@ -410,20 +388,6 @@ class UcCardsTrackerTest {
     }
 
     // ─── TRK-126 / TRK-124 — unmounted cards (logic only) ───────────
-
-    @Test
-    fun `TRK-126 dismissing the review banner stores the date and hides it`() = runDesktopComposeUiTest {
-        val firstOfMonth = java.time.LocalDate.now().withDayOfMonth(1).atTime(10, 0)
-            .atZone(java.time.ZoneId.systemDefault()).toEpochSecond()
-        var reviewed = 0
-        setContent { BhodlTheme { MonthlyReviewBanner(nowUnix = firstOfMonth, onReview = { reviewed++ }) } }
-        onNodeWithTag(MonthlyReviewBannerTags.REVIEW).performClick()
-        assertEquals(1, reviewed)
-        onNodeWithTag(MonthlyReviewBannerTags.DISMISS).performClick()
-        waitForIdle()
-        assertEquals(firstOfMonth, SettingsStore.lastMonthlyReviewDismissedUnix.value)
-        assertEquals(0, count(MonthlyReviewBannerTags.BANNER))
-    }
 
     @Test
     fun `TRK-126 the dismiss date survives a save - reset - rehydrate round-trip`() {

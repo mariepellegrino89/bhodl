@@ -760,7 +760,7 @@ Legenda stato: **COVERED** = happy path + varianti principali verificate da test
 |---|---|---|---|---|
 | TRK-110 | KPI di periodo: entrate, uscite, netto, numero tx, saldo; trasferimenti interni esclusi | screens/TrackingAggregations.kt:computeKpis | screens/TrackingDashboardAggregationsTest::computeKpis splits inflow and outflow ignoring self-transfer | **COVERED** (test in §F; prima: PARTIAL) |
 | TRK-111 | Saldo confermato vs in attesa (somma netta degli eventi in mempool, limitato a 0) | screens/TrackingAggregations.kt:splitBalance | — | **COVERED** (test in §F; prima: UNCOVERED) |
-| TRK-112 | Riga KPI: savings rate inline ("—" senza entrate), sottotitolo "X confermato · Y in attesa", confronto col periodo precedente | screens/TrackingKpi.kt:KpiRow | — | **COVERED** (test in §F; prima: UNCOVERED) |
+| TRK-112 | Riga KPI: savings rate inline ("—" senza entrate), sottotitolo "X confermato · Y in attesa", confronto col periodo precedente | screens/TrackingKpi.kt:KpiRow | — | RIMOSSO (redesign Home 2026-10: una sola striscia KPI e la card Composizione) |
 | TRK-113 | Etichetta delta rispetto al periodo precedente | screens/TrackingAggregations.kt:deltaLabel | — | **COVERED** (test in §F; prima: UNCOVERED) |
 | TRK-114 | Filtro per periodo (D7/D30/D90/Y1/ALL), eventi in mempool sempre inclusi | screens/TrackingAggregations.kt:periodLowerBound / filterByPeriod | screens/TrackingDashboardAggregationsTest::periodLowerBound — ALL returns null; ::periodLowerBound — D7 is now minus 7 days; ::filterByPeriod keeps mempool events regardless of period | COVERED |
 
@@ -856,7 +856,7 @@ Legenda stato: **COVERED** = happy path + varianti principali verificate da test
 | ID | Caso d'uso (italiano, una riga) | Codice (file:funzione) | Test esistenti (file::nome test) | Stato |
 |---|---|---|---|---|
 | TRK-167 | Al primo montaggio la home avvia il cold load; "Loading…" solo prima del primo caricamento durante il refresh | screens/TrackerHomeScreen.kt:TrackerHomeSection | — | **PARTIAL** (test in §F; prima: UNCOVERED) |
-| TRK-168 | Banner wallet stale con pulsante refresh e messaggio d'errore della cache | screens/TrackerHomeScreen.kt:TrackerStaleBanner | — | **COVERED** (test in §F; prima: UNCOVERED) |
+| TRK-168 | Banner wallet stale con pulsante refresh e messaggio d'errore della cache | screens/TrackerHomeScreen.kt:TrackerStaleBanner | — | COVERED (redesign Home 2026-10: niente banner, la sync sta nella DataStateStrip; card "Da fare") |
 | TRK-169 | Eventi ridotti a PaymentEventLite per la ricostruzione storica del net worth | screens/TrackerHomeScreen.kt:buildPaymentEventLite | — | **COVERED** (test in §F; prima: UNCOVERED) |
 | TRK-170 | Intestazione WALLETS: refresh con tooltip (disabilitato durante il refresh), "+ Add" | screens/TrackerHomeScreen.kt:WalletsHeader | — | **COVERED** (test in §F; prima: UNCOVERED) |
 | TRK-171 | Conversione periodo tracker ↔ periodo net worth | screens/TrackerHomeScreen.kt:toNetWorthPeriod / toTrackingPeriod | — | **COVERED** (test in §F; prima: UNCOVERED) |
@@ -1062,7 +1062,7 @@ Stato: COVERED = logica + persistenza testate in automatico; PARTIAL = parte tes
 | PRT-119 | Variazione per riga sul periodo: flussi wallet dedup per txid, investimenti al tasso BTC d'inizio periodo, lot/asset nuovi da zero, passività statiche, tasso mancante o stale → "—" | PortfolioSheet.kt:walletFlowSince, investmentValueSatAt, sheetStartDay, SheetStartRates | PortfolioSheetTest::wallet change is the signed flow inside the window…, ::investment change uses today's fiat value at the start-of-period BTC rate, ::lots bought inside the window count from zero, ::manual asset bought inside the window changes by its whole value, ::liabilities are static…, ::missing start rate leaves the change unknown…, ::start rates answer only for the day…, ::stale rates from the previous period…, ::start day is the UTC midnight… | COVERED |
 | PRT-120 | Colonne del foglio responsive (Updated → Type → %NW → Change; Nome e Valore sempre) | PortfolioSheet.kt:visibleSheetColumns | PortfolioSheetTest::wide sheets show every column, ::a 1024 px window keeps the essentials, ::columns give way in priority order | COVERED |
 | PRT-121 | AssetPortfolioCard: menu Add (investimento/manual/passività), righe che aprono l'edit, badge per tipo, "Updated N days", pulsante fetch prezzi | K/screens/AssetPortfolioCard.kt:AssetPortfolioCard | — | **COVERED** (test in §F; prima: UNCOVERED) |
-| PRT-122 | Donut / tabella di breakdown NW (mascherati in privacy) | K/screens (NwBreakdownDonut), NetWorthBreakdownTable.kt | PrivacyModeTest::privacy mode hides every amount… (donut); TableColumnHidingTest::net worth breakdown * | **COVERED** (test in §F; prima: PARTIAL) |
+| PRT-122 | Donut / tabella di breakdown NW (mascherati in privacy) | K/screens (NwBreakdownDonut), NetWorthBreakdownTable.kt | PrivacyModeTest::privacy mode hides every amount… (donut); TableColumnHidingTest::net worth breakdown * | RIMOSSO (redesign Home 2026-10: una sola striscia KPI e la card Composizione) |
 
 ### Savings goals
 
