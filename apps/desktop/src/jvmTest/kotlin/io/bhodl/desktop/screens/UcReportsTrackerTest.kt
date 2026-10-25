@@ -7,6 +7,7 @@ import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.runDesktopComposeUiTest
@@ -118,7 +119,9 @@ class UcReportsTrackerTest {
     @Test
     fun `TRK-138 category table sorts by net and flips on a header click`() = runDesktopComposeUiTest {
         val events = listOf(ev("w", "1", INCOMING, 1_000UL, "Salary"), ev("w", "2", OUTGOING, 300UL, "Food"))
-        setContent { BhodlTheme { ReportsTabBody(events, listOf(group("Cold", "w")), periodLabel = "30D") } }
+        // Reports redesign 2026-10 — the pie and insights above repeat the
+        // category names, so the table is checked on its own.
+        setContent { BhodlTheme { CategoryReportTable(events = events) } }
         waitUntilAtLeastOneExists(hasText("Food"))
         assertTrue(topOf("Salary") < topOf("Food"), "net descending by default")
         onNode(hasText("Net", substring = true) and hasText("▼", substring = true)).performClick()
@@ -133,6 +136,7 @@ class UcReportsTrackerTest {
     fun `TRK-138 empty states for no events and no wallets`() = runDesktopComposeUiTest {
         setContent { BhodlTheme { ReportsTabBody(emptyList(), emptyList(), periodLabel = "30D") } }
         waitUntilAtLeastOneExists(hasText("No transactions in the current period."))
+        onNodeWithTag(ReportsTags.kind(ReportKind.WALLETS)).performClick()
         waitUntilAtLeastOneExists(hasText("No wallets in the registry."))
     }
 

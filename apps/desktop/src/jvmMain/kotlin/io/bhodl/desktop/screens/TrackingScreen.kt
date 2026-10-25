@@ -773,6 +773,14 @@ public fun TrackingScreen(
                             ),
                             groupedWallets = includedGroupedWallets,
                             periodLabel = period.label,
+                            previousEvents = period.days?.let { days ->
+                                val now = System.currentTimeMillis() / 1000L
+                                val span = days.toLong() * 86_400L
+                                includedEvents.filter { e ->
+                                    val ts = e.timestampUnix?.toLong() ?: return@filter false
+                                    ts in (now - 2 * span) until (now - span)
+                                }
+                            },
                         )
                         if (modAnalyticsLabs) {
                             dashboardTab(TrackingTabMode.ANALYTICS)

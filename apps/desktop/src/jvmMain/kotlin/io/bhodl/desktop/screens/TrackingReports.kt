@@ -1,5 +1,15 @@
 package io.bhodl.desktop.screens
 
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
+import io.bhodl.desktop.ui.bhodlCard
+import io.bhodl.shared.resources.rpo_kind_categories
+import io.bhodl.shared.resources.rpo_kind_categories_sub
+import io.bhodl.shared.resources.rpo_kind_wallets
+import io.bhodl.shared.resources.rpo_kind_wallets_sub
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -38,10 +48,8 @@ import io.bhodl.shared.resources.tracker_reports_col_last
 import io.bhodl.shared.resources.tracker_reports_col_net
 import io.bhodl.shared.resources.tracker_reports_col_out
 import io.bhodl.shared.resources.tracker_reports_col_wallet
-import io.bhodl.shared.resources.tracker_reports_counterparties_note
 import io.bhodl.shared.resources.tracker_reports_empty_period
 import io.bhodl.shared.resources.tracker_reports_empty_wallets
-import io.bhodl.shared.resources.tracker_reports_top_counterparties
 import org.jetbrains.compose.resources.stringResource
 import io.bhodl.desktop.domain.externalInflowSat
 import io.bhodl.desktop.domain.externalOutflowSat
@@ -73,40 +81,97 @@ internal fun ReportsTabBody(
      *  too (the caller pre-filters [events]); the label makes the
      *  active window explicit in each table title. */
     periodLabel: String? = null,
+    /** Reports redesign 2026-10 — the window of the same length before
+     *  the period; null for "All" (nothing to compare with). */
+    previousEvents: List<PaymentEvent>? = null,
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .widthIn(max = 1200.dp),
-        verticalArrangement = Arrangement.spacedBy(20.dp),
-    ) {
-        SectionTitle(
-            stringResource(
-                Res.string.tracker_reports_by_category,
-                periodLabel ?: stringResource(Res.string.period_all),
-            ),
-        )
-        CategoryReportTable(events = events)
-
-        SectionTitle(stringResource(Res.string.tracker_reports_by_wallet))
-        WalletReportTable(
-            events = events,
-            groupedWallets = groupedWallets,
-        )
-
-        // Counterparties placeholder — labels are wallet-PIN
-        // encrypted (BIP-329 lives behind the per-wallet password),
-        // so a true cross-wallet counterparty rollup would need
-        // either a registry-side label store (Phase 3.9+) or each
-        // wallet to be unlocked first. Stub kept here to prime
-        // the user's expectation.
-        SectionTitle(stringResource(Res.string.tracker_reports_top_counterparties))
-        Text(
-            text = stringResource(Res.string.tracker_reports_counterparties_note),
-            style = BhodlTheme.typography.bodyMedium,
-            color = BhodlTheme.colors.textTertiary,
-        )
+    // Reports redesign 2026-10 (proposal "A + C"): the report types on
+    // the left, one report at a time on the right.
+    var report by remember { mutableStateOf(ReportKind.CATEGORIES) }
+    var selected by remember { mutableStateOf<String?>(null) }
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val narrow = maxWidth < 900.dp
+        val list: @Composable (Modifier) -> Unit = { m ->
+            Column(m.bhodlCard().padding(8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                ReportKind.entries.forEach { k ->
+                    val on = k == report
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (on) BhodlTheme.colors.brandPrimary.copy(alpha = 0.12f) else androidx.compose.ui.graphics.Color.Transparent)
+                            .clickable(role = androidx.compose.ui.semantics.Role.Tab) { report = k }
+                            .padding(horizontal = 10.dp, vertical = 8.dp)
+                            .testTag(ReportsTags.kind(k)),
+                    ) {
+                        Text(stringResource(k.title), style = BhodlTheme.typography.bodyMedium, color = if (on) BhodlTheme.colors.brandPrimary else BhodlTheme.colors.textPrimary)
+                        Text(stringResource(k.subtitle), style = BhodlTheme.typography.labelMedium, color = BhodlTheme.colors.textTertiary)
+                    }
+                }
+            }
+        }
+        val content: @Composable (Modifier) -> Unit = { m ->
+            Column(m, verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                when (report) {
+                    ReportKind.CATEGORIES -> {
+                        val rows = remember(events, previousEvents) { compareCategories(events, previousEvents) }
+                        ReportTotalsRow(periodTotals(events), previousEvents?.let { periodTotals(it) })
+                        ReportInsightsRow(reportInsights(rows))
+                        if (rows.isNotEmpty()) {
+                            BoxWithConstraints(Modifier.fillMaxWidth()) {
+                                if (maxWidth < 820.dp) {
+                                    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                                        OutflowDonutCard(rows, selected, { selected = it }, Modifier.fillMaxWidth())
+                                        PairedBarsCard(rows, selected, Modifier.fillMaxWidth())
+                                    }
+                                } else {
+                                    Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                                        OutflowDonutCard(rows, selected, { selected = it }, Modifier.weight(1.1f).fillMaxHeight())
+                                        PairedBarsCard(rows, selected, Modifier.weight(1f).fillMaxHeight())
+                                    }
+                                }
+                            }
+                        }
+                        SectionTitle(
+                            stringResource(
+                                Res.string.tracker_reports_by_category,
+                                periodLabel ?: stringResource(Res.string.period_all),
+                            ),
+                        )
+                        CategoryReportTable(events = events)
+                    }
+                    ReportKind.WALLETS -> {
+                        SectionTitle(stringResource(Res.string.tracker_reports_by_wallet))
+                        WalletReportTable(events = events, groupedWallets = groupedWallets)
+                    }
+                }
+            }
+        }
+        if (narrow) {
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                list(Modifier.fillMaxWidth())
+                content(Modifier.fillMaxWidth())
+            }
+        } else {
+            Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+                list(Modifier.width(230.dp))
+                content(Modifier.weight(1f))
+            }
+        }
     }
+}
+
+/** Reports redesign 2026-10 — the report types of the left list. */
+internal enum class ReportKind(
+    val title: org.jetbrains.compose.resources.StringResource,
+    val subtitle: org.jetbrains.compose.resources.StringResource,
+) {
+    CATEGORIES(Res.string.rpo_kind_categories, Res.string.rpo_kind_categories_sub),
+    WALLETS(Res.string.rpo_kind_wallets, Res.string.rpo_kind_wallets_sub),
+}
+
+internal object ReportsTags {
+    fun kind(k: ReportKind): String = "reports.kind.${k.name.lowercase()}"
 }
 
 @Composable
@@ -179,7 +244,7 @@ internal fun walletReportRows(events: List<PaymentEvent>, groupedWallets: List<G
     }
 
 @Composable
-private fun CategoryReportTable(events: List<PaymentEvent>) {
+internal fun CategoryReportTable(events: List<PaymentEvent>) {
     var sort by remember { mutableStateOf(CatSort.NET) }
     var asc by remember { mutableStateOf(false) }
 
