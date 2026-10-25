@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
 import io.bhodl.desktop.navigation.Route
@@ -211,7 +212,11 @@ public fun App() {
             ) {
                 TrackingScreen(
                     section = section,
-                    onSectionChange = { target -> navController.navigateToSection(target) },
+                    onSectionChange = { target ->
+                        // In-page jumps ("see transactions") count for the rail's Back too.
+                        if (target != section) io.bhodl.desktop.ui.BackNavigation.recordTab(Tab.fromSection(section))
+                        navController.navigateToSection(target)
+                    },
                     onOpenWallet = { walletId ->
                         navController.navigate(Route.OpenWallet(walletId = walletId))
                     },
@@ -446,18 +451,28 @@ internal fun NavController.handleRailTab(
 
 /**
  * Redesign 2026-10 — the rail's Back once no in-screen page is open: the
- * previous navigation entry, else the section visited before; null when
- * there is nowhere to go back to.
+ * previous navigation entry, else the section visited before. Decided at
+ * click time, from the stack as it is then.
  */
-internal fun NavController.railBack(current: Tab): (() -> Unit)? = when {
-    previousBackStackEntry != null -> { { popBackStack() } }
-    io.bhodl.desktop.ui.BackNavigation.tabHistory.isNotEmpty() -> {
-        {
-            io.bhodl.desktop.ui.BackNavigation.popTab()?.let { handleRailTab(it, current, record = false) }
-        }
+internal fun NavController.goBack(current: Tab) {
+    if (previousBackStackEntry != null) {
+        popBackStack()
+    } else {
+        io.bhodl.desktop.ui.BackNavigation.popTab()?.let { handleRailTab(it, current, record = false) }
     }
-    else -> null
 }
+
+/** Whether [goBack] has somewhere to go; recomposes on every navigation. */
+@Composable
+internal fun NavController.canGoBack(): Boolean {
+    currentBackStackEntryAsState().value
+    return previousBackStackEntry != null || io.bhodl.desktop.ui.BackNavigation.tabHistory.isNotEmpty()
+}
+
+/** The rail's Back for a shell whose rail shows [current]; null when disabled. */
+@Composable
+internal fun NavController.railBack(current: Tab): (() -> Unit)? =
+    if (canGoBack()) { { goBack(current) } } else null
 
 /**
  * Open watch wallet [walletId] with the device key held by the registry
@@ -525,7 +540,13 @@ private fun WalletWorkspaceRoute(navController: NavController, initialTab: Walle
                 WalletStore.clear()
                 navController.navigateToSection(TrackerSection.HOME)
             },
-            onOpenWallet = { id -> navController.navigate(Route.OpenWallet(walletId = id)) },
+            onOpenWallet = { id ->
+                // Replace the workspace: Back must not land on a workspace
+                // whose wallet is no longer the one loaded.
+                navController.navigate(Route.OpenWallet(walletId = id)) {
+                    popUpTo<Route.Dashboard> { inclusive = true }
+                }
+            },
             onAddWallet = { navController.navigate(Route.AddWatch) },
         )
     }

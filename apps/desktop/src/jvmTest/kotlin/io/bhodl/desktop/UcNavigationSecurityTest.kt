@@ -120,21 +120,39 @@ class UcNavigationSecurityTest {
 
     @Test
     fun `rail Back returns to the section visited before`() = runDesktopComposeUiTest {
-        val nc = host(Route.Tracking())
-        assertNull(nc.railBack(Tab.Home), "nothing to go back to yet")
-        runOnIdle { nc.handleRailTab(Tab.Budget, current = Tab.Home) }
-        waitForIdle()
-        runOnIdle { nc.handleRailTab(Tab.Reports, current = Tab.Budget) }
-        waitForIdle()
-        runOnIdle { nc.railBack(Tab.Reports)!!.invoke() }
-        waitForIdle()
-        runOnIdle { assertEquals("tracking:budget", nc.currentBackStackEntry!!.describe()) }
-        runOnIdle { nc.railBack(Tab.Budget)!!.invoke() }
-        waitForIdle()
-        runOnIdle {
-            assertEquals("tracking:home", nc.currentBackStackEntry!!.describe())
-            assertNull(nc.railBack(Tab.Home), "going back did not refill the history")
+        lateinit var nc: NavHostController
+        setContent {
+            nc = rememberNavController()
+            io.bhodl.ui.theme.BhodlTheme {
+                NavHost(nc, startDestination = Route.Tracking()) {
+                    composable<Route.Tracking> { entry ->
+                        val section = TrackerSection.fromWire(entry.toRoute<Route.Tracking>().section)
+                        io.bhodl.desktop.ui.TwoTabShell(
+                            selected = Tab.fromSection(section),
+                            onTabSelected = { nc.handleRailTab(it, current = Tab.fromSection(section)) },
+                            onBack = nc.railBack(Tab.fromSection(section)),
+                        ) { Text("section " + section.wire) }
+                    }
+                }
+            }
         }
+        waitForIdle()
+        val back = io.bhodl.desktop.ui.TwoTabShellTags.BACK
+        // Navigation must run on the UI thread: press through the click action there.
+        fun press(tag: String) {
+            runOnIdle { onNodeWithTag(tag).fetchSemanticsNode().config[androidx.compose.ui.semantics.SemanticsActions.OnClick].action!!.invoke() }
+            waitForIdle()
+        }
+        onNodeWithTag(back).assertIsNotEnabled()
+        press(io.bhodl.desktop.ui.TwoTabShellTags.TAB_TRANSACTIONS)
+        press(io.bhodl.desktop.ui.TwoTabShellTags.TAB_WALLET)
+        runOnIdle { assertEquals("tracking:home", nc.currentBackStackEntry!!.describe(), "no wallet: Wallet stays on HOME") }
+        onNodeWithTag(back).assertIsEnabled()
+        press(back)
+        runOnIdle { assertEquals("tracking:transactions", nc.currentBackStackEntry!!.describe()) }
+        press(back)
+        runOnIdle { assertEquals("tracking:home", nc.currentBackStackEntry!!.describe()) }
+        onNodeWithTag(back).assertIsNotEnabled()
     }
 
     @Test
