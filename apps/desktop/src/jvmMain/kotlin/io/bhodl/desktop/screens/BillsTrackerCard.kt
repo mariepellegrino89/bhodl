@@ -1,5 +1,11 @@
 package io.bhodl.desktop.screens
 
+import io.bhodl.shared.resources.bill_fixed
+import io.bhodl.shared.resources.bill_variable
+import io.bhodl.shared.resources.bill_estimate_sat
+import io.bhodl.shared.resources.bill_paid_title
+import io.bhodl.shared.resources.bill_paid_body
+import io.bhodl.shared.resources.bgc_mark_paid
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -64,7 +70,7 @@ import io.bhodl.shared.resources.trp_field_name
 internal fun BillEditDialog(
     editing: TrackingBillFfi?,
     onDismiss: () -> Unit,
-    onSave: (name: String, amountSat: ULong, dueDay: Int, displayLabel: String?) -> Unit,
+    onSave: (name: String, amountSat: ULong, dueDay: Int, displayLabel: String?, variable: Boolean) -> Unit,
     onDelete: (id: Long) -> Unit,
 ) {
     var name by remember(editing?.id) { mutableStateOf(editing?.name ?: "") }
@@ -77,6 +83,9 @@ internal fun BillEditDialog(
     var displayLabel by remember(editing?.id) {
         mutableStateOf(editing?.displayLabel.orEmpty())
     }
+    // Schema v7 — a variable bill (power, gas): the amount is an estimate,
+    // the real one is asked when it is marked paid.
+    var variable by remember(editing?.id) { mutableStateOf(editing?.variable ?: false) }
     val amount: ULong? = amountStr.trim().takeIf { it.isNotBlank() }?.toULongOrNull()
     val dueDay: Int? = dueDayStr.trim().toIntOrNull()?.coerceIn(1, 31)
     val canSave = name.isNotBlank() && amount != null && dueDay != null
@@ -93,11 +102,27 @@ internal fun BillEditDialog(
                     placeholder = { Text(stringResource(Res.string.trp_bill_name_hint)) },
                     modifier = Modifier.fillMaxWidth().testTag(BillTags.INPUT_NAME),
                 )
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf(false to Res.string.bill_fixed, true to Res.string.bill_variable).forEach { (v, label) ->
+                        val on = variable == v
+                        Text(
+                            stringResource(label),
+                            style = BhodlTheme.typography.labelMedium,
+                            color = if (on) BhodlTheme.colors.brandPrimary else BhodlTheme.colors.textSecondary,
+                            modifier = Modifier
+                                .clip(androidx.compose.foundation.shape.RoundedCornerShape(999.dp))
+                                .background(if (on) BhodlTheme.colors.brandPrimary.copy(alpha = 0.14f) else BhodlTheme.colors.surfaceVariant)
+                                .clickable(role = androidx.compose.ui.semantics.Role.RadioButton) { variable = v }
+                                .padding(horizontal = 12.dp, vertical = 6.dp)
+                                .testTag(if (v) BillTags.KIND_VARIABLE else BillTags.KIND_FIXED),
+                        )
+                    }
+                }
                 OutlinedTextField(
                     value = amountStr,
                     onValueChange = { amountStr = it.filter { ch -> ch.isDigit() } },
                     singleLine = true,
-                    label = { Text(stringResource(Res.string.trp_amount_sat)) },
+                    label = { Text(stringResource(if (variable) Res.string.bill_estimate_sat else Res.string.trp_amount_sat)) },
                     keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
                         keyboardType = KeyboardType.Number,
                     ),
@@ -130,6 +155,7 @@ internal fun BillEditDialog(
                         amount!!,
                         dueDay!!,
                         displayLabel.trim().ifBlank { null },
+                        variable,
                     )
                 },
                 enabled = canSave,
@@ -163,6 +189,10 @@ internal object BillTags {
     const val INPUT_DUEDAY: String = "bill.input-dueday"
     const val INPUT_LABEL: String = "bill.input-label"
     fun paidChip(id: Long): String = "bill.paid.$id"
+    const val KIND_FIXED: String = "bill.kind.fixed"
+    const val KIND_VARIABLE: String = "bill.kind.variable"
+    const val PAID_AMOUNT: String = "bill.paid-amount"
+    const val PAID_SAVE: String = "bill.paid-save"
     fun amount(id: Long): String = "bill.amount.$id"
 }
 
@@ -175,4 +205,38 @@ internal fun billSubtitle(bill: TrackingBillFfi): String {
     val due = stringResource(Res.string.trp_bill_due_day, bill.dueDay.toInt())
     val note = bill.displayLabel?.trim()?.takeIf { it.isNotEmpty() }
     return if (note != null) "$due · $note" else due
+}
+
+/** Schema v7 — "how much did you pay?" when a variable bill is marked paid. */
+@Composable
+internal fun BillPaidAmountDialog(bill: TrackingBillFfi, onDismiss: () -> Unit, onSave: (ULong) -> Unit) {
+    var input by remember(bill.id) { mutableStateOf(bill.amountSat.toString()) }
+    val parsed = input.trim().toULongOrNull()
+    SlideOverPanel(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(Res.string.bill_paid_title, bill.name)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    stringResource(Res.string.bill_paid_body, io.bhodl.desktop.ui.displayAmount(bill.amountSat.toLong())),
+                    style = BhodlTheme.typography.bodyMedium,
+                    color = BhodlTheme.colors.textTertiary,
+                )
+                OutlinedTextField(
+                    value = input,
+                    onValueChange = { input = it.filter { ch -> ch.isDigit() } },
+                    singleLine = true,
+                    label = { Text(stringResource(Res.string.trp_amount_sat)) },
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.fillMaxWidth().testTag(BillTags.PAID_AMOUNT),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { parsed?.let(onSave) }, enabled = parsed != null, modifier = Modifier.testTag(BillTags.PAID_SAVE)) {
+                Text(stringResource(Res.string.bgc_mark_paid))
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(Res.string.common_cancel)) } },
+    )
 }

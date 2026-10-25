@@ -870,6 +870,13 @@ pub struct TrackingBillFfi {
     /// UI renders `amount_sat` via BtcUnit display preference.
     pub display_label: Option<String>,
     pub created_at_unix: i64,
+    /// Registry schema v7 — the amount varies; `amount_sat` is an
+    /// estimate. Defaulted so hand-built Kotlin fixtures keep compiling.
+    #[uniffi(default = false)]
+    pub variable: bool,
+    /// Registry schema v7 — what the last "paid" mark recorded.
+    #[uniffi(default = None)]
+    pub last_paid_amount_sat: Option<u64>,
 }
 
 /// Phase 4.5 — savings goal exposed across the FFI.
@@ -2052,8 +2059,31 @@ impl RegistryHandle {
                 last_paid_unix: b.last_paid_unix,
                 display_label: b.display_label,
                 created_at_unix: b.created_at_unix,
+                variable: b.variable,
+                last_paid_amount_sat: b.last_paid_amount_sat,
             })
             .collect())
+    }
+
+    /// Registry schema v7 — mark a bill paid with the amount actually paid.
+    pub fn mark_bill_paid_amount(
+        &self,
+        id: i64,
+        unix_ts: i64,
+        amount_sat: u64,
+    ) -> Result<bool, WalletError> {
+        let guard = self.inner.lock().map_err(|_| WalletError::Storage {
+            detail: "registry mutex poisoned".into(),
+        })?;
+        Ok(guard.mark_bill_paid_amount(id, unix_ts, amount_sat)?)
+    }
+
+    /// Registry schema v7 — whether the bill's amount varies.
+    pub fn set_bill_variable(&self, id: i64, variable: bool) -> Result<bool, WalletError> {
+        let guard = self.inner.lock().map_err(|_| WalletError::Storage {
+            detail: "registry mutex poisoned".into(),
+        })?;
+        Ok(guard.set_bill_variable(id, variable)?)
     }
 
     pub fn delete_bill(&self, id: i64) -> Result<bool, WalletError> {

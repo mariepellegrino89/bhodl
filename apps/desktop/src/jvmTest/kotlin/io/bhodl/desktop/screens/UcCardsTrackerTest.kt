@@ -1,5 +1,6 @@
 package io.bhodl.desktop.screens
 
+import androidx.compose.ui.test.assertTextContains
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.ExperimentalTestApi
@@ -63,6 +64,41 @@ class UcCardsTrackerTest {
     private fun ev(category: String? = null, kind: String? = null) = PaymentEvent(
         "w", "t", PaymentKind.ON_CHAIN, PaymentDirection.OUTGOING, 1_000UL, null, now.toULong(), null, category, kind,
     )
+
+    @Test
+    fun `a variable bill saves as variable and asks the amount when marked paid`() = runDesktopComposeUiTest {
+        var savedVariable: Boolean? = null
+        setContent {
+            BhodlTheme { BillEditDialog(null, onDismiss = {}, onSave = { _, _, _, _, v -> savedVariable = v }, onDelete = {}) }
+        }
+        onNodeWithTag(BillTags.INPUT_NAME).performTextInput("Luce e gas")
+        onNodeWithTag(BillTags.INPUT_AMOUNT).performTextInput("140000")
+        onNodeWithTag(BillTags.KIND_VARIABLE).performClick()
+        waitUntilAtLeastOneExists(hasText("Estimated amount", substring = true))
+        onNodeWithTag(BillTags.SAVE).performClick()
+        assertEquals(true, savedVariable)
+    }
+
+    @Test
+    fun `marking a variable bill paid takes the amount, a fixed one records its own`() = runDesktopComposeUiTest {
+        val variable = io.bhodl.ffi.TrackingBillFfi(1, "Luce e gas", 140_000UL, 28u, null, null, 0, variable = true)
+        val fixed = io.bhodl.ffi.TrackingBillFfi(2, "Affitto", 950_000UL, 28u, null, null, 0)
+        val paid = mutableListOf<Pair<Long, ULong>>()
+        val today = java.time.LocalDate.now()
+        setContent {
+            BhodlTheme {
+                BillsCalendarStrip(listOf(variable, fixed), today, { _, _ -> }, {}, {}, onMarkPaidAmount = { b, sat -> paid += b.id to sat })
+            }
+        }
+        onNodeWithTag(BillTags.amount(1), useUnmergedTree = true).assertTextContains("≈", substring = true)
+        onNodeWithTag(BillTags.paidChip(2)).performClick()
+        onNodeWithTag(BillTags.paidChip(1)).performClick()
+        waitUntil(timeoutMillis = 3_000) { onAllNodes(hasTestTag(BillTags.PAID_AMOUNT), useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
+        onNodeWithTag(BillTags.PAID_AMOUNT, useUnmergedTree = true).performTextClearance()
+        onNodeWithTag(BillTags.PAID_AMOUNT, useUnmergedTree = true).performTextInput("163500")
+        onNodeWithTag(BillTags.PAID_SAVE, useUnmergedTree = true).performClick()
+        assertEquals(listOf(2L to 950_000UL, 1L to 163_500UL), paid)
+    }
 
     // ─── TRK-033 / TRK-047 / TRK-048 — category + kind dialog ───────
 
@@ -167,7 +203,7 @@ class UcCardsTrackerTest {
         var saved: List<Any?>? = null
         setContent {
             BhodlTheme {
-                BillEditDialog(null, onDismiss = {}, onSave = { n, a, d, l -> saved = listOf(n, a, d, l) }, onDelete = {})
+                BillEditDialog(null, onDismiss = {}, onSave = { n, a, d, l, _ -> saved = listOf(n, a, d, l) }, onDelete = {})
             }
         }
         onNodeWithTag(BillTags.SAVE).assertIsNotEnabled()
@@ -185,7 +221,7 @@ class UcCardsTrackerTest {
     fun `TRK-092 an empty due day disables Save and edit mode offers Delete`() = runDesktopComposeUiTest {
         var deleted: Long? = null
         val bill = TrackingBillFfi(7, "Rent", 1_000UL, 5u, null, "flat", 0)
-        setContent { BhodlTheme { BillEditDialog(bill, onDismiss = {}, onSave = { _, _, _, _ -> }, onDelete = { deleted = it }) } }
+        setContent { BhodlTheme { BillEditDialog(bill, onDismiss = {}, onSave = { _, _, _, _, _ -> }, onDelete = { deleted = it }) } }
         onNodeWithTag(BillTags.INPUT_DUEDAY).performTextClearance()
         onNodeWithTag(BillTags.SAVE).assertIsNotEnabled()
         onNodeWithTag(BillTags.DELETE).performClick()

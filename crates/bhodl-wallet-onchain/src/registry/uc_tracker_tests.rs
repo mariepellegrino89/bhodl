@@ -123,6 +123,35 @@ fn rules_update_runs_the_same_validation_as_add() {
     );
 }
 
+// Schema v7 — variable-amount bills.
+#[test]
+fn a_variable_bill_records_what_was_paid_and_unmarking_clears_it() {
+    let dir = TempDir::new().unwrap();
+    let r = open(&dir);
+    let id = r.add_bill("Luce e gas", 140_000, 15, None).unwrap();
+    let fresh = &r.list_bills().unwrap()[0];
+    assert!(!fresh.variable, "bills are fixed by default");
+    assert_eq!(fresh.last_paid_amount_sat, None);
+
+    assert!(r.set_bill_variable(id, true).unwrap());
+    assert!(r.mark_bill_paid_amount(id, 1_760_000_000, 163_500).unwrap());
+    let paid = &r.list_bills().unwrap()[0];
+    assert!(paid.variable);
+    assert_eq!(
+        (paid.last_paid_unix, paid.last_paid_amount_sat),
+        (Some(1_760_000_000), Some(163_500))
+    );
+    assert_eq!(paid.amount_sat, 140_000, "the estimate stays");
+
+    assert!(r.mark_bill_paid(id, None).unwrap());
+    let cleared = &r.list_bills().unwrap()[0];
+    assert_eq!(
+        (cleared.last_paid_unix, cleared.last_paid_amount_sat),
+        (None, None)
+    );
+    assert!(!r.set_bill_variable(9_999, true).unwrap(), "no such bill");
+}
+
 // TRK-091
 #[test]
 fn bills_reject_a_blank_name_on_add() {

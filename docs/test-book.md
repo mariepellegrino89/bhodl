@@ -2685,3 +2685,18 @@ Gli screenshot della revisione grafica finiscono in `apps/desktop/build/screensh
 | 72.1 | Mese precedente      | 1. ‹ .                                                        | Speso e card di settembre; "Settembre 2026 · concluso".          | [auto] BudgetCardsTest.`budgets follow the calendar month` |
 | 72.2 | Limite               | 1. Sul mese in corso prova ›.                                 | Freccia disattivata.                                              | [auto] BudgetCardsTest.`the month selector goes back…` |
 | 72.3 | Torna a oggi         | 1. Vai indietro di 3 mesi. 2. "Questo mese".                  | Torna al mese in corso.                                          | [ ] |
+
+## 73. Bollette a importo fisso o variabile (2026-10-25)
+
+> Ogni bolletta è "Importo fisso" o "Importo variabile" (registro schema v7).
+> Per le variabili l'importo inserito è una stima: la card mostra "≈ stima" e
+> "variabile", e "Segna pagata" chiede quanto hai pagato davvero (già compilato
+> con la stima). Dopo, la card mostra l'importo pagato. Le fisse registrano il
+> loro importo senza chiedere. Togliere "pagata" cancella anche l'importo.
+
+| #    | Test                 | Passi                                                         | Atteso                                                           | Pass |
+|------|----------------------|---------------------------------------------------------------|------------------------------------------------------------------|------|
+| 73.1 | Registro             | —                                                             | Fissa per default; importo pagato salvato e cancellato con il segno. | [auto] uc_tracker_tests `a_variable_bill_records_what_was_paid…` |
+| 73.2 | Nuova variabile      | 1. + Bolletta. 2. "Importo variabile". 3. Salva.              | Il campo diventa "Importo stimato"; la card mostra "≈" e "variabile". | [auto] UcCardsTrackerTest.`a variable bill saves as variable…` |
+| 73.3 | Pagata               | 1. "Segna pagata" su una variabile. 2. 163.500. 3. Conferma.  | La card mostra 163.500 sat; "Pagata".                            | [auto] UcCardsTrackerTest.`marking a variable bill paid takes the amount…` |
+| 73.4 | Aggiornamento        | 1. Apri un registro creato prima di oggi.                     | Si apre (migrazione v7); bollette esistenti fisse.               | [auto] registry migration tests |

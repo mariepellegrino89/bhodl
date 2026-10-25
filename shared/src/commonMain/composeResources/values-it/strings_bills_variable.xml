@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="bill_fixed">Importo fisso</string>
+    <string name="bill_variable">Importo variabile</string>
+    <string name="bill_estimate_sat">Importo stimato (sat)</string>
+    <string name="bill_variable_tag">variabile</string>
+    <string name="bill_paid_title">Pagata: %1$s</string>
+    <string name="bill_paid_body">Quanto hai pagato? La stima è %1$s.</string>
+</resources>

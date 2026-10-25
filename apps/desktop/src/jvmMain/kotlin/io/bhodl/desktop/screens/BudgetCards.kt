@@ -1,5 +1,10 @@
 package io.bhodl.desktop.screens
 
+import io.bhodl.shared.resources.bill_variable_tag
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import io.bhodl.desktop.ui.isUncategorised
 import io.bhodl.desktop.ui.categoryDisplayName
 import io.bhodl.shared.resources.bgm_this_month
@@ -363,8 +368,14 @@ internal fun BillsCalendarStrip(
     onEditBill: (TrackingBillFfi) -> Unit,
     onAddBill: () -> Unit,
     modifier: Modifier = Modifier,
+    /** Schema v7 — a bill marked paid with the amount actually paid. */
+    onMarkPaidAmount: (TrackingBillFfi, ULong) -> Unit = { b, _ -> onToggleBillPaid(b, true) },
 ) {
     val upcoming = upcomingBills(bills, today)
+    var askAmount by remember { mutableStateOf<TrackingBillFfi?>(null) }
+    askAmount?.let { b ->
+        BillPaidAmountDialog(b, onDismiss = { askAmount = null }, onSave = { sat -> askAmount = null; onMarkPaidAmount(b, sat) })
+    }
     Column(modifier = modifier.bhodlCard().padding(BhodlTheme.spacing.md).testTag(BudgetCardsTags.BILLS), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.weight(1f)) { SectionTitle(stringResource(Res.string.bgc_bills), stringResource(Res.string.bgc_bills_help)) }
@@ -397,14 +408,29 @@ internal fun BillsCalendarStrip(
                         Text(date.format(BILL_MONTH.withLocale(Locale.getDefault())), style = BhodlTheme.typography.labelMedium, color = BhodlTheme.colors.textSecondary)
                     }
                     Text(b.name, style = BhodlTheme.typography.bodyMedium, color = BhodlTheme.colors.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(b.displayLabel ?: displayAmount(b.amountSat.toLong()), style = BhodlTheme.typography.mono, color = BhodlTheme.colors.textSecondary, maxLines = 1)
+                    // A variable bill shows its estimate ("≈"), then what was paid.
+                    val shownAmount = when {
+                        paid && b.lastPaidAmountSat != null -> displayAmount(b.lastPaidAmountSat!!.toLong())
+                        b.variable -> "≈ " + displayAmount(b.amountSat.toLong())
+                        else -> b.displayLabel ?: displayAmount(b.amountSat.toLong())
+                    }
+                    Text(shownAmount, style = BhodlTheme.typography.mono, color = BhodlTheme.colors.textSecondary, maxLines = 1, modifier = Modifier.testTag(BillTags.amount(b.id)))
+                    if (b.variable) {
+                        Text(stringResource(Res.string.bill_variable_tag), style = BhodlTheme.typography.labelMedium, color = BhodlTheme.colors.textTertiary)
+                    }
                     Text(
                         stringResource(if (paid) Res.string.bgc_paid else Res.string.bgc_mark_paid),
                         style = BhodlTheme.typography.labelMedium,
                         color = if (paid) BhodlTheme.colors.financialPositive else BhodlTheme.colors.brandPrimary,
                         modifier = Modifier
                             .clip(RoundedCornerShape(6.dp))
-                            .clickable(role = Role.Checkbox) { onToggleBillPaid(b, !paid) }
+                            .clickable(role = Role.Checkbox) {
+                                when {
+                                    paid -> onToggleBillPaid(b, false)
+                                    b.variable -> askAmount = b
+                                    else -> onMarkPaidAmount(b, b.amountSat)
+                                }
+                            }
                             .padding(vertical = 2.dp)
                             .testTag(BillTags.paidChip(b.id)),
                     )

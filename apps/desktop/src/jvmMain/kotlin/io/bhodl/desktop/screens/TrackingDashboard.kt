@@ -166,6 +166,7 @@ internal fun TrackingDashboardTab(
     onEditBill: (io.bhodl.ffi.TrackingBillFfi) -> Unit = {},
     /** Phase 4.4 — toggle paid status; host updates registry. */
     onToggleBillPaid: (io.bhodl.ffi.TrackingBillFfi, Boolean) -> Unit = { _, _ -> },
+    onMarkBillPaidAmount: (io.bhodl.ffi.TrackingBillFfi, ULong) -> Unit = { b, _ -> onToggleBillPaid(b, true) },
     /** Phase 4.5 — savings goals snapshot. */
     goals: List<io.bhodl.ffi.TrackingSavingsGoalFfi> = emptyList(),
     onAddGoal: () -> Unit = {},
@@ -440,6 +441,7 @@ internal fun TrackingDashboardTab(
                 bills = bills,
                 today = todayLocal(),
                 onToggleBillPaid = onToggleBillPaid,
+                onMarkPaidAmount = onMarkBillPaidAmount,
                 onEditBill = onEditBill,
                 onAddBill = onAddBill,
                 modifier = Modifier.fillMaxWidth(),

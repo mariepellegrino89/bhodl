@@ -547,10 +547,20 @@ pub fn open_registry_in_memory(conn: Connection) -> Result<Registry, OnchainErro
 ///   `tracking_manual_assets` and `tracking_liabilities` — the
 ///   kind-specific details shown on the Portfolio cards (TER, interest
 ///   rate, maturity, linked mortgage…). Default `'{}'`, no backfill.
+/// - v7: `tracking_bills.variable` and `tracking_bills.last_paid_amount_sat`
+///   — a bill whose amount changes (power, gas): `amount_sat` is then an
+///   estimate and each "paid" mark records what was actually paid.
+///   Defaults: fixed, no amount; no backfill.
 ///
 /// Not downgrade-compatible: an older build refuses a registry stamped
 /// with a higher version (see the L9 gate in `ensure_schema`).
-pub(crate) const SCHEMA_VERSION: i64 = 6;
+pub(crate) const SCHEMA_VERSION: i64 = 7;
+
+/// v7 — variable-amount bills.
+const ALTER_BILLS_VARIABLE_SQL: [&str; 2] = [
+    "ALTER TABLE tracking_bills ADD COLUMN variable INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE tracking_bills ADD COLUMN last_paid_amount_sat INTEGER",
+];
 
 /// v6 — kind-specific details of a portfolio row, a small JSON object
 /// (see [`Registry::set_details`]).
@@ -651,6 +661,11 @@ fn ensure_schema(conn: &Connection) -> Result<(), OnchainError> {
     }
     if current_version < 6 {
         for stmt in ALTER_DETAILS_JSON_SQL {
+            add_column_idempotent(&tx, stmt)?;
+        }
+    }
+    if current_version < 7 {
+        for stmt in ALTER_BILLS_VARIABLE_SQL {
             add_column_idempotent(&tx, stmt)?;
         }
     }
@@ -1959,11 +1974,45 @@ impl Registry {
     /// "Paid" checkbox. Pass `None` to clear the mark (e.g. user
     /// unchecks). Returns false when no row matches.
     pub fn mark_bill_paid(&self, id: i64, unix_ts: Option<i64>) -> Result<bool, OnchainError> {
+        // Clearing the mark also clears the amount it recorded (v7).
         let n = self
             .conn
             .execute(
-                "UPDATE tracking_bills SET last_paid_unix = ?1 WHERE id = ?2",
+                "UPDATE tracking_bills SET last_paid_unix = ?1, \
+                    last_paid_amount_sat = CASE WHEN ?1 IS NULL THEN NULL ELSE last_paid_amount_sat END \
+                 WHERE id = ?2",
                 rusqlite::params![unix_ts, id],
+            )
+            .map_err(|e| OnchainError::Storage(e.to_string()))?;
+        Ok(n > 0)
+    }
+
+    /// v7 — mark a bill paid at `unix_ts` with the amount actually paid
+    /// (variable bills: power, gas…). Returns false when no row matches.
+    pub fn mark_bill_paid_amount(
+        &self,
+        id: i64,
+        unix_ts: i64,
+        amount_sat: u64,
+    ) -> Result<bool, OnchainError> {
+        let n = self
+            .conn
+            .execute(
+                "UPDATE tracking_bills SET last_paid_unix = ?1, last_paid_amount_sat = ?2 WHERE id = ?3",
+                rusqlite::params![unix_ts, sat_to_i64("amount_sat", amount_sat)?, id],
+            )
+            .map_err(|e| OnchainError::Storage(e.to_string()))?;
+        Ok(n > 0)
+    }
+
+    /// v7 — whether the bill's amount varies (`amount_sat` is then an
+    /// estimate). Returns false when no row matches.
+    pub fn set_bill_variable(&self, id: i64, variable: bool) -> Result<bool, OnchainError> {
+        let n = self
+            .conn
+            .execute(
+                "UPDATE tracking_bills SET variable = ?1 WHERE id = ?2",
+                rusqlite::params![variable, id],
             )
             .map_err(|e| OnchainError::Storage(e.to_string()))?;
         Ok(n > 0)
@@ -1981,7 +2030,7 @@ impl Registry {
             .conn
             .prepare(
                 "SELECT id, name, amount_sat, due_day, last_paid_unix, \
-                        display_label, created_at_unix \
+                        display_label, created_at_unix, variable, last_paid_amount_sat \
                  FROM tracking_bills ORDER BY due_day ASC, created_at_unix ASC",
             )
             .map_err(|e| OnchainError::Storage(e.to_string()))?;
@@ -1995,6 +2044,8 @@ impl Registry {
                     last_paid_unix: row.get(4)?,
                     display_label: row.get(5)?,
                     created_at_unix: row.get(6)?,
+                    variable: row.get(7)?,
+                    last_paid_amount_sat: row.get::<_, Option<i64>>(8)?.map(i64::cast_unsigned),
                 })
             })
             .map_err(|e| OnchainError::Storage(e.to_string()))?;
@@ -3936,6 +3987,10 @@ pub struct TrackingBill {
     pub last_paid_unix: Option<i64>,
     pub display_label: Option<String>,
     pub created_at_unix: i64,
+    /// v7 — the amount varies; `amount_sat` is an estimate.
+    pub variable: bool,
+    /// v7 — what the last "paid" mark recorded, when given.
+    pub last_paid_amount_sat: Option<u64>,
 }
 
 /// Phase 4.5 — one row of the `tracking_savings_goals` table.

@@ -586,6 +586,19 @@ public fun TrackingScreen(
                                 RegistryStore.bumpDataVersion()
                             }
                         },
+                        onMarkBillPaidAmount = { b, sat ->
+                            val registry = RegistryStore.current() ?: return@TrackingDashboardTab
+                            scope.launch {
+                                runCatching {
+                                    withContext(Dispatchers.IO) {
+                                        registry.markBillPaidAmount(b.id, System.currentTimeMillis() / 1000L, sat)
+                                    }
+                                }.onFailure { e ->
+                                    lastError = e.message ?: getString(Res.string.trk_err_mark_bill)
+                                }
+                                RegistryStore.bumpDataVersion()
+                            }
+                        },
                         goals = goals,
                         onAddGoal = { showNewGoal = true },
                         onEditGoal = { g -> goalDialog = g },
@@ -1427,7 +1440,7 @@ public fun TrackingScreen(
                 showNewBill = false
                 billDialog = null
             },
-            onSave = { name, amountSat, dueDay, displayLabel ->
+            onSave = { name, amountSat, dueDay, displayLabel, variable ->
                 val registry = RegistryStore.current()
                 if (registry == null) {
                     lastError = registryNotOpen
@@ -1439,14 +1452,16 @@ public fun TrackingScreen(
                 scope.launch {
                     runCatching {
                         withContext(Dispatchers.IO) {
-                            if (editingNow != null) {
+                            val id = if (editingNow != null) {
                                 registry.updateBill(
                                     editingNow.id, name, amountSat, dueDay.toUInt(),
                                     displayLabel,
                                 )
+                                editingNow.id
                             } else {
                                 registry.addBill(name, amountSat, dueDay.toUInt(), displayLabel)
                             }
+                            registry.setBillVariable(id, variable)
                         }
                     }.onFailure { e ->
                         lastError = e.message ?: getString(Res.string.trk_err_save_bill)
