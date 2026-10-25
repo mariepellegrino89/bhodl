@@ -43,7 +43,8 @@ pub use btc_rate_history::{
     SUPPORTED_CURRENCIES, VALID_SOURCES, normalize_to_utc_midnight,
 };
 pub use common::{
-    DerivedAddress, DescriptorBackup, ENCRYPTION_KEY_LEN, ReceiveLabelCopy, TxRecord, UtxoInfo,
+    DerivedAddress, DescriptorBackup, ENCRYPTION_KEY_LEN, ESPLORA_SYNC_RETRIES, ReceiveLabelCopy,
+    TxRecord, UtxoInfo, is_transient_esplora_error,
 };
 pub use contacts::Contact;
 pub use error::OnchainError;

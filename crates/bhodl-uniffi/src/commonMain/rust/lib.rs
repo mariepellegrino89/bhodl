@@ -316,13 +316,28 @@ impl WatchHandle {
     ) -> Result<(), WalletError> {
         // Audit M5 — the network phase runs without the wallet mutex, so
         // UI reads stay responsive during a slow (Tor) scan.
-        let pending = {
-            let guard = self.inner.lock().map_err(|_| WalletError::Storage {
-                detail: "watch wallet mutex poisoned".into(),
-            })?;
-            guard.start_esplora_scan()
+        // A transient server failure (timeout, 502 / 504) retries the whole
+        // scan a couple of times instead of failing the wallet's sync.
+        let mut attempt = 0u32;
+        let update = loop {
+            let pending = {
+                let guard = self.inner.lock().map_err(|_| WalletError::Storage {
+                    detail: "watch wallet mutex poisoned".into(),
+                })?;
+                guard.start_esplora_scan()
+            };
+            match pending.fetch(&esplora_url, proxy_url.as_deref()) {
+                Ok(update) => break update,
+                Err(e)
+                    if attempt < bhodl_wallet_onchain::ESPLORA_SYNC_RETRIES
+                        && bhodl_wallet_onchain::is_transient_esplora_error(&e) =>
+                {
+                    attempt += 1;
+                    std::thread::sleep(std::time::Duration::from_secs(u64::from(attempt) * 2));
+                }
+                Err(e) => return Err(e.into()),
+            }
         };
-        let update = pending.fetch(&esplora_url, proxy_url.as_deref())?;
         let mut guard = self.inner.lock().map_err(|_| WalletError::Storage {
             detail: "watch wallet mutex poisoned".into(),
         })?;

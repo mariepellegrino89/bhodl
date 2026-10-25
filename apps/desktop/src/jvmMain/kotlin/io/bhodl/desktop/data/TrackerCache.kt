@@ -532,6 +532,11 @@ public object TrackerCache {
      * throw — a single failing Esplora endpoint shouldn't poison the
      * cache.
      */
+    /** Diagnostics on stderr, only when the app runs with `BHODL_DEBUG=1`. */
+    private fun debugLog(message: String) {
+        if (System.getenv("BHODL_DEBUG") == "1") System.err.println("[bhodl] $message")
+    }
+
     public suspend fun refresh(syncEsplora: Boolean = true) {
         refreshMutex.withLock {
             val registry = RegistryStore.current() ?: run {
@@ -575,6 +580,7 @@ public object TrackerCache {
                                     }
                                     result.exceptionOrNull()?.let { e ->
                                         syncFailures++
+                                        debugLog("sync of '${row.label}' (${row.network}) failed: ${e::class.simpleName}: ${e.message}")
                                         if (syncFailure == null) syncFailure = e.userMessage(localizedText(Res.string.trk_cache_err_sync_unknown))
                                     }
                                     result.isSuccess
@@ -590,6 +596,9 @@ public object TrackerCache {
                                 // when balanceSat() throws.
                                 runCatching { handle.destroy() }
                             }
+                        }
+                        opened.exceptionOrNull()?.let { e ->
+                            debugLog("opening '${row.label}' (${row.network}) failed: ${e::class.simpleName}: ${e.message}")
                         }
                         if (opened.isFailure || opened.getOrDefault(false).not()) {
                             stale += row.id

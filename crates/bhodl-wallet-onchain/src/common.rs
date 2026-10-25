@@ -152,6 +152,33 @@ const fn esplora_timeout_secs(proxied: bool) -> u64 {
 /// worst case under 2 s of back-off while still riding out a blip.
 const ESPLORA_MAX_RETRIES: usize = 3;
 
+/// Extra attempts of a whole wallet sync after a transient Esplora
+/// failure (request timeout, 502 / 504, dropped connection). The client
+/// itself only retries 429 / 500 / 503, so a public server that stalls
+/// one request would otherwise fail the entire scan.
+pub const ESPLORA_SYNC_RETRIES: u32 = 2;
+
+/// Whether a failed sync is worth retrying: the server or the network
+/// hiccuped, not a malformed request or an inconsistent answer.
+#[must_use]
+pub fn is_transient_esplora_error(err: &OnchainError) -> bool {
+    const MARKERS: [&str; 9] = [
+        "TimedOut",
+        "timeout",
+        "HttpResponse { status: 502",
+        "HttpResponse { status: 504",
+        "ConnectionReset",
+        "ConnectionAborted",
+        "UnexpectedEof",
+        "BrokenPipe",
+        "IoError",
+    ];
+    let OnchainError::EsploraSync(detail) = err else {
+        return false;
+    };
+    MARKERS.iter().any(|m| detail.contains(m))
+}
+
 /// A blocking Esplora client plus, when Tor is on, the loopback
 /// HTTP-CONNECT → SOCKS5 bridge its requests are tunnelled through.
 ///
@@ -416,6 +443,24 @@ pub(crate) fn map_network(n: BhodlNetwork) -> BtcNetwork {
 #[cfg(test)]
 mod uc_security_tests {
     use super::*;
+
+    #[test]
+    fn transient_esplora_errors_are_retried_and_real_ones_are_not() {
+        let e = |d: &str| OnchainError::EsploraSync(d.into());
+        assert!(is_transient_esplora_error(&e(
+            "Minreq(IoError(Custom { kind: TimedOut, error: \"the timeout of the request was reached\" }))"
+        )));
+        assert!(is_transient_esplora_error(&e(
+            "HttpResponse { status: 502, message: \"Bad Gateway\" }"
+        )));
+        assert!(!is_transient_esplora_error(&e(
+            "HttpResponse { status: 400, message: \"Invalid address\" }"
+        )));
+        assert!(!is_transient_esplora_error(&e("Parsing(\"bad json\")")));
+        assert!(!is_transient_esplora_error(&OnchainError::InvalidArgument(
+            "timeout".into()
+        )));
+    }
 
     // SEC-116
     #[test]
