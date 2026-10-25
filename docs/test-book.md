@@ -442,7 +442,7 @@ Pre-requisiti: device PIN sbloccato, Tracker home aperto, almeno un watch wallet
 5. Sotto l'input pct vedi "≈ <sat> sat at current net worth (recomputed live)".
 6. Nella riga "Current progress" vedi `Current progress: <sat> (auto-tracked)`, in sola lettura.
 7. Salva. La nuova riga deve mostrare il badge "AUTO · Investments" e un `<pct>%` allineato col valore degli investments / target derivato dal NW.
-8. Senza chiudere il dialog, aggiungi un secondo investment con Value 500 €. Atteso: il numero della Savings goal aumenta dopo il prossimo refresh (≤ 2 min, oppure premi "Refresh balances").
+8. Senza chiudere il dialog, aggiungi un secondo investment con Value 500 €. Atteso: il numero della Savings goal aumenta dopo il prossimo refresh (≤ 10 min, oppure premi "Refresh balances").
 
 ### 21.3 Goal Bitcoin cash auto-tracked  `[auto]`
 
@@ -2640,3 +2640,20 @@ Gli screenshot della revisione grafica finiscono in `apps/desktop/build/screensh
 | 69.4 | Cambia colore        | 1. Categoria esistente, scegli un altro colore, Salva.        | Tutte le transazioni di quella categoria cambiano colore.        | [ ] |
 | 69.5 | Riavvio              | 1. Chiudi e riapri l'app.                                     | Categorie aggiunte e colori restano.                              | [ ] |
 | 69.6 | Tema chiaro          | 1. Tema chiaro.                                               | Colori leggibili.                                                 | [auto] screenshot `category-picker-light.png` |
+
+## 70. Sync incrementale e server di riserva (2026-10-25)
+
+> L'aggiornamento automatico ora gira ogni 10 minuti (prima 2) ed è incrementale:
+> controlla solo gli indirizzi già usati più 5 successivi per catena, invece di
+> una scansione completa. La scansione completa resta per la prima sync di ogni
+> wallet nella sessione e per Aggiorna. Su signet, se il server predefinito
+> (blockstream.info) fallisce, la sync riprova su mempool.space; mai se hai
+> scelto un server a mano. Motivo: i server pubblici limitano le richieste
+> (blockstream: 700/ora per IP) o si bloccano sulle scansioni lunghe (mempool).
+
+| #    | Test                 | Passi                                                         | Atteso                                                           | Pass |
+|------|----------------------|---------------------------------------------------------------|------------------------------------------------------------------|------|
+| 70.1 | Richiesta piccola    | —                                                             | Una sync incrementale di un wallet nuovo chiede 10 indirizzi.    | [auto] watch.rs `incremental_scan_checks_only_revealed_scripts_plus_lookahead` |
+| 70.2 | Server di riserva    | —                                                             | Solo signet e solo sul server predefinito.                       | [auto] EsploraEndpointTest.`signet falls back…` |
+| 70.3 | Pagamento nuovo      | 1. Ricevi su un indirizzo nuovo. 2. Aspetta l'aggiornamento automatico. | Il pagamento compare senza premere Aggiorna.                     | [ ] |
+| 70.4 | Server occupato      | 1. Con BHODL_DEBUG=1, guarda il log durante una sync.         | Se il primo server fallisce compare "trying https://mempool.space/signet/api" e la sync riesce. | [ ] |

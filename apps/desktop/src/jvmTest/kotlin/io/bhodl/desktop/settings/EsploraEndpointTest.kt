@@ -115,4 +115,12 @@ class EsploraEndpointTest {
         assertEquals(null, snap.esploraUrl)
         assertEquals(mapOf("SIGNET" to "https://mempool.example/signet/api"), snap.esploraUrls)
     }
+
+    @Test
+    fun `signet falls back to the other public server only on the built-in default`() {
+        assertEquals(EsploraEndpoint.FALLBACK_SIGNET, EsploraEndpoint.fallback(io.bhodl.ffi.Network.SIGNET))
+        assertEquals(null, EsploraEndpoint.fallback(io.bhodl.ffi.Network.MAINNET))
+        SettingsStore.setEsploraUrl(io.bhodl.ffi.Network.SIGNET, "https://my.signet.example/api")
+        assertEquals(null, EsploraEndpoint.fallback(io.bhodl.ffi.Network.SIGNET), "a server the user chose is never swapped")
+    }
 }

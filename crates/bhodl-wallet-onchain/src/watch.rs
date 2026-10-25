@@ -91,12 +91,20 @@ pub enum WatchBip {
 // Lock-friendly sync phases (audit M5)
 // ---------------------------------------------------------------------------
 
+/// Unrevealed addresses per keychain an incremental sync also checks, so
+/// a payment to a freshly shown receive address is found without a full
+/// scan.
+pub(crate) const INCREMENTAL_LOOKAHEAD: u32 = 5;
+
 /// Scan request snapshotted by [`WatchAccount::start_esplora_scan`].
 ///
 /// The `String` is the Tor stream-isolation scope (in-memory key only).
 pub enum PendingWatchScan {
     /// HD (descriptor) watch wallet: full scan with stop-gap.
     Full(FullScanRequest<KeychainKind>, String),
+    /// HD watch wallet, incremental: the revealed scripts plus
+    /// [`INCREMENTAL_LOOKAHEAD`] unrevealed ones per keychain.
+    Incremental(SyncRequest<(KeychainKind, u32)>, String),
     /// Address-list watch wallet: plain spk sync.
     Spks(SyncRequest<u32>, String),
 }
@@ -105,6 +113,7 @@ impl std::fmt::Debug for PendingWatchScan {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
             Self::Full(..) => "PendingWatchScan::Full",
+            Self::Incremental(..) => "PendingWatchScan::Incremental",
             Self::Spks(..) => "PendingWatchScan::Spks",
         })
     }
@@ -123,12 +132,16 @@ impl PendingWatchScan {
         proxy_url: Option<&str>,
     ) -> Result<WatchScanUpdate, OnchainError> {
         let scope = match &self {
-            Self::Full(_, s) | Self::Spks(_, s) => s.clone(),
+            Self::Full(_, s) | Self::Incremental(_, s) | Self::Spks(_, s) => s.clone(),
         };
         let client = try_build_esplora_client_scoped(esplora_url, proxy_url, &scope)?;
         match self {
             Self::Full(request, _) => client
                 .full_scan(request, 20, 4)
+                .map(|r| WatchScanUpdate::Full(r.into()))
+                .map_err(|e| OnchainError::EsploraSync(e.to_string())),
+            Self::Incremental(request, _) => client
+                .sync(request, 4)
                 .map(|r| WatchScanUpdate::Full(r.into()))
                 .map_err(|e| OnchainError::EsploraSync(e.to_string())),
             Self::Spks(request, _) => client
@@ -1121,6 +1134,50 @@ impl WatchAccount {
         self.apply_esplora_scan(update)
     }
 
+    /// Incremental counterpart of [`Self::sync_with_esplora`]: only the
+    /// scripts already revealed plus a short lookahead, a handful of
+    /// requests instead of a full stop-gap scan. Address-list wallets
+    /// sync every script either way.
+    ///
+    /// # Errors
+    ///
+    /// Same as [`Self::sync_with_esplora`].
+    pub fn sync_with_esplora_incremental(
+        &mut self,
+        esplora_url: &str,
+        proxy_url: Option<&str>,
+    ) -> Result<(), OnchainError> {
+        let pending = self.start_esplora_scan_incremental();
+        let update = pending.fetch(esplora_url, proxy_url)?;
+        self.apply_esplora_scan(update)
+    }
+
+    /// Incremental scan request (see [`Self::sync_with_esplora_incremental`]).
+    #[must_use]
+    pub fn start_esplora_scan_incremental(&self) -> PendingWatchScan {
+        match &self.backend {
+            WatchBackend::Descriptor(w) => {
+                let desc = w.public_descriptor(KeychainKind::External).to_string();
+                let mut lookahead = Vec::new();
+                for keychain in [KeychainKind::External, KeychainKind::Internal] {
+                    let next = w.derivation_index(keychain).map_or(0, |i| i + 1);
+                    for index in next..next + INCREMENTAL_LOOKAHEAD {
+                        lookahead.push((
+                            (keychain, index),
+                            w.peek_address(keychain, index).script_pubkey(),
+                        ));
+                    }
+                }
+                let request = w
+                    .start_sync_with_revealed_spks()
+                    .spks_with_indexes(lookahead)
+                    .build();
+                PendingWatchScan::Incremental(request, wallet_isolation_scope(&desc))
+            }
+            WatchBackend::Scripts(_) => self.start_esplora_scan(),
+        }
+    }
+
     /// Phase 1 of a lock-friendly sync (audit M5): snapshot the scan
     /// request. Offline: callers guarding the account with a mutex take it
     /// only for this call, run [`PendingWatchScan::fetch`] unlocked, then
@@ -1714,6 +1771,30 @@ mod tests {
 
     fn mainnet_address_at(index: u32) -> String {
         crate::test_support::bip86_address(BhodlNetwork::Mainnet, index)
+    }
+
+    #[test]
+    fn incremental_scan_checks_only_revealed_scripts_plus_lookahead() {
+        let dir = TempDir::new().unwrap();
+        let acct = WatchAccount::create_from_xpub(
+            BhodlNetwork::Signet,
+            &dir.path().join("watch_incr.sqlite"),
+            &fixture_key(),
+            &xpub_from_mnemonic(BhodlNetwork::Signet),
+            WatchBip::Taproot,
+        )
+        .unwrap();
+        match acct.start_esplora_scan_incremental() {
+            PendingWatchScan::Incremental(request, _) => {
+                // Nothing revealed yet: the lookahead of both keychains only,
+                // far fewer scripts than a 20-gap full scan.
+                assert_eq!(
+                    request.progress().spks_remaining,
+                    2 * INCREMENTAL_LOOKAHEAD as usize
+                );
+            }
+            other => panic!("expected an incremental request, got {other:?}"),
+        }
     }
 
     // ------------------------------------------------------------------

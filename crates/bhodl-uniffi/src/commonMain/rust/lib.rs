@@ -283,6 +283,49 @@ impl std::fmt::Debug for WatchHandle {
     }
 }
 
+impl WatchHandle {
+    /// Shared body of the two syncs. Audit M5 — the network phase runs
+    /// without the wallet mutex, so UI reads stay responsive during a slow
+    /// (Tor) scan. A transient server failure (timeout, 502 / 504) retries
+    /// the scan a couple of times instead of failing the wallet's sync.
+    fn sync_inner(
+        &self,
+        esplora_url: &str,
+        proxy_url: Option<&str>,
+        incremental: bool,
+    ) -> Result<(), WalletError> {
+        let mut attempt = 0u32;
+        let update = loop {
+            let pending = {
+                let guard = self.inner.lock().map_err(|_| WalletError::Storage {
+                    detail: "watch wallet mutex poisoned".into(),
+                })?;
+                if incremental {
+                    guard.start_esplora_scan_incremental()
+                } else {
+                    guard.start_esplora_scan()
+                }
+            };
+            match pending.fetch(esplora_url, proxy_url) {
+                Ok(update) => break update,
+                Err(e)
+                    if attempt < bhodl_wallet_onchain::ESPLORA_SYNC_RETRIES
+                        && bhodl_wallet_onchain::is_transient_esplora_error(&e) =>
+                {
+                    attempt += 1;
+                    std::thread::sleep(std::time::Duration::from_secs(u64::from(attempt) * 2));
+                }
+                Err(e) => return Err(e.into()),
+            }
+        };
+        let mut guard = self.inner.lock().map_err(|_| WalletError::Storage {
+            detail: "watch wallet mutex poisoned".into(),
+        })?;
+        guard.apply_esplora_scan(update)?;
+        Ok(())
+    }
+}
+
 #[uniffi::export]
 impl WatchHandle {
     /// Total wallet balance (confirmed + pending), in sat. Returns 0
@@ -314,35 +357,18 @@ impl WatchHandle {
         esplora_url: String,
         proxy_url: Option<String>,
     ) -> Result<(), WalletError> {
-        // Audit M5 — the network phase runs without the wallet mutex, so
-        // UI reads stay responsive during a slow (Tor) scan.
-        // A transient server failure (timeout, 502 / 504) retries the whole
-        // scan a couple of times instead of failing the wallet's sync.
-        let mut attempt = 0u32;
-        let update = loop {
-            let pending = {
-                let guard = self.inner.lock().map_err(|_| WalletError::Storage {
-                    detail: "watch wallet mutex poisoned".into(),
-                })?;
-                guard.start_esplora_scan()
-            };
-            match pending.fetch(&esplora_url, proxy_url.as_deref()) {
-                Ok(update) => break update,
-                Err(e)
-                    if attempt < bhodl_wallet_onchain::ESPLORA_SYNC_RETRIES
-                        && bhodl_wallet_onchain::is_transient_esplora_error(&e) =>
-                {
-                    attempt += 1;
-                    std::thread::sleep(std::time::Duration::from_secs(u64::from(attempt) * 2));
-                }
-                Err(e) => return Err(e.into()),
-            }
-        };
-        let mut guard = self.inner.lock().map_err(|_| WalletError::Storage {
-            detail: "watch wallet mutex poisoned".into(),
-        })?;
-        guard.apply_esplora_scan(update)?;
-        Ok(())
+        self.sync_inner(&esplora_url, proxy_url.as_deref(), false)
+    }
+
+    /// Incremental Esplora scan: the revealed scripts plus a short
+    /// lookahead (a few requests). For periodic refreshes; the full scan
+    /// stays for the first sync and manual refreshes.
+    pub fn sync_with_esplora_incremental(
+        &self,
+        esplora_url: String,
+        proxy_url: Option<String>,
+    ) -> Result<(), WalletError> {
+        self.sync_inner(&esplora_url, proxy_url.as_deref(), true)
     }
 
     /// Peek a receive address. For HD watch wallets, derives via BDK.

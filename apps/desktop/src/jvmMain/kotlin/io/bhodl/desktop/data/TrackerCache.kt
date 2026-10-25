@@ -70,7 +70,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  *  - Mutations bump [RegistryStore.dataVersion] → the cache observes
  *    that and re-pulls registry-local data (no network sync).
  *  - A background coroutine started by [start] runs every
- *    [BACKGROUND_REFRESH_INTERVAL_MS] (2 min) doing a full refresh
+ *    [backgroundRefreshIntervalMs] (10 min) doing an incremental refresh
  *    *with* Esplora sync, so balances stay reasonably fresh without
  *    blocking any UI thread.
  *
@@ -274,7 +274,9 @@ public object TrackerCache {
      * public endpoint): even with 5 watch wallets a full refresh
      * issues ~10 HTTP requests, well below the budget.
      */
-    public var backgroundRefreshIntervalMs: Long = 2 * 60 * 1000L
+    // Redesign 2026-10 — 10 min (was 2): public Esplora servers cap
+    // unauthenticated use (blockstream.info: 700 requests / hour / IP).
+    public var backgroundRefreshIntervalMs: Long = 10 * 60 * 1000L
 
     private val refreshMutex = Mutex()
     private val scope = MainScope()
@@ -300,7 +302,9 @@ public object TrackerCache {
                 // call would just fail with "registry not open" and
                 // spam lastError on every tick.
                 if (RegistryStore.current() != null) {
-                    runCatching { refresh(syncEsplora = true) }
+                    // Incremental: a few requests per wallet instead of a
+                    // full stop-gap scan (first sync of each wallet stays full).
+                    runCatching { refresh(syncEsplora = true, fullScan = false) }
                 }
             }
         }
@@ -331,6 +335,7 @@ public object TrackerCache {
      * frame before the first refresh.
      */
     public fun reset() {
+        fullyScanned.clear()
         // Atomic wipe — same rationale as the refresh publish: a logout
         // clearing 28 states one-by-one could otherwise flash a
         // partially-cleared snapshot for a frame.
@@ -550,7 +555,15 @@ public object TrackerCache {
         if (System.getenv("BHODL_DEBUG") == "1") System.err.println("[bhodl] $message")
     }
 
-    public suspend fun refresh(syncEsplora: Boolean = true) {
+    /** Wallets fully scanned in this session: later background passes sync them incrementally. */
+    private val fullyScanned = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
+    /**
+     * [fullScan] false (the background ticker) syncs each wallet already
+     * fully scanned in this session incrementally — its revealed scripts
+     * plus a short lookahead — instead of a full stop-gap scan.
+     */
+    public suspend fun refresh(syncEsplora: Boolean = true, fullScan: Boolean = true) {
         refreshMutex.withLock {
             val registry = RegistryStore.current() ?: run {
                 _lastError.value = localizedText(Res.string.trk_cache_err_registry_closed)
@@ -587,9 +600,22 @@ public object TrackerCache {
                                             IllegalStateException("unknown network '${row.network}'"),
                                         )
                                     } else {
-                                        runCatching {
-                                            handle.syncWithEsplora(EsploraEndpoint.current(network), proxy)
+                                        val full = fullScan || row.id !in fullyScanned
+                                        fun syncAgainst(url: String) = runCatching {
+                                            if (full) {
+                                                handle.syncWithEsplora(url, proxy)
+                                            } else {
+                                                handle.syncWithEsploraIncremental(url, proxy)
+                                            }
                                         }
+                                        var attempt = syncAgainst(EsploraEndpoint.current(network))
+                                        // The built-in signet server failed: try the other public one.
+                                        val fallback = EsploraEndpoint.fallback(network)
+                                        if (attempt.isFailure && fallback != null) {
+                                            debugLog("sync of '${row.label}' failed on the default server, trying $fallback")
+                                            attempt = syncAgainst(fallback)
+                                        }
+                                        attempt.onSuccess { if (full) fullyScanned += row.id }
                                     }
                                     result.exceptionOrNull()?.let { e ->
                                         syncFailures++

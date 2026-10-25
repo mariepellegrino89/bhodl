@@ -76,6 +76,18 @@ public object EsploraEndpoint {
     public fun current(network: Network): String =
         SettingsStore.esploraUrlFor(network) ?: defaultFor(network)
 
+    /** mempool.space's signet endpoint: the fallback of [DEFAULT_SIGNET]. */
+    public const val FALLBACK_SIGNET: String = "https://mempool.space/signet/api"
+
+    /**
+     * Second server to try when a sync against [current] fails: only for
+     * signet on the built-in default (a server the user chose is never
+     * swapped behind their back). Public signet servers fail in different
+     * ways — one stalls full scans, the other caps requests per hour.
+     */
+    public fun fallback(network: Network): String? =
+        if (network == Network.SIGNET && SettingsStore.esploraUrlFor(network) == null) FALLBACK_SIGNET else null
+
     /**
      * Parse a registry row's network string ("mainnet", "signet",
      * "testnet4", "regtest"; a few aliases accepted). `null` for an
