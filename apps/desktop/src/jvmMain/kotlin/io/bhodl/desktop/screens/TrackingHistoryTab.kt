@@ -1,4 +1,8 @@
 package io.bhodl.desktop.screens
+import io.bhodl.desktop.domain.RuleDraft
+import io.bhodl.desktop.domain.RulePatternKind
+import io.bhodl.desktop.domain.ruleDraftFromEdit
+import io.bhodl.desktop.domain.ruleDraftMatches
 import io.bhodl.desktop.domain.externalSignedNetSat
 import io.bhodl.desktop.domain.applyRules
 import io.bhodl.desktop.domain.RecurringCandidate
@@ -425,6 +429,10 @@ internal fun CategoryEditDialog(
      */
     costBasis: CostBasisEditState? = null,
     onCostBasisSave: (pricePerBtc: Double?, excluded: Boolean) -> Unit = { _, _ -> },
+    /** Redesign 2026-10 — when non-null, "also create a rule" (off by default). */
+    ruleOption: RuleOptionContext? = null,
+    /** Called on Save, before [onSave], when the rule option is on. */
+    onCreateRule: (draft: RuleDraft, applyTo: List<io.bhodl.ffi.PaymentEvent>) -> Unit = { _, _ -> },
 ) {
     var input by remember(event.txidOrPaymentId) {
         mutableStateOf(event.category.orEmpty())
@@ -440,6 +448,17 @@ internal fun CategoryEditDialog(
     val priceInvalid = priceText.isNotBlank() && (parsedPrice == null || parsedPrice < 0.0)
     var cryptoKind by remember(event.txidOrPaymentId) {
         mutableStateOf(CryptoEventKind.fromWire(event.cryptoEventKind))
+    }
+    var makeRule by remember(event.txidOrPaymentId) { mutableStateOf(false) }
+    var ruleKind by remember(event.txidOrPaymentId) { mutableStateOf<RulePatternKind?>(null) }
+    var applyExisting by remember(event.txidOrPaymentId) { mutableStateOf(true) }
+    val ruleDraft = ruleOption?.takeIf { makeRule }?.let { ctx ->
+        val kind = ruleKind ?: RulePatternKind.entries.firstOrNull { ruleDraftFromEdit(event, input, ctx.walletLabel, it) != null }
+        kind?.let { ruleDraftFromEdit(event, input, ctx.walletLabel, it) }
+    }
+    val ruleMatches = remember(ruleDraft, ruleOption?.events) {
+        if (ruleDraft == null || ruleOption == null) emptyList()
+        else ruleDraftMatches(ruleDraft, ruleOption.events, ruleOption.payeeOf, edited = event)
     }
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss,
@@ -460,6 +479,20 @@ internal fun CategoryEditDialog(
                         .fillMaxWidth()
                         .testTag(TrackingTags.CATEGORY_INPUT),
                 )
+                if (ruleOption != null && input.isNotBlank()) {
+                    RuleOptionSection(
+                        event = event,
+                        category = input,
+                        context = ruleOption,
+                        enabled = makeRule,
+                        onEnabledChange = { makeRule = it },
+                        kind = ruleKind,
+                        onKindChange = { ruleKind = it },
+                        matches = ruleMatches,
+                        applyExisting = applyExisting,
+                        onApplyExistingChange = { applyExisting = it },
+                    )
+                }
                 // Suggest categories that match what the user is
                 // typing. When the field is empty we surface the
                 // entire known list (capped to keep the dialog
@@ -567,6 +600,7 @@ internal fun CategoryEditDialog(
                             onCostBasisSave(newPrice, excluded)
                         }
                     }
+                    ruleDraft?.let { onCreateRule(it, if (applyExisting) ruleMatches else emptyList()) }
                     onSave(input)
                 },
                 enabled = !priceInvalid,

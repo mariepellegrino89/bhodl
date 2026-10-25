@@ -9,7 +9,6 @@ import io.bhodl.desktop.domain.ruleDraftFromEdit
 import io.bhodl.desktop.domain.ruleDraftMatches
 import io.bhodl.desktop.domain.ruleDraftPreviewCount
 import io.bhodl.desktop.domain.rulesInEvaluationOrder
-import io.bhodl.desktop.domain.shouldOfferRuleFromEdit
 import io.bhodl.desktop.domain.topRulePriority
 import io.bhodl.ffi.PaymentDirection
 import io.bhodl.ffi.PaymentEvent
@@ -158,22 +157,6 @@ class RuleSuggestionsTest {
         val events = listOf(event("w-save", "e1", 21_000UL), event("w-save", "e2", 21_001UL))
         val d = ruleDraftFromEdit(edited, "Netflix", "Daily spending", RulePatternKind.AMOUNT)!!
         assertEquals(1, ruleDraftPreviewCount(ruleDraftMatches(d, events, payeeOf, edited)))
-    }
-
-    // ─── when to offer ───────────────────────────────────────────
-
-    @Test
-    fun `offer only for a real change no enabled rule already covers`() {
-        val ev = event("w-daily", "e0")
-        assertTrue(shouldOfferRuleFromEdit(ev, null, "Groceries", emptyList(), "Daily spending"))
-        assertFalse(shouldOfferRuleFromEdit(ev, "Groceries", "Groceries", emptyList(), "Daily spending"))
-        assertFalse(shouldOfferRuleFromEdit(ev, null, "  ", emptyList(), "Daily spending"))
-        val covering = rule(id = 1, field = "payee", op = "equals", value = "Daily spending", category = "Groceries")
-        assertFalse(shouldOfferRuleFromEdit(ev, null, "Groceries", listOf(covering), "Daily spending"))
-        // A disabled rule does not count.
-        assertTrue(
-            shouldOfferRuleFromEdit(ev, null, "Groceries", listOf(covering.copy(enabled = false)), "Daily spending"),
-        )
     }
 
     // ─── ordering ────────────────────────────────────────────────

@@ -2603,3 +2603,19 @@ Gli screenshot della revisione grafica finiscono in `apps/desktop/build/screensh
 | 67.1 | Sezioni             | 1. Home → Budget → Report. 2. ← due volte.                   | Report → Budget → Home; poi il pulsante è grigio.              | [auto] UcNavigationSecurityTest.`rail Back returns to the section visited before` |
 | 67.2 | Pagina interna      | 1. Portafoglio, clic su una voce. 2. ←.                      | Torna al pannello della classe, resta in Portafoglio.          | [auto] UcNavigationSecurityTest.`rail Back closes an in-screen page first` |
 | 67.3 | Wallet              | 1. Da Home apri un wallet. 2. ←.                             | Torna alla Home.                                              | [ ] |
+
+## 68. Categoria senza domande, regola come opzione (2026-10-25)
+
+> Dopo aver messo una categoria l'app non chiede più "Farlo sempre?". Nella
+> finestra della categoria, sotto il campo, c'è "Crea anche una regola per i
+> prossimi movimenti" (spenta di default): accesa, si sceglie se abbinare per
+> wallet o per importo esatto, si vede a quante transazioni senza categoria si
+> applica e si può categorizzarle subito. La categoria salvata compare subito
+> nell'elenco, anche mentre una sincronizzazione lenta è in corso.
+
+| #    | Test                 | Passi                                                         | Atteso                                                           | Pass |
+|------|----------------------|---------------------------------------------------------------|------------------------------------------------------------------|------|
+| 68.1 | Spesa singola        | 1. Transazioni, clic su una categoria. 2. Scrivi e Salva.     | Nessuna domanda dopo; la categoria compare subito.               | [auto] UcRegistryWiringTrackerTest.`TRK-034 a single category save asks nothing…` |
+| 68.2 | Con regola           | 1. Spunta "Crea anche una regola". 2. Wallet. 3. Salva.       | Regola in cima all'elenco; le transazioni abbinate senza categoria ricevono la categoria. | [auto] UcRegistryWiringTrackerTest.`TRK-034 TRK-072 the category editor can also create a rule…` |
+| 68.3 | Importo esatto       | 1. Spunta la regola, scegli "Importo esatto".                 | L'anteprima conta solo le transazioni con lo stesso importo e direzione. | [ ] |
+| 68.4 | Sync lenta           | 1. Durante una sync lunga cambia una categoria.               | La categoria compare subito, senza aspettare la fine della sync. | [ ] |

@@ -256,7 +256,7 @@ class UcRegistryWiringTrackerTest {
     // ─── TRK-034 / TRK-072 — category save and rule from edit ───────
 
     @Test
-    fun `TRK-034 TRK-072 a re-categorisation offers a rule that also fills matching history`() = runDesktopComposeUiTest {
+    fun `TRK-034 TRK-072 the category editor can also create a rule that fills matching history`() = runDesktopComposeUiTest {
         legs = listOf(
             leg("a", 5_000UL, now - 3_600, PaymentDirection.INCOMING),
             leg("b", 6_000UL, now - 7_200, PaymentDirection.INCOMING),
@@ -266,19 +266,39 @@ class UcRegistryWiringTrackerTest {
         waitForIdle()
         onAllNodesWithTag(TrackingTags.CATEGORY_CHIP)[0].performScrollTo().performClick()
         onNodeWithTag(TrackingTags.CATEGORY_INPUT).performTextInput("  DCA ")
-        onNodeWithTag(TrackingTags.CATEGORY_SAVE).performClick()
-        until("category saved") { registry.getEventCategory(wallet.id, "a") == "DCA" }
-
-        waitUntilAtLeastOneExists(hasText("Always do this?", substring = true), timeoutMillis = 5_000)
+        // The rule is an option of the editor, off by default.
+        onNodeWithTag(RuleTags.MAKE_RULE).assertExists()
+        assertEquals(0, onAllNodes(hasTestTag(RuleTags.FROM_EDIT_PREVIEW)).fetchSemanticsNodes().size)
+        onNodeWithTag(RuleTags.MAKE_RULE).performClick()
         // The edited row is excluded from the preview: one other match.
         waitUntilAtLeastOneExists(hasText("applies to: 1", substring = true))
-        onNodeWithTag(RuleTags.FROM_EDIT_CREATE).performClick()
+        onNodeWithTag(TrackingTags.CATEGORY_SAVE).performClick()
+        until("category saved") { registry.getEventCategory(wallet.id, "a") == "DCA" }
         until("rule created") { registry.listRules().size == 1 }
         val rule = registry.listRules().single()
         assertEquals("payee" to "Exchange", rule.conditionField to rule.conditionValue)
         assertEquals("DCA", rule.actionValue)
         until("matching history categorised") { registry.getEventCategory(wallet.id, "b") == "DCA" }
         assertNotNull(rule)
+    }
+
+    @Test
+    fun `TRK-034 a single category save asks nothing and shows at once`() = runDesktopComposeUiTest {
+        legs = listOf(
+            leg("a", 5_000UL, now - 3_600, PaymentDirection.INCOMING),
+            leg("b", 6_000UL, now - 7_200, PaymentDirection.INCOMING),
+        )
+        refresh()
+        setContent { BhodlTheme { TrackingScreen(section = TrackerSection.TRANSACTIONS) } }
+        waitForIdle()
+        onAllNodesWithTag(TrackingTags.CATEGORY_CHIP)[0].performScrollTo().performClick()
+        onNodeWithTag(TrackingTags.CATEGORY_INPUT).performTextInput("Spesa")
+        onNodeWithTag(TrackingTags.CATEGORY_SAVE).performClick()
+        until("category saved") { registry.getEventCategory(wallet.id, "a") == "Spesa" }
+        until("shown in the cache") { TrackerCache.events.value.any { it.txidOrPaymentId == "a" && it.category == "Spesa" } }
+        waitForIdle()
+        assertEquals(0, onAllNodes(hasTestTag(RuleTags.FROM_EDIT_PANEL)).fetchSemanticsNodes().size, "no follow-up prompt")
+        assertEquals(0, registry.listRules().size)
     }
 
     private companion object {

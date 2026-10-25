@@ -532,6 +532,19 @@ public object TrackerCache {
      * throw — a single failing Esplora endpoint shouldn't poison the
      * cache.
      */
+    /**
+     * Show a category written to the registry at once, before the next
+     * refresh (which can wait behind a slow network sync). Every wallet
+     * row of the transaction gets it, like the registry-only refresh would.
+     */
+    public fun patchEventCategory(txidOrPaymentId: String, category: String?) {
+        fun List<PaymentEvent>.patched() = map { if (it.txidOrPaymentId == txidOrPaymentId) it.copy(category = category) else it }
+        androidx.compose.runtime.snapshots.Snapshot.withMutableSnapshot {
+            _events.value = _events.value.patched()
+            _eventLegs.value = _eventLegs.value.patched()
+        }
+    }
+
     /** Diagnostics on stderr, only when the app runs with `BHODL_DEBUG=1`. */
     private fun debugLog(message: String) {
         if (System.getenv("BHODL_DEBUG") == "1") System.err.println("[bhodl] $message")

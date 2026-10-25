@@ -2,7 +2,6 @@ package io.bhodl.desktop.screens
 import io.bhodl.desktop.domain.applyRules
 import io.bhodl.desktop.domain.moveRule
 import io.bhodl.desktop.domain.rulesInEvaluationOrder
-import io.bhodl.desktop.domain.shouldOfferRuleFromEdit
 import io.bhodl.desktop.domain.topRulePriority
 import io.bhodl.desktop.domain.RecurringCandidate
 import io.bhodl.desktop.domain.dayOfMonth
@@ -219,11 +218,6 @@ public fun TrackingScreen(
     var categoryFilter by TrackerUiState.categoryFilter
     var editing by remember {
         mutableStateOf<io.bhodl.ffi.PaymentEvent?>(null)
-    }
-    // UX review 2026-10 (item 11) — the re-categorised event + its new
-    // category while the "Always do this?" prompt is open.
-    var ruleFromEdit by remember {
-        mutableStateOf<Pair<io.bhodl.ffi.PaymentEvent, String>?>(null)
     }
     var period by TrackerUiState.period
     var timeRangeFilter by TrackerUiState.timeRangeFilter
@@ -754,7 +748,8 @@ public fun TrackingScreen(
                                     withContext(Dispatchers.IO) {
                                         registry.setEventCategory(event.walletId, event.txidOrPaymentId, category)
                                     }
-                                }.onFailure { e -> lastError = e.message ?: getString(Res.string.trk_err_save_category) }
+                                }.onSuccess { TrackerCache.patchEventCategory(event.txidOrPaymentId, category) }
+                                    .onFailure { e -> lastError = e.message ?: getString(Res.string.trk_err_save_category) }
                                 RegistryStore.bumpDataVersion()
                             }
                         },
@@ -1715,6 +1710,36 @@ public fun TrackingScreen(
                     RegistryStore.bumpDataVersion()
                 }
             },
+            ruleOption = RuleOptionContext(
+                walletLabel = walletLabelById[editingEvent.walletId],
+                events = events,
+                payeeOf = { walletLabelById[it.walletId] },
+            ),
+            onCreateRule = { draft, applyTo ->
+                val registry = RegistryStore.current() ?: return@CategoryEditDialog
+                val priority = topRulePriority(rules)
+                scope.launch {
+                    runCatching {
+                        withContext(Dispatchers.IO) {
+                            registry.addRule(
+                                draft.name, draft.conditionField, draft.conditionOp,
+                                draft.conditionValue, "category", draft.category,
+                                priority, true,
+                            )
+                            // Only uncategorised rows (see ruleDraftMatches):
+                            // a hand-set category is never overwritten.
+                            for (ev in applyTo) {
+                                registry.setEventCategory(ev.walletId, ev.txidOrPaymentId, draft.category)
+                            }
+                        }
+                    }.onSuccess {
+                        applyTo.forEach { TrackerCache.patchEventCategory(it.txidOrPaymentId, draft.category) }
+                    }.onFailure { e ->
+                        lastError = e.message ?: getString(Res.string.trk_err_create_rule)
+                    }
+                    RegistryStore.bumpDataVersion()
+                }
+            },
             onDismiss = { editing = null },
             onSave = { newCategory ->
                 val registry = RegistryStore.current()
@@ -1723,28 +1748,19 @@ public fun TrackingScreen(
                     editing = null
                     return@CategoryEditDialog
                 }
-                // UX review 2026-10 (item 11) — offer "Always do this?"
-                // when the edit is a real re-categorisation no rule
-                // already covers.
-                val offerRule = shouldOfferRuleFromEdit(
-                    event = editingEvent,
-                    oldCategory = editingEvent.category,
-                    newCategory = newCategory,
-                    rules = rules,
-                    payee = walletLabelById[editingEvent.walletId],
-                )
                 scope.launch {
-                    val saved = runCatching {
+                    runCatching {
                         withContext(Dispatchers.IO) {
                             saveEventCategory(registry, editingEvent, newCategory)
                         }
+                    }.onSuccess {
+                        // Shown at once: the cache refresh can wait behind a
+                        // slow network sync.
+                        TrackerCache.patchEventCategory(editingEvent.txidOrPaymentId, newCategory.trim().ifBlank { null })
                     }.onFailure { e ->
                         lastError = e.message ?: getString(Res.string.trk_err_save_category)
-                    }.isSuccess
-                    editing = null
-                    if (saved && offerRule) {
-                        ruleFromEdit = editingEvent to newCategory.trim()
                     }
+                    editing = null
                     RegistryStore.bumpDataVersion()
                 }
             },
@@ -1771,48 +1787,6 @@ public fun TrackingScreen(
         )
     }
 
-    val pendingRule = ruleFromEdit
-    if (pendingRule != null) {
-        val (ruleEvent, ruleCategory) = pendingRule
-        RuleFromEditPanel(
-            event = ruleEvent,
-            category = ruleCategory,
-            walletLabel = walletLabelById[ruleEvent.walletId],
-            events = events,
-            payeeOf = { walletLabelById[it.walletId] },
-            onDismiss = { ruleFromEdit = null },
-            onCreate = { draft, applyTo ->
-                val registry = RegistryStore.current()
-                ruleFromEdit = null
-                if (registry == null) {
-                    lastError = registryNotOpen
-                    return@RuleFromEditPanel
-                }
-                val priority = topRulePriority(rules)
-                scope.launch {
-                    runCatching {
-                        withContext(Dispatchers.IO) {
-                            registry.addRule(
-                                draft.name, draft.conditionField, draft.conditionOp,
-                                draft.conditionValue, "category", draft.category,
-                                priority, true,
-                            )
-                            // Only uncategorised rows (see ruleDraftMatches):
-                            // a hand-set category is never overwritten.
-                            for (ev in applyTo) {
-                                registry.setEventCategory(
-                                    ev.walletId, ev.txidOrPaymentId, draft.category,
-                                )
-                            }
-                        }
-                    }.onFailure { e ->
-                        lastError = e.message ?: getString(Res.string.trk_err_create_rule)
-                    }
-                    RegistryStore.bumpDataVersion()
-                }
-            },
-        )
-    }
 }
 
 public object TrackingTags {

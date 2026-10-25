@@ -119,25 +119,6 @@ internal fun ruleDraftMatches(
 internal fun ruleDraftPreviewCount(matches: List<PaymentEvent>): Int =
     matches.map { it.txidOrPaymentId }.distinct().size
 
-/**
- * Offer the prompt only when it adds something: a real new category
- * that differs from the old one, and no enabled rule (in evaluation
- * order) already sends this event to that category.
- */
-internal fun shouldOfferRuleFromEdit(
-    event: PaymentEvent,
-    oldCategory: String?,
-    newCategory: String,
-    rules: List<TrackingRuleFfi>,
-    payee: String?,
-): Boolean {
-    val cat = newCategory.trim()
-    if (cat.isEmpty()) return false
-    if (cat == oldCategory?.trim()) return false
-    val enabled = rulesInEvaluationOrder(rules).filter { it.enabled }
-    return applyRules(enabled, event, payeeOf = { payee }) != cat
-}
-
 // ─── Explicit ordering ────────────────────────────────────────────────
 
 /**
