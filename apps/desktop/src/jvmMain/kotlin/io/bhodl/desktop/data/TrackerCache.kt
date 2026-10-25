@@ -882,6 +882,9 @@ public object TrackerCache {
                 },
                 onFailure = { e ->
                     if (RegistryStore.current() !== registry) return@fold
+                    // A cancelled pass (its caller's scope went away, e.g. the
+                    // screen that started it closed) is not an error to show.
+                    if (e is kotlinx.coroutines.CancellationException) return@fold
                     _lastError.value = e.userMessage(localizedText(Res.string.trk_cache_err_refresh))
                     lastErrorIsSync = false
                 },

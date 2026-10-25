@@ -367,7 +367,7 @@ public fun TrackingScreen(
             }
             !mod && event.key == Key.R -> {
                 if (!refreshing) {
-                    scope.launch { TrackerCache.refresh(syncEsplora = true) }
+                    io.bhodl.desktop.AppScope.io.launch(kotlinx.coroutines.Dispatchers.Main) { TrackerCache.refresh(syncEsplora = true) }
                 }
                 true
             }
@@ -518,7 +518,7 @@ public fun TrackingScreen(
                 refreshing = refreshing,
                 onRefresh = {
                     if (refreshing) return@DataStateStrip
-                    scope.launch { TrackerCache.refresh(syncEsplora = true) }
+                    io.bhodl.desktop.AppScope.io.launch(kotlinx.coroutines.Dispatchers.Main) { TrackerCache.refresh(syncEsplora = true) }
                 },
             )
 
@@ -1582,7 +1582,7 @@ public fun TrackingScreen(
                 keywords = listOf("refresh", "sync", "aggiorna"),
                 invoke = {
                     if (!refreshing) {
-                        scope.launch { TrackerCache.refresh(syncEsplora = true) }
+                        io.bhodl.desktop.AppScope.io.launch(kotlinx.coroutines.Dispatchers.Main) { TrackerCache.refresh(syncEsplora = true) }
                     }
                 },
             ),

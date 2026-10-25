@@ -383,7 +383,7 @@ internal fun TrackerHomeSection(
             ) {
                 WalletsHeader(
                     refreshing = refreshing,
-                    onRefresh = { scope.launch { TrackerCache.refresh(syncEsplora = true) } },
+                    onRefresh = { io.bhodl.desktop.AppScope.io.launch(kotlinx.coroutines.Dispatchers.Main) { TrackerCache.refresh(syncEsplora = true) } },
                     onAddWatch = onAddWatch,
                 )
                 WalletListTable(

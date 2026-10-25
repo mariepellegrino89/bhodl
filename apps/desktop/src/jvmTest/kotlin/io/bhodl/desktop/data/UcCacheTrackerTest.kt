@@ -1,5 +1,6 @@
 package io.bhodl.desktop.data
 
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.snapshots.Snapshot
 import io.bhodl.desktop.domain.SEND_TO_SELF
 import io.bhodl.desktop.settings.SettingsStore
@@ -523,5 +524,23 @@ class UcCacheTrackerTest {
     private companion object {
         const val SIGNET_A = "tb1p8wpt9v4frpf3tkn0srd97pksgsxc5hs52lafxwru9kgeephvs7rqlqt9zj"
         const val SIGNET_B = "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx"
+    }
+
+    @Test
+    fun `a refresh cancelled by its caller leaves no error`() {
+        addWallet("Main", "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx")
+        val entered = java.util.concurrent.CountDownLatch(1)
+        val release = java.util.concurrent.CountDownLatch(1)
+        TrackerCache.watchEventsSource = { entered.countDown(); release.await(); emptyList() }
+        runBlocking {
+            val job = launch(kotlinx.coroutines.Dispatchers.Default) { TrackerCache.refresh(syncEsplora = false) }
+            entered.await()
+            // What happens when the screen that started the pass closes.
+            job.cancel(kotlinx.coroutines.CancellationException("The coroutine scope left the composition"))
+            release.countDown()
+            job.join()
+        }
+        assertNull(TrackerCache.lastError.value)
+        assertEquals(false, TrackerCache.refreshing.value)
     }
 }
