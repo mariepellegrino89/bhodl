@@ -141,13 +141,6 @@ internal fun searchLedger(events: List<PaymentEvent>, query: String, walletLabel
     }
 }
 
-/** Stable colour for a category name from the categorical palette. */
-@Composable
-internal fun categoryColor(category: String?): Color {
-    val palette = BhodlTheme.colors.chartCategorical
-    if (category.isNullOrBlank() || palette.isEmpty()) return BhodlTheme.colors.financialPending
-    return palette[Math.floorMod(category.lowercase().hashCode(), palette.size)]
-}
 
 @Composable
 private fun CardTitle(text: String, help: String) {

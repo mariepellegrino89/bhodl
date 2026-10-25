@@ -67,19 +67,22 @@ class UcCardsTrackerTest {
     // ─── TRK-033 / TRK-047 / TRK-048 — category + kind dialog ───────
 
     @Test
-    fun `TRK-033 typing narrows the suggestions and a chip fills the input`() = runDesktopComposeUiTest {
+    fun `TRK-033 the category menu filters as you type and a pick fills the input`() = runDesktopComposeUiTest {
         var saved: String? = null
         setContent {
             BhodlTheme {
-                CategoryEditDialog(ev(), listOf("Food", "Fuel", "Rent"), onDismiss = {}, onSave = { saved = it })
+                CategoryEditDialog(ev(), listOf("Food", "Fuel", "Rent", "Palestra"), onDismiss = {}, onSave = { saved = it })
             }
         }
-        waitUntilAtLeastOneExists(hasText("Rent"))
+        onNodeWithTag(CategoryPickerTags.TOGGLE).performClick()
+        // Classic categories first; "Fuel" / "Rent" are aliases of Transport / Home.
+        onNodeWithTag(CategoryPickerTags.item("Transport")).assertExists()
+        onNodeWithTag(CategoryPickerTags.item("Palestra")).assertExists()
+        assertEquals(0, count(CategoryPickerTags.item("Fuel")))
         onNodeWithTag(TrackingTags.CATEGORY_INPUT).performTextInput("fo")
         waitForIdle()
-        assertEquals(0, countText("Rent"))
-        assertEquals(0, countText("Fuel"))
-        onNodeWithText("Food").performClick()
+        assertEquals(0, count(CategoryPickerTags.item("Transport")))
+        onNodeWithTag(CategoryPickerTags.item("Food")).performClick()
         onNodeWithTag(TrackingTags.CATEGORY_SAVE).performClick()
         assertEquals("Food", saved)
         // No Clear button without an existing category.
@@ -87,18 +90,34 @@ class UcCardsTrackerTest {
     }
 
     @Test
-    fun `TRK-033 suggestions are capped at eight and Clear saves an empty category`() = runDesktopComposeUiTest {
+    fun `TRK-033 a new category keeps the colour picked for it and Clear saves an empty category`() = runDesktopComposeUiTest {
         var saved: String? = null
-        val known = (1..10).map { "Cat$it" }
         setContent {
-            BhodlTheme { CategoryEditDialog(ev(category = "Cat1"), known, onDismiss = {}, onSave = { saved = it }) }
+            BhodlTheme { CategoryEditDialog(ev(category = "Food"), emptyList(), onDismiss = {}, onSave = { saved = it }) }
         }
         onNodeWithTag(TrackingTags.CATEGORY_INPUT).performTextClearance()
-        waitForIdle()
-        assertEquals(1, countText("Cat8"))
-        assertEquals(0, countText("Cat9"))
+        onNodeWithTag(TrackingTags.CATEGORY_INPUT).performTextInput("Palestra")
+        onNodeWithTag(CategoryPickerTags.NEW).performClick()
+        onNodeWithTag(CategoryPickerTags.swatch(5)).performClick()
+        onNodeWithTag(TrackingTags.CATEGORY_SAVE).performClick()
+        assertEquals("Palestra", saved)
+        assertEquals(listOf("Palestra"), io.bhodl.desktop.settings.SettingsStore.customCategories.value)
+        assertEquals(5, io.bhodl.desktop.settings.SettingsStore.categoryColors.value["palestra"])
         onNodeWithTag(TrackingTags.CATEGORY_CLEAR).performClick()
         assertEquals("", saved)
+    }
+
+    @Test
+    fun `category colours - classic ones differ, aliases share, the user's choice wins`() {
+        assertEquals(0, categoryColorIndex("Cibo", emptyMap()))
+        assertEquals(1, categoryColorIndex("Trasporti", emptyMap()))
+        assertEquals(categoryColorIndex("food", emptyMap()), categoryColorIndex("Spesa", emptyMap()))
+        assertEquals(7, categoryColorIndex("Cibo", mapOf("cibo" to 7)))
+        assertEquals(null, categoryColorIndex("  ", emptyMap()))
+        val distinct = PRESET_CATEGORIES.filter { it.colorIndex != CategoryPalette.OTHER }.map { it.colorIndex }
+        assertTrue(distinct.size - distinct.toSet().size <= 1, "classic categories get (almost) all different colours")
+        val custom = categoryColorIndex("Palestra", emptyMap())!!
+        assertTrue(custom in 0 until CategoryPalette.size - 1, "the hash fallback never hands out grey")
     }
 
     @Test

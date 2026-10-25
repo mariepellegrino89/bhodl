@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="cat_preset_food">Cibo</string>
+    <string name="cat_preset_transport">Trasporti</string>
+    <string name="cat_preset_home">Casa</string>
+    <string name="cat_preset_utilities">Bollette</string>
+    <string name="cat_preset_health">Salute</string>
+    <string name="cat_preset_leisure">Svago</string>
+    <string name="cat_preset_shopping">Shopping</string>
+    <string name="cat_preset_travel">Viaggi</string>
+    <string name="cat_preset_subscriptions">Abbonamenti</string>
+    <string name="cat_preset_education">Istruzione</string>
+    <string name="cat_preset_gifts">Regali</string>
+    <string name="cat_preset_salary">Stipendio</string>
+    <string name="cat_preset_restaurants">Ristoranti</string>
+    <string name="cat_preset_investments">Investimenti</string>
+    <string name="cat_preset_other">Altro</string>
+    <string name="cat_new">+ Nuova categoria “%1$s”</string>
+    <string name="cat_color">Colore</string>
+    <string name="cat_color_n">Colore %1$d</string>
+</resources>

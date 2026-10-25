@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="cat_preset_food">Food</string>
+    <string name="cat_preset_transport">Transport</string>
+    <string name="cat_preset_home">Home</string>
+    <string name="cat_preset_utilities">Utilities</string>
+    <string name="cat_preset_health">Health</string>
+    <string name="cat_preset_leisure">Leisure</string>
+    <string name="cat_preset_shopping">Shopping</string>
+    <string name="cat_preset_travel">Travel</string>
+    <string name="cat_preset_subscriptions">Subscriptions</string>
+    <string name="cat_preset_education">Education</string>
+    <string name="cat_preset_gifts">Gifts</string>
+    <string name="cat_preset_salary">Salary</string>
+    <string name="cat_preset_restaurants">Restaurants</string>
+    <string name="cat_preset_investments">Investments</string>
+    <string name="cat_preset_other">Other</string>
+    <string name="cat_new">+ New category “%1$s”</string>
+    <string name="cat_color">Colour</string>
+    <string name="cat_color_n">Colour %1$d</string>
+</resources>

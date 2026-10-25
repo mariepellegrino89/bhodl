@@ -355,6 +355,33 @@ public object SettingsStore {
         _excludedWalletIds.value = ids
     }
 
+    // Redesign 2026-10 — category colours the user picked (lower-case
+    // name → palette slot) and the categories they added. A category
+    // with no entry takes its classic colour (see CategoryCatalog).
+    private val _categoryColors = mutableStateOf<Map<String, Int>>(emptyMap())
+    public val categoryColors: State<Map<String, Int>> get() = _categoryColors
+    private val _customCategories = mutableStateOf<List<String>>(emptyList())
+    public val customCategories: State<List<String>> get() = _customCategories
+
+    public fun setCategoryColor(category: String, colorIndex: Int) {
+        val key = category.trim().lowercase().takeIf { it.isNotEmpty() } ?: return
+        _categoryColors.value = _categoryColors.value + (key to colorIndex)
+        persistIfEnabled()
+    }
+
+    public fun addCustomCategory(category: String) {
+        val name = category.trim().takeIf { it.isNotEmpty() } ?: return
+        if (_customCategories.value.any { it.equals(name, ignoreCase = true) }) return
+        _customCategories.value = _customCategories.value + name
+        persistIfEnabled()
+    }
+
+    /** Rehydrate without a write-through (see [replaceExcludedWalletIds]). */
+    internal fun replaceCategories(colors: Map<String, Int>, custom: List<String>) {
+        _categoryColors.value = colors
+        _customCategories.value = custom
+    }
+
     // Phase 7.2 — privacy auto-hide; UX review 2026-10 (item 13) — now
     // the persisted "Start with balances hidden" preference of the
     // app-wide privacy mode: at launch (and after every lock) the
@@ -565,6 +592,8 @@ public object SettingsStore {
      */
     public fun reset() {
         _themeMode.value = ThemeMode.System
+        _categoryColors.value = emptyMap()
+        _customCategories.value = emptyList()
         _esploraUrls.value = emptyMap()
         _localeOverride.value = null
         _torEnabled.value = false

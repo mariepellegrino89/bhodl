@@ -73,7 +73,6 @@ import io.bhodl.shared.resources.tracker_reports_empty_wallets
 import io.bhodl.shared.resources.trk_cat_dialog_body
 import io.bhodl.shared.resources.trk_cat_dialog_clear
 import io.bhodl.shared.resources.trk_cat_dialog_hint
-import io.bhodl.shared.resources.trk_cat_dialog_suggestions
 import io.bhodl.shared.resources.trk_cat_dialog_title
 import io.bhodl.shared.resources.trp_cb_dialog_exclude
 import io.bhodl.shared.resources.trp_cb_dialog_invalid
@@ -450,6 +449,14 @@ internal fun CategoryEditDialog(
         mutableStateOf(CryptoEventKind.fromWire(event.cryptoEventKind))
     }
     var makeRule by remember(event.txidOrPaymentId) { mutableStateOf(false) }
+    // Redesign 2026-10 — category drop-down and colour.
+    var menuOpen by remember(event.txidOrPaymentId) { mutableStateOf(false) }
+    var menuFilter by remember(event.txidOrPaymentId) { mutableStateOf(false) }
+    var pickedColor by remember(event.txidOrPaymentId) { mutableStateOf<Int?>(null) }
+    val customColors = io.bhodl.desktop.settings.SettingsStore.categoryColors.value
+    val shownColor = pickedColor ?: categoryColorIndex(input, customColors)
+    val choices = categoryChoices(knownCategories)
+    val isKnown = choices.any { categoryMatches(it, input, exact = true) }
     var ruleKind by remember(event.txidOrPaymentId) { mutableStateOf<RulePatternKind?>(null) }
     var applyExisting by remember(event.txidOrPaymentId) { mutableStateOf(true) }
     val ruleDraft = ruleOption?.takeIf { makeRule }?.let { ctx ->
@@ -472,13 +479,36 @@ internal fun CategoryEditDialog(
                 )
                 androidx.compose.material3.OutlinedTextField(
                     value = input,
-                    onValueChange = { input = it },
+                    onValueChange = { input = it; menuOpen = true; menuFilter = true; pickedColor = null },
                     singleLine = true,
                     placeholder = { Text(stringResource(Res.string.trk_cat_dialog_hint)) },
+                    leadingIcon = if (input.isNotBlank()) {
+                        { CategoryDot(shownColor?.let { CategoryPalette.color(it) } ?: BhodlTheme.colors.financialPending, size = 12) }
+                    } else {
+                        null
+                    },
+                    trailingIcon = {
+                        androidx.compose.material3.IconButton(
+                            onClick = { menuOpen = !menuOpen; menuFilter = false },
+                            modifier = Modifier.testTag(CategoryPickerTags.TOGGLE),
+                        ) { Text(if (menuOpen) "▴" else "▾", color = BhodlTheme.colors.textSecondary) }
+                    },
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag(TrackingTags.CATEGORY_INPUT),
                 )
+                if (menuOpen) {
+                    CategoryChoiceList(
+                        choices = choices,
+                        query = input,
+                        filter = menuFilter,
+                        onPick = { input = it; menuOpen = false; pickedColor = null },
+                        onNew = { input = it; menuOpen = false },
+                    )
+                }
+                if (input.isNotBlank()) {
+                    CategoryColorRow(selected = shownColor, onPick = { pickedColor = it })
+                }
                 if (ruleOption != null && input.isNotBlank()) {
                     RuleOptionSection(
                         event = event,
@@ -492,21 +522,6 @@ internal fun CategoryEditDialog(
                         applyExisting = applyExisting,
                         onApplyExistingChange = { applyExisting = it },
                     )
-                }
-                // Suggest categories that match what the user is
-                // typing. When the field is empty we surface the
-                // entire known list (capped to keep the dialog
-                // compact); once they start typing we narrow to a
-                // case-insensitive substring match.
-                val suggestions = remember(input, knownCategories) {
-                    val q = input.trim()
-                    if (q.isEmpty()) {
-                        knownCategories.take(8)
-                    } else {
-                        knownCategories
-                            .filter { it.contains(q, ignoreCase = true) && it != q }
-                            .take(8)
-                    }
                 }
                 // Phase 7.10 — crypto event kind picker. Lives below
                 // the category input because it's a *different
@@ -568,27 +583,6 @@ internal fun CategoryEditDialog(
                     }
                 }
 
-                if (suggestions.isNotEmpty()) {
-                    Text(
-                        text = stringResource(Res.string.trk_cat_dialog_suggestions),
-                        style = BhodlTheme.typography.labelMedium,
-                        color = BhodlTheme.colors.textSecondary,
-                    )
-                    androidx.compose.foundation.layout.FlowRow(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        suggestions.forEach { s ->
-                            FilterChipPill(
-                                label = s,
-                                selected = false,
-                                onClick = { input = s },
-                                testTagId = null,
-                            )
-                        }
-                    }
-                }
             }
         },
         confirmButton = {
@@ -601,6 +595,14 @@ internal fun CategoryEditDialog(
                         }
                     }
                     ruleDraft?.let { onCreateRule(it, if (applyExisting) ruleMatches else emptyList()) }
+                    // A new category and a picked colour are remembered.
+                    val name = input.trim()
+                    if (name.isNotEmpty()) {
+                        if (!isKnown) {
+                            io.bhodl.desktop.settings.SettingsStore.addCustomCategory(name)
+                        }
+                        pickedColor?.let { io.bhodl.desktop.settings.SettingsStore.setCategoryColor(name, it) }
+                    }
                     onSave(input)
                 },
                 enabled = !priceInvalid,

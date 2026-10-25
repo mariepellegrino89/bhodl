@@ -80,6 +80,9 @@ public object SettingsPersistence {
         // old snapshots → empty set (every wallet included, the prior
         // default behaviour).
         val excludedWalletIds: List<String> = emptyList(),
+        // Redesign 2026-10 — category colours and the user's own categories.
+        val categoryColors: Map<String, Int> = emptyMap(),
+        val customCategories: List<String> = emptyList(),
         // Phase 7.6 — last Unix timestamp the user dismissed the
         // monthly-review banner. Persisted so the dismiss survives
         // app restarts. 0 = never dismissed (default for old snapshots).
@@ -168,6 +171,8 @@ public object SettingsPersistence {
         autoFetchInvestmentPrices = SettingsStore.autoFetchInvestmentPrices.value,
         privacyAutoHide = SettingsStore.privacyAutoHide.value,
         excludedWalletIds = SettingsStore.excludedWalletIds.value.toList(),
+        categoryColors = SettingsStore.categoryColors.value,
+        customCategories = SettingsStore.customCategories.value,
         lastMonthlyReviewDismissedUnix = SettingsStore.lastMonthlyReviewDismissedUnix.value,
         unitFormat = SettingsStore.unitFormat.value.name,
         showFiatInBankCsv = SettingsStore.showFiatInBankCsv.value,
@@ -248,6 +253,7 @@ public object SettingsPersistence {
         // immediate persistIfEnabled() during rehydrate — the caller
         // arranges the persistence hook AFTER rehydrate by contract.
         SettingsStore.replaceExcludedWalletIds(snapshot.excludedWalletIds.toSet())
+        SettingsStore.replaceCategories(snapshot.categoryColors, snapshot.customCategories)
         SettingsStore.replaceLastMonthlyReviewDismissedUnix(snapshot.lastMonthlyReviewDismissedUnix)
         SettingsStore.replaceSecurityTimestamps(labelsExportedAt = snapshot.labelsExportedAt)
         SettingsStore.replaceOnboardingUnitsSeen(snapshot.onboardingUnitsSeen)

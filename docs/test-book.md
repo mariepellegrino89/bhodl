@@ -2619,3 +2619,24 @@ Gli screenshot della revisione grafica finiscono in `apps/desktop/build/screensh
 | 68.2 | Con regola           | 1. Spunta "Crea anche una regola". 2. Wallet. 3. Salva.       | Regola in cima all'elenco; le transazioni abbinate senza categoria ricevono la categoria. | [auto] UcRegistryWiringTrackerTest.`TRK-034 TRK-072 the category editor can also create a rule…` |
 | 68.3 | Importo esatto       | 1. Spunta la regola, scegli "Importo esatto".                 | L'anteprima conta solo le transazioni con lo stesso importo e direzione. | [ ] |
 | 68.4 | Sync lenta           | 1. Durante una sync lunga cambia una categoria.               | La categoria compare subito, senza aspettare la fine della sync. | [ ] |
+
+## 69. Categorie precaricate, nuove categorie e colori (2026-10-25)
+
+> La finestra della categoria ha un menu a tendina (▾) con le categorie classiche
+> (Cibo, Trasporti, Casa, Bollette, Salute, Svago, Shopping, Viaggi, Abbonamenti,
+> Istruzione, Regali, Stipendio, Ristoranti, Investimenti, Altro), quelle aggiunte
+> e quelle già usate, ognuna col suo pallino colorato. Scrivendo il menu si filtra;
+> un nome nuovo propone "+ Nuova categoria". Sotto c'è la riga dei colori: il
+> colore scelto vale per quella categoria ovunque (righe, barra "dove sono andati
+> i sat", torta dei Report). Le classiche hanno colori diversi tra loro; un nome
+> alternativo (spesa, alimentari → Cibo; carburante → Trasporti) prende il colore
+> della classica.
+
+| #    | Test                 | Passi                                                         | Atteso                                                           | Pass |
+|------|----------------------|---------------------------------------------------------------|------------------------------------------------------------------|------|
+| 69.1 | Colori diversi       | 1. Cambia una transazione da Cibo a Trasporti.                | Il pallino e la barra cambiano colore (verde → blu).             | [auto] UcCardsTrackerTest.`category colours…` |
+| 69.2 | Menu                 | 1. Apri la finestra, ▾.                                       | Tutte le categorie con il colore; scrivendo si filtra.           | [auto] UcCardsTrackerTest.`TRK-033 the category menu filters…` |
+| 69.3 | Nuova categoria      | 1. Scrivi "Palestra". 2. "+ Nuova categoria". 3. Un colore. 4. Salva. | Compare nel menu la volta dopo, col colore scelto, anche nella barra. | [auto] UcCardsTrackerTest.`TRK-033 a new category keeps the colour…` |
+| 69.4 | Cambia colore        | 1. Categoria esistente, scegli un altro colore, Salva.        | Tutte le transazioni di quella categoria cambiano colore.        | [ ] |
+| 69.5 | Riavvio              | 1. Chiudi e riapri l'app.                                     | Categorie aggiunte e colori restano.                              | [ ] |
+| 69.6 | Tema chiaro          | 1. Tema chiaro.                                               | Colori leggibili.                                                 | [auto] screenshot `category-picker-light.png` |
