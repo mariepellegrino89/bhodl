@@ -2469,3 +2469,27 @@ Gli screenshot della revisione grafica finiscono in `apps/desktop/build/screensh
   --tests "io.bhodl.desktop.screens.UcTransactionsTrackerTest"
 ```
 
+
+## 61. Obiettivi a card (2026-10-25)
+
+> Proposta A scelta per gli Obiettivi. In alto i conteggi (obiettivi, in linea,
+> in ritardo, raggiunti) e il filtro per tipo (Accumulo, Spese future,
+> Allocazione). Ogni obiettivo è una card con anello di avanzamento, stato
+> (IN LINEA / IN RITARDO / IN ANTICIPO / SCADUTO / RAGGIUNTO), etichetta del
+> bucket collegato e quattro riquadri: accumulato, obiettivo, quanto serve al
+> mese (spese future), scadenza o quota del netto. Clic sulla card: modifica.
+
+| #    | Test              | Passi                                                      | Atteso                                                                         | Pass |
+|------|-------------------|------------------------------------------------------------|--------------------------------------------------------------------------------|------|
+| 61.1 | Conteggi          | 1. Obiettivi con stati diversi.                            | "N obiettivi · X in linea · Y in ritardo · Z raggiunti" coerente con le card.  | [auto] GoalsCardsTest.`counts split on track, behind and reached` |
+| 61.2 | Filtro per tipo   | 1. Clic su "Spese future".                                 | Restano solo le spese future.                                                  | [auto] GoalsCardsTest.`the type filter narrows the cards` |
+| 61.3 | Spesa futura      | 1. Obiettivo con scadenza.                                 | "Al mese serve" calcolato, scadenza e giorni mancanti.                         | [auto] screenshot `goals-dark.png` |
+| 61.4 | Allocazione       | 1. Obiettivo "% del netto".                                | Riquadro "Quota del netto"; etichetta di scostamento oltre ±5 pp.              | [ ] |
+| 61.5 | Finestra stretta  | 1. Restringi la finestra.                                  | 3 → 2 → 1 card per riga.                                                       | [ ] |
+
+### Verifiche automatizzate
+
+```
+./gradlew :apps:desktop:jvmTest --tests "io.bhodl.desktop.screens.GoalsCardsTest" \
+  --tests "io.bhodl.desktop.screens.SavingsGoalsCard*"
+```
