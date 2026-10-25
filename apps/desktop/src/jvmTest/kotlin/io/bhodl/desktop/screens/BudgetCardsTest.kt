@@ -1,5 +1,9 @@
 package io.bhodl.desktop.screens
 
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsNodeInteractionsProvider
@@ -70,6 +74,22 @@ class BudgetCardsTest {
         // A monthly budget counts in full against the month (no proration).
         assertEquals(400_000UL, prorateBudget(400_000UL, "monthly", DAYS_PER_MONTH))
         assertEquals(27_692L, weeklyFromMonthly(120_000L), "52 weeks / 12 months")
+        // An earlier month: the whole month, nothing outside it.
+        assertEquals(listOf("2026-09-30"), eventsInMonth(events, java.time.YearMonth.of(2026, 9), zone).map { it.txidOrPaymentId })
+    }
+
+    @Test
+    fun `the month selector goes back and never past the current month`() = runDesktopComposeUiTest {
+        val now = java.time.YearMonth.of(2026, 10)
+        var month by androidx.compose.runtime.mutableStateOf(now)
+        setContent { BhodlTheme { BudgetMonthSelector(month = month, current = now, onChange = { month = it }) } }
+        onNodeWithTag(BudgetMonthTags.NEXT).assertIsNotEnabled()
+        onNodeWithTag(BudgetMonthTags.PREV).performClick()
+        waitForIdle()
+        assertEquals(java.time.YearMonth.of(2026, 9), month)
+        onNodeWithTag(BudgetMonthTags.NEXT).assertIsEnabled().performClick()
+        waitForIdle()
+        assertEquals(now, month)
     }
 
     @Test

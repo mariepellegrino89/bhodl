@@ -1,5 +1,6 @@
 package io.bhodl.desktop.screens
 
+import io.bhodl.shared.resources.bgm_this_month
 import io.bhodl.ffi.PaymentEvent
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -415,9 +416,63 @@ internal fun todayLocal(): LocalDate = LocalDate.now(ZoneId.systemDefault())
  * Budget redesign 2026-10 — budgets are monthly and follow the calendar
  * month: the events from the 1st of [today]'s month (local time) on.
  */
-internal fun eventsThisMonth(events: List<PaymentEvent>, today: LocalDate, zone: ZoneId = ZoneId.systemDefault()): List<PaymentEvent> {
-    val start = today.withDayOfMonth(1).atStartOfDay(zone).toEpochSecond()
-    return events.filter { (it.timestampUnix?.toLong() ?: Long.MAX_VALUE) >= start }
+internal fun eventsThisMonth(events: List<PaymentEvent>, today: LocalDate, zone: ZoneId = ZoneId.systemDefault()): List<PaymentEvent> =
+    eventsInMonth(events, java.time.YearMonth.from(today), zone)
+
+/**
+ * The events of [month] (local time). Unconfirmed events (no timestamp)
+ * belong to the current month only.
+ */
+internal fun eventsInMonth(events: List<PaymentEvent>, month: java.time.YearMonth, zone: ZoneId = ZoneId.systemDefault()): List<PaymentEvent> {
+    val start = month.atDay(1).atStartOfDay(zone).toEpochSecond()
+    val end = month.plusMonths(1).atDay(1).atStartOfDay(zone).toEpochSecond()
+    val current = month == java.time.YearMonth.now(zone)
+    return events.filter { e ->
+        val ts = e.timestampUnix?.toLong() ?: return@filter current
+        ts in start until end
+    }
+}
+
+internal object BudgetMonthTags {
+    const val PREV: String = "budget-month.prev"
+    const val NEXT: String = "budget-month.next"
+    const val LABEL: String = "budget-month.label"
+}
+
+/** Budget redesign 2026-10 — "‹ October 2026 ›": earlier months, never past the current one. */
+@Composable
+internal fun BudgetMonthSelector(
+    month: java.time.YearMonth,
+    current: java.time.YearMonth,
+    onChange: (java.time.YearMonth) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val locale = java.util.Locale.getDefault()
+    val label = month.month.getDisplayName(java.time.format.TextStyle.FULL_STANDALONE, locale)
+        .replaceFirstChar { it.titlecase(locale) } + " " + month.year
+    Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        androidx.compose.material3.IconButton(onClick = { onChange(month.minusMonths(1)) }, modifier = Modifier.testTag(BudgetMonthTags.PREV)) {
+            Text("‹", style = BhodlTheme.typography.titleMedium, color = BhodlTheme.colors.textPrimary)
+        }
+        Text(
+            label,
+            style = BhodlTheme.typography.titleMedium,
+            color = BhodlTheme.colors.textPrimary,
+            modifier = Modifier.testTag(BudgetMonthTags.LABEL),
+        )
+        androidx.compose.material3.IconButton(
+            onClick = { onChange(month.plusMonths(1)) },
+            enabled = month < current,
+            modifier = Modifier.testTag(BudgetMonthTags.NEXT),
+        ) {
+            Text("›", style = BhodlTheme.typography.titleMedium, color = if (month < current) BhodlTheme.colors.textPrimary else BhodlTheme.colors.textTertiary)
+        }
+        if (month != current) {
+            androidx.compose.material3.TextButton(onClick = { onChange(current) }) {
+                Text(stringResource(Res.string.bgm_this_month), color = BhodlTheme.colors.brandPrimary)
+            }
+        }
+    }
 }
 
 /** Days left in [today]'s month, today included. */

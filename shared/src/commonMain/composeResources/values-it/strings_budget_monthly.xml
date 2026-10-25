@@ -3,4 +3,6 @@
     <string name="bgm_month_left">%1$s · mancano %2$d giorni</string>
     <string name="bgm_monthly_label">Budget mensile (sat)</string>
     <string name="bgm_weekly_hint">Circa %1$s a settimana</string>
+    <string name="bgm_month_closed">%1$s · concluso</string>
+    <string name="bgm_this_month">Questo mese</string>
 </resources>

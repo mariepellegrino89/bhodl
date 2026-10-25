@@ -2672,3 +2672,16 @@ Gli screenshot della revisione grafica finiscono in `apps/desktop/build/screensh
 | 71.2 | Inizio mese          | 1. Il 1° del mese apri Budget.                                | Speso riparte da zero; "mancano 30/31 giorni".                   | [ ] |
 | 71.3 | Equivalente settimanale | 1. Imposta un budget di 120.000.                           | Sotto: "Circa 27.692 sat a settimana".                           | [auto] BudgetCardsTest (calcolo) |
 | 71.4 | Altre sezioni        | 1. Passa a Report.                                            | Il selettore del periodo torna e vale lì.                        | [ ] |
+
+## 72. Scelta del mese nei budget (2026-10-25)
+
+> In cima a Budget e bollette c'è "‹ Ottobre 2026 ›": le frecce passano al mese
+> prima o dopo (mai oltre quello in corso); su un mese passato compare "Questo
+> mese" per tornare. Un mese passato conta tutto il mese e l'intestazione dice
+> "concluso"; l'effetto prezzo si calcola solo per il mese in corso.
+
+| #    | Test                 | Passi                                                         | Atteso                                                           | Pass |
+|------|----------------------|---------------------------------------------------------------|------------------------------------------------------------------|------|
+| 72.1 | Mese precedente      | 1. ‹ .                                                        | Speso e card di settembre; "Settembre 2026 · concluso".          | [auto] BudgetCardsTest.`budgets follow the calendar month` |
+| 72.2 | Limite               | 1. Sul mese in corso prova ›.                                 | Freccia disattivata.                                              | [auto] BudgetCardsTest.`the month selector goes back…` |
+| 72.3 | Torna a oggi         | 1. Vai indietro di 3 mesi. 2. "Questo mese".                  | Torna al mese in corso.                                          | [ ] |

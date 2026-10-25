@@ -1,4 +1,5 @@
 package io.bhodl.desktop.screens
+import io.bhodl.shared.resources.bgm_month_closed
 import io.bhodl.shared.resources.bgm_month_left
 import io.bhodl.desktop.domain.RecurringCandidate
 import io.bhodl.desktop.domain.dayOfMonth
@@ -340,8 +341,11 @@ internal fun TrackingDashboardTab(
         // the period chosen elsewhere.
         val budgetMonth = mode == TrackingTabMode.BUDGET
         val budgetToday = todayLocal()
-        val budgetEvents = remember(budgetMonth, inPeriod, events, budgetToday) {
-            if (budgetMonth) eventsThisMonth(events, budgetToday) else inPeriod
+        val currentMonth = java.time.YearMonth.from(budgetToday)
+        var selectedMonth by remember { mutableStateOf(currentMonth) }
+        val isCurrentMonth = selectedMonth == currentMonth
+        val budgetEvents = remember(budgetMonth, inPeriod, events, selectedMonth) {
+            if (budgetMonth) eventsInMonth(events, selectedMonth) else inPeriod
         }
         val budgetDays = remember(period, budgetEvents, budgetMonth) {
             if (budgetMonth) DAYS_PER_MONTH else budgetWindowDays(period, budgetEvents, nowUnix)
@@ -393,6 +397,8 @@ internal fun TrackingDashboardTab(
                 }
             }
             fun movesFor(rows: List<BudgetRow>, direction: TrackingDirection): Map<String, BudgetMove> {
+                // Price vs spending only for the month in progress.
+                if (!isCurrentMonth) return emptyMap()
                 val days = monthDays
                 if (priceHistory.isEmpty()) return emptyMap()
                 val rateAt = rateLookup(priceHistory)
@@ -413,9 +419,14 @@ internal fun TrackingDashboardTab(
             val incomeBudget = incomeRows.filter { it.budgetForPeriodSat != null }
             val incomeFraction = incomeBudget.sumOf { it.budgetForPeriodSat!!.toLong() }.takeIf { it > 0L }
                 ?.let { incomeBudget.sumOf { r -> r.actualSat.toLong() }.toFloat() / it }
-            val monthLabel = budgetToday.month.getDisplayName(java.time.format.TextStyle.FULL_STANDALONE, java.util.Locale.getDefault())
-                .replaceFirstChar { it.titlecase(java.util.Locale.getDefault()) } + " " + budgetToday.year
-            val monthCaption = stringResource(Res.string.bgm_month_left, monthLabel, daysLeftInMonth(budgetToday))
+            val monthLabel = selectedMonth.month.getDisplayName(java.time.format.TextStyle.FULL_STANDALONE, java.util.Locale.getDefault())
+                .replaceFirstChar { it.titlecase(java.util.Locale.getDefault()) } + " " + selectedMonth.year
+            val monthCaption = if (isCurrentMonth) {
+                stringResource(Res.string.bgm_month_left, monthLabel, daysLeftInMonth(budgetToday))
+            } else {
+                stringResource(Res.string.bgm_month_closed, monthLabel)
+            }
+            BudgetMonthSelector(month = selectedMonth, current = currentMonth, onChange = { selectedMonth = it })
             BudgetSummaryCard(summary = summary, incomeFraction = incomeFraction, periodLabel = monthCaption, modifier = Modifier.fillMaxWidth())
             if (expenseRows.isNotEmpty()) {
                 BudgetCategoryGrid(
