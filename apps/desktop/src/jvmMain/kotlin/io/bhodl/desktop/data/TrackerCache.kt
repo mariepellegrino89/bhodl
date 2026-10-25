@@ -674,8 +674,11 @@ public object TrackerCache {
                     val canonical = canonicalWalletIds(list) { w ->
                         runCatching { io.bhodl.ffi.extractAccountXpub(w.descriptorPub) }.getOrNull()
                     }
+                    // Schema v8 — income and spending outside the wallets
+                    // join the stream on their own synthetic wallet ids.
                     val watchEvents = runCatching { watchEventsSource(registry) }
-                        .getOrDefault(emptyList())
+                        .getOrDefault(emptyList()) +
+                        runCatching { manualEventsSource(registry) }.getOrDefault(emptyList())
                     // Pre-dedup-by-txid stream (one event per wallet leg),
                     // aliases removed. send_to_self detection needs the
                     // per-wallet legs of each txid.
@@ -958,6 +961,10 @@ public object TrackerCache {
     /** Source of the per-wallet event legs. Test seam (production: the FFI). */
     internal var watchEventsSource: (io.bhodl.ffi.RegistryHandle) -> List<PaymentEvent> =
         { it.listWatchEvents() }
+
+    /** Source of the manual (off-wallet) transactions, schema v8. Test seam. */
+    internal var manualEventsSource: (io.bhodl.ffi.RegistryHandle) -> List<PaymentEvent> =
+        { ManualTxns.events(it) }
 
     /**
      * Data dir holding the one-time cleanup marker. Test seam.

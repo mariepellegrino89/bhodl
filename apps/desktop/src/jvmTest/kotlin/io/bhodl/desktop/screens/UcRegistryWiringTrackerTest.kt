@@ -195,7 +195,9 @@ class UcRegistryWiringTrackerTest {
         assertEquals(90_000UL to 5u, bill.amountSat to bill.dueDay)
 
         refresh()
+        // Schema v8 — "mark paid" opens the pay flow; no transaction: only tick it off.
         onNodeWithTag(BillTags.paidChip(bill.id)).performScrollTo().performClick()
+        onNodeWithTag(BillPayTags.ONLY_MARK).performClick()
         until("bill paid") { registry.listBills().single().lastPaidUnix != null }
 
         refresh()

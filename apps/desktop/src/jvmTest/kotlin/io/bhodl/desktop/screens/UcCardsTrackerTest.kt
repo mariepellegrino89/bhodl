@@ -69,7 +69,7 @@ class UcCardsTrackerTest {
     fun `a variable bill saves as variable and asks the amount when marked paid`() = runDesktopComposeUiTest {
         var savedVariable: Boolean? = null
         setContent {
-            BhodlTheme { BillEditDialog(null, onDismiss = {}, onSave = { _, _, _, _, v -> savedVariable = v }, onDelete = {}) }
+            BhodlTheme { BillEditDialog(null, onDismiss = {}, onSave = { _, _, _, _, v, _ -> savedVariable = v }, onDelete = {}) }
         }
         onNodeWithTag(BillTags.INPUT_NAME).performTextInput("Luce e gas")
         onNodeWithTag(BillTags.INPUT_AMOUNT).performTextInput("140000")
@@ -203,7 +203,7 @@ class UcCardsTrackerTest {
         var saved: List<Any?>? = null
         setContent {
             BhodlTheme {
-                BillEditDialog(null, onDismiss = {}, onSave = { n, a, d, l, _ -> saved = listOf(n, a, d, l) }, onDelete = {})
+                BillEditDialog(null, onDismiss = {}, onSave = { n, a, d, l, _, _ -> saved = listOf(n, a, d, l) }, onDelete = {})
             }
         }
         onNodeWithTag(BillTags.SAVE).assertIsNotEnabled()
@@ -221,7 +221,7 @@ class UcCardsTrackerTest {
     fun `TRK-092 an empty due day disables Save and edit mode offers Delete`() = runDesktopComposeUiTest {
         var deleted: Long? = null
         val bill = TrackingBillFfi(7, "Rent", 1_000UL, 5u, null, "flat", 0)
-        setContent { BhodlTheme { BillEditDialog(bill, onDismiss = {}, onSave = { _, _, _, _, _ -> }, onDelete = { deleted = it }) } }
+        setContent { BhodlTheme { BillEditDialog(bill, onDismiss = {}, onSave = { _, _, _, _, _, _ -> }, onDelete = { deleted = it }) } }
         onNodeWithTag(BillTags.INPUT_DUEDAY).performTextClearance()
         onNodeWithTag(BillTags.SAVE).assertIsNotEnabled()
         onNodeWithTag(BillTags.DELETE).performClick()

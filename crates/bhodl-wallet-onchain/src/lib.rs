@@ -54,7 +54,8 @@ pub use net_worth_history::{
     onchain_balance_at, reconstruct_net_worth_history,
 };
 pub use registry::{
-    EventCostBasis, LotSelection, REGISTRY_FILE_NAME, REGISTRY_KDF_FILE_NAME, Registry, WalletKind,
-    WalletRecord, open_registry, open_registry_in_memory,
+    EventCostBasis, LotSelection, MANUAL_ACCOUNT_OTHER, MANUAL_WALLET_ID_PREFIX,
+    REGISTRY_FILE_NAME, REGISTRY_KDF_FILE_NAME, Registry, WalletKind, WalletRecord,
+    manual_txn_event_id, manual_txn_wallet_id, open_registry, open_registry_in_memory,
 };
 pub use watch::{PendingWatchScan, WatchAccount, WatchBip, WatchScanUpdate};

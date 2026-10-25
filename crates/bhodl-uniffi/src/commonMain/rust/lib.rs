@@ -877,6 +877,35 @@ pub struct TrackingBillFfi {
     /// Registry schema v7 — what the last "paid" mark recorded.
     #[uniffi(default = None)]
     pub last_paid_amount_sat: Option<u64>,
+    /// Registry schema v8 — the budget category the bill's payments
+    /// count against.
+    #[uniffi(default = None)]
+    pub category: Option<String>,
+    /// Registry schema v8 — the transaction that paid it
+    /// (`<wallet_id>|<txid>`).
+    #[uniffi(default = None)]
+    pub paid_ref: Option<String>,
+}
+
+/// Registry schema v8 — income or spending outside the wallets (cash,
+/// bank account, card). Its events carry `wallet_id` =
+/// `manual:<account_ref or "cash">` and id `manual-<id>`.
+#[derive(uniffi::Record)]
+pub struct ManualTxnFfi {
+    pub id: i64,
+    /// "in" or "out".
+    pub direction: String,
+    /// The value at the day's BTC rate, fixed when saved.
+    pub amount_sat: u64,
+    /// What the user typed, with its ISO 4217 currency; both null for
+    /// an amount entered in sat.
+    pub amount_fiat: Option<f64>,
+    pub currency: Option<String>,
+    pub occurred_unix: i64,
+    /// `asset:<id>`, `liability:<id>` or null (cash / other).
+    pub account_ref: Option<String>,
+    pub note: Option<String>,
+    pub created_at_unix: i64,
 }
 
 /// Phase 4.5 — savings goal exposed across the FFI.
@@ -2061,6 +2090,8 @@ impl RegistryHandle {
                 created_at_unix: b.created_at_unix,
                 variable: b.variable,
                 last_paid_amount_sat: b.last_paid_amount_sat,
+                category: b.category,
+                paid_ref: b.paid_ref,
             })
             .collect())
     }
@@ -2091,6 +2122,107 @@ impl RegistryHandle {
             detail: "registry mutex poisoned".into(),
         })?;
         Ok(guard.delete_bill(id)?)
+    }
+
+    /// Registry schema v8 — the budget category of a bill.
+    pub fn set_bill_category(
+        &self,
+        id: i64,
+        category: Option<String>,
+    ) -> Result<bool, WalletError> {
+        Ok(self
+            .registry()?
+            .set_bill_category(id, category.as_deref())?)
+    }
+
+    /// Registry schema v8 — mark a bill paid by a transaction
+    /// (`paid_ref` = `<wallet_id>|<txid>`).
+    pub fn mark_bill_paid_by(
+        &self,
+        id: i64,
+        unix_ts: i64,
+        amount_sat: u64,
+        paid_ref: String,
+    ) -> Result<bool, WalletError> {
+        Ok(self
+            .registry()?
+            .mark_bill_paid_by(id, unix_ts, amount_sat, &paid_ref)?)
+    }
+
+    // ----------------------------------------------------------------
+    // Registry schema v8 — manual transactions
+    // ----------------------------------------------------------------
+
+    /// Record income ("in") or spending ("out") outside the wallets;
+    /// returns its id.
+    #[allow(clippy::too_many_arguments)]
+    pub fn add_manual_txn(
+        &self,
+        direction: String,
+        amount_sat: u64,
+        amount_fiat: Option<f64>,
+        currency: Option<String>,
+        occurred_unix: i64,
+        account_ref: Option<String>,
+        note: Option<String>,
+    ) -> Result<i64, WalletError> {
+        Ok(self.registry()?.add_manual_txn(
+            &direction,
+            amount_sat,
+            amount_fiat,
+            currency.as_deref(),
+            occurred_unix,
+            account_ref.as_deref(),
+            note.as_deref(),
+        )?)
+    }
+
+    /// Change a manual transaction (not its account).
+    #[allow(clippy::too_many_arguments)]
+    pub fn update_manual_txn(
+        &self,
+        id: i64,
+        direction: String,
+        amount_sat: u64,
+        amount_fiat: Option<f64>,
+        currency: Option<String>,
+        occurred_unix: i64,
+        note: Option<String>,
+    ) -> Result<bool, WalletError> {
+        Ok(self.registry()?.update_manual_txn(
+            id,
+            &direction,
+            amount_sat,
+            amount_fiat,
+            currency.as_deref(),
+            occurred_unix,
+            note.as_deref(),
+        )?)
+    }
+
+    /// Delete a manual transaction, its category and any bill link.
+    pub fn delete_manual_txn(&self, id: i64) -> Result<bool, WalletError> {
+        Ok(self.registry()?.delete_manual_txn(id)?)
+    }
+
+    /// Every manual transaction, newest first.
+    pub fn list_manual_txns(&self) -> Result<Vec<ManualTxnFfi>, WalletError> {
+        Ok(self
+            .registry()?
+            .list_manual_txns()?
+            .into_iter()
+            .map(|t| ManualTxnFfi {
+                id: t.id,
+                direction: t.direction,
+                amount_sat: t.amount_sat,
+                amount_fiat: t.amount_fiat,
+                currency: t.currency,
+                occurred_unix: t.occurred_unix,
+                account_ref: t.account_ref,
+                note: t.note,
+                created_at_unix: t.created_at_unix,
+            })
+            .collect())
     }
 
     // ----------------------------------------------------------------
@@ -3392,6 +3524,27 @@ pub fn registry_has_recovery_code(data_dir: String) -> bool {
 #[uniffi::export]
 pub fn generate_wallet_id() -> String {
     Uuid::new_v4().to_string()
+}
+
+/// Registry schema v8 — the wallet id a manual transaction's events and
+/// category carry, one per account (`account_ref` = `asset:<id>`,
+/// `liability:<id>` or null for cash / other).
+#[uniffi::export]
+pub fn manual_txn_wallet_id(account_ref: Option<String>) -> String {
+    bhodl_wallet_onchain::manual_txn_wallet_id(account_ref.as_deref()).to_string()
+}
+
+/// Registry schema v8 — the event id of manual transaction `id`.
+#[uniffi::export]
+pub fn manual_txn_event_id(id: i64) -> String {
+    bhodl_wallet_onchain::manual_txn_event_id(id)
+}
+
+/// Registry schema v8 — whether `wallet_id` is a manual account's
+/// synthetic id rather than a real wallet.
+#[uniffi::export]
+pub fn is_manual_wallet_id(wallet_id: String) -> bool {
+    wallet_id.starts_with(bhodl_wallet_onchain::MANUAL_WALLET_ID_PREFIX)
 }
 
 /// Extract the account-level xpub from any BDK-form descriptor string.

@@ -2700,3 +2700,65 @@ Gli screenshot della revisione grafica finiscono in `apps/desktop/build/screensh
 | 73.2 | Nuova variabile      | 1. + Bolletta. 2. "Importo variabile". 3. Salva.              | Il campo diventa "Importo stimato"; la card mostra "≈" e "variabile". | [auto] UcCardsTrackerTest.`a variable bill saves as variable…` |
 | 73.3 | Pagata               | 1. "Segna pagata" su una variabile. 2. 163.500. 3. Conferma.  | La card mostra 163.500 sat; "Pagata".                            | [auto] UcCardsTrackerTest.`marking a variable bill paid takes the amount…` |
 | 73.4 | Aggiornamento        | 1. Apri un registro creato prima di oggi.                     | Si apre (migrazione v7); bollette esistenti fisse.               | [auto] registry migration tests |
+
+## 74. Movimenti fuori dai wallet e bollette collegate (2026-10-25)
+
+> Le uscite e le entrate non sono solo quelle dei wallet: contanti, conto e carta
+> si registrano con "+ Movimento fuori dai wallet" in Transazioni (registro schema
+> v8). L'importo si scrive nella sua valuta (EUR, USD, CHF) o in sat: BHODL lo
+> converte al prezzo BTC di quel giorno (oggi: prezzo attuale; giorni passati:
+> storico) e salva i sat, che non cambiano più se il prezzo si muove. Il movimento
+> compare tra le attività col nome del conto (Contanti, un conto "liquidità" del
+> Portafoglio, una carta di credito) e conta in budget e report come le
+> transazioni dei wallet. Cliccandolo si modifica o si elimina.
+>
+> Le bollette hanno una "Categoria del budget". "Segna pagata" apre "Pagamento di
+> …": l'elenco delle uscite del mese (da 7 giorni prima del 1°), prima quelle della
+> categoria della bolletta, poi quelle senza categoria, le più vicine all'importo in
+> alto, con "probabile" se l'importo torna. Sceglierne una segna la bolletta pagata
+> con quell'importo e dà alla transazione la categoria della bolletta, quindi conta
+> nel suo budget. "Pagata fuori dai wallet…" apre il movimento manuale già compilato
+> (uscita, categoria e nota della bolletta) e lo collega. "Segna solo come pagata"
+> resta per chi non vuole registrare il pagamento (non conta nel budget; per le
+> variabili chiede ancora l'importo). Eliminare il movimento collegato rimette la
+> bolletta da pagare; togliere "pagata" scollega senza eliminare la transazione.
+
+| #    | Test                 | Passi                                                         | Atteso                                                           | Pass |
+|------|----------------------|---------------------------------------------------------------|------------------------------------------------------------------|------|
+| 74.1 | Registro             | —                                                             | Movimenti salvati e validati; eliminare scollega la bolletta e la categoria. | [auto] uc_tracker_tests `manual_transactions_round_trip…`, `deleting_a_manual_transaction_unlinks…` |
+| 74.2 | Conversione          | 1. + Movimento. 2. 30 € con BTC a 50.000 €.                   | Anteprima "≈ 60.000 sat al prezzo del …"; salva 60.000 sat.      | [auto] ManualTxnTest.`an amount in euro is saved in sat…` |
+| 74.3 | In sat / entrata     | 1. "Entrata". 2. sat. 3. 12.500.                              | Entrata da 12.500 sat, senza prezzo.                             | [auto] ManualTxnTest.`an amount in sat needs no rate…` |
+| 74.4 | Modifica             | 1. Apri un movimento. 2. Salva senza cambiare l'importo.      | Stessi sat (niente riprezzatura); cambiando l'importo si ricalcola. | [auto] ManualTxnTest.`editing keeps the stored sat value…` |
+| 74.5 | Nelle attività       | 1. Salva 42,50 € "Bollette".                                  | Compare tra le attività come "Contanti", conta nel budget Bollette. | [auto] UcCacheTrackerTest.`off-wallet entries join the events…` |
+| 74.6 | Conti                | 1. Aggiungi una carta di credito nel Portafoglio.             | La carta compare tra i conti del movimento.                      | [auto] ManualTxnTest.`the accounts are cash…` |
+| 74.7 | Candidati            | —                                                             | Categoria della bolletta prima, poi senza categoria; altre categorie mai "probabile". | [auto] ManualTxnTest.`bill candidates put…` |
+| 74.8 | Collega              | 1. "Segna pagata". 2. Scegli la transazione.                  | Bolletta pagata con quell'importo; transazione nella categoria della bolletta. | [auto] ManualTxnTest.`the pay dialog links…` + [ ] verifica in app |
+| 74.9 | Fuori dai wallet     | 1. "Segna pagata". 2. "Pagata fuori dai wallet…". 3. 120 €.   | Movimento in Contanti, bolletta pagata e collegata.              | [auto] UcCacheTrackerTest + [ ] verifica in app |
+| 74.10 | Prezzo mancante     | 1. Offline, movimento in € su una data passata non in cache.  | "Prezzo BTC di quel giorno non disponibile": salva solo in sat.  | [ ] |
+
+## 75. Canale di pagamento e saldi che si muovono (2026-10-26)
+
+> Nel movimento fuori dai wallet "Pagato con" (per le entrate "Incassato su") è
+> sempre visibile: Contanti, i conti "Liquidità" del Portafoglio, le carte di
+> credito, Altro (PayPal, buoni pasto…) e "+ Conto" per crearne uno al volo (nome,
+> valuta, saldo attuale). I wallet compaiono in grigio, non selezionabili: le loro
+> spese arrivano da sole con la sincronizzazione e inserirle a mano le conterebbe due
+> volte. Su un conto l'importo si scrive nella sua valuta (solo quella), e il saldo
+> del conto si aggiorna: un'uscita lo scala, un'entrata lo aumenta. Con la carta
+> un'uscita aumenta il debito (in sat) e un rimborso lo riduce, mai sotto zero.
+> Modificare un movimento sposta il saldo della differenza, eliminarlo lo rimette.
+> Contanti e Altro contano solo nel budget. In Transazioni, sotto "+ Movimento",
+> i filtri "Tutti i canali · Wallet · <canale>" (compaiono quando ci sono movimenti
+> fuori dai wallet).
+
+| #    | Test                 | Passi                                                         | Atteso                                                           | Pass |
+|------|----------------------|---------------------------------------------------------------|------------------------------------------------------------------|------|
+| 75.1 | Saldo del conto      | 1. Conto 1.000 €. 2. Uscita 40 €. 3. Entrata 15,50 €. 4. Modifica l'uscita a 50 €. 5. Eliminala. | 960 → 975,50 → 965,50 → 1.015,50; altra valuta rifiutata. | [auto] uc_tracker_tests `a_manual_transaction_moves_its_account_balance` |
+| 75.2 | Debito della carta   | 1. Carta 100.000 sat. 2. Uscita 30.000. 3. Rimborso 5.000. 4. Elimina l'uscita. | 130.000 → 125.000 → 95.000.                       | [auto] uc_tracker_tests `a_card_entry_moves_the_debt` |
+| 75.3 | Valuta del conto     | 1. "Pagato con" un conto in CHF.                              | Solo CHF tra le valute; "Il saldo di … si aggiorna".             | [auto] ManualTxnTest.`an account entry is typed in the account currency…` |
+| 75.4 | Wallet               | —                                                             | Wallet in grigio con la nota sulla sincronizzazione.             | [auto] stesso test |
+| 75.5 | + Conto              | 1. "+ Conto". 2. Conto corrente, CHF, 1.200. 3. Crea.         | Il conto nasce in Portafoglio ed è già scelto.                   | [auto] ManualTxnTest.`plus account creates…` + [ ] verifica in app |
+| 75.6 | Altro                | 1. "Pagato con: Altro".                                       | Riga "Altro" tra le attività; nessun saldo toccato.              | [auto] uc_tracker_tests (wallet id `c…`) |
+| 75.7 | Filtro canale        | 1. Transazioni → "Wallet". 2. "Carta di credito".             | Solo i wallet; poi solo la carta.                                | [auto] ManualTxnTest.`the channel filter…` |
+| 75.8 | Patrimonio           | 1. Uscita 100 € dal conto. 2. Home.                           | Il patrimonio netto scende di 100 € in sat.                      | [ ] |
+

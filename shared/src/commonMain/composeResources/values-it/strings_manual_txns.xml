@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="mtx_new">Nuovo movimento fuori dai wallet</string>
+    <string name="mtx_edit">Modifica movimento fuori dai wallet</string>
+    <string name="mtx_add">+ Movimento fuori dai wallet</string>
+    <string name="mtx_body">Contanti, conto o carta: inseriscilo nella sua valuta, BHODL lo converte in sat al prezzo BTC di quel giorno e lo conta in budget e report.</string>
+    <string name="mtx_out">Uscita</string>
+    <string name="mtx_in">Entrata</string>
+    <string name="mtx_amount">Importo</string>
+    <string name="mtx_unit_sat">sat</string>
+    <string name="mtx_preview">≈ %1$s al prezzo del %2$s (1 BTC = %3$s)</string>
+    <string name="mtx_no_rate">Prezzo BTC di quel giorno non disponibile: inserisci l'importo in sat.</string>
+    <string name="mtx_date">Data</string>
+    <string name="mtx_cash">Contanti</string>
+    <string name="mtx_category">Categoria</string>
+    <string name="mtx_err_save">Impossibile salvare il movimento</string>
+    <string name="mtx_err_delete">Impossibile eliminare il movimento</string>
+    <string name="bill_category">Categoria del budget</string>
+    <string name="bill_pay_title">Pagamento di %1$s</string>
+    <string name="bill_pay_body">Scegli la transazione che l'ha pagata.</string>
+    <string name="bill_pay_body_category">Scegli la transazione che l'ha pagata: conterà nel budget %1$s.</string>
+    <string name="bill_pay_likely">probabile</string>
+    <string name="bill_pay_none">Nessuna uscita compatibile questo mese.</string>
+    <string name="bill_pay_outside">Pagata fuori dai wallet (contanti, conto, carta)…</string>
+    <string name="bill_pay_only_mark">Segna solo come pagata</string>
+    <string name="mtx_paid_with">Pagato con</string>
+    <string name="mtx_received_on">Incassato su</string>
+    <string name="mtx_other">Altro</string>
+    <string name="mtx_add_account">+ Conto</string>
+    <string name="mtx_wallets_auto">Le spese dai wallet arrivano da sole con la sincronizzazione: inserirle qui le conterebbe due volte.</string>
+    <string name="mtx_new_account_name">Nome del conto (es. Conto corrente)</string>
+    <string name="mtx_new_account_balance">Saldo attuale</string>
+    <string name="mtx_new_account_create">Crea conto</string>
+    <string name="mtx_account_hint">Il saldo di %1$s si aggiorna con questo movimento.</string>
+    <string name="mtx_card_hint">Il debito di %1$s si aggiorna con questo movimento.</string>
+    <string name="mtx_filter_all">Tutti i canali</string>
+    <string name="mtx_filter_wallets">Wallet</string>
+</resources>

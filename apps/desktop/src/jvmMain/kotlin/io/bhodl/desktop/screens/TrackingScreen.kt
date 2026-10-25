@@ -1,4 +1,15 @@
 package io.bhodl.desktop.screens
+import io.bhodl.desktop.data.ChannelFilter
+import io.bhodl.desktop.data.filterByChannel
+import io.bhodl.desktop.data.asManualAccount
+import io.bhodl.shared.resources.mtx_other
+import io.bhodl.desktop.data.ManualTxns
+import io.bhodl.desktop.data.manualAccounts
+import io.bhodl.shared.resources.mtx_cash
+import io.bhodl.shared.resources.mtx_add
+import io.bhodl.shared.resources.mtx_err_save
+import io.bhodl.shared.resources.mtx_err_delete
+import io.bhodl.shared.resources.bill_pay_title
 import io.bhodl.desktop.domain.applyRules
 import io.bhodl.desktop.domain.moveRule
 import io.bhodl.desktop.domain.rulesInEvaluationOrder
@@ -180,7 +191,15 @@ public fun TrackingScreen(
     // Phase 7.5 — rules + recurring candidates from the cache.
     val rules by TrackerCache.rules
     // Payee text for rules (item 11): the label of the event's wallet.
-    val walletLabelById = remember(wallets) { wallets.associate { it.id to it.label } }
+    // Schema v8 — the manual accounts (cash, bank, card) label their
+    // off-wallet entries like wallets do.
+    val cashLabel = stringResource(Res.string.mtx_cash)
+    val otherLabel = stringResource(Res.string.mtx_other)
+    val manualAccountList = remember(manualAssets, liabilities, cashLabel, otherLabel) {
+        manualAccounts(manualAssets, liabilities, cashLabel, otherLabel)
+    }
+    val manualLabels = remember(manualAccountList) { manualAccountList.associate { it.walletId to it.label } }
+    val walletLabelById = remember(wallets, manualLabels) { wallets.associate { it.id to it.label } + manualLabels }
     // Item 11 — the rule order being written; the move controls are
     // disabled until the reloaded cache shows it (or the write failed).
     var pendingRuleOrder by remember { mutableStateOf<List<Long>?>(null) }
@@ -229,6 +248,12 @@ public fun TrackingScreen(
     // dialog open/close state stays in-composable.
     var budgetEdit by remember { mutableStateOf<Pair<String, ULong?>?>(null) }
     var billDialog by remember { mutableStateOf<io.bhodl.ffi.TrackingBillFfi?>(null) }
+    // Schema v8 — the bill being paid, and the off-wallet entry dialog.
+    var payingBill by remember { mutableStateOf<io.bhodl.ffi.TrackingBillFfi?>(null) }
+    var billAmountAsk by remember { mutableStateOf<io.bhodl.ffi.TrackingBillFfi?>(null) }
+    var manualDialog by remember { mutableStateOf<ManualDialogState?>(null) }
+    // Schema v8 — Transactions narrowed to the wallets or one channel.
+    var channelFilter by remember { mutableStateOf<ChannelFilter>(ChannelFilter.All) }
     var showNewBill by remember { mutableStateOf(false) }
     var goalDialog by remember { mutableStateOf<io.bhodl.ffi.TrackingSavingsGoalFfi?>(null) }
     var showNewGoal by remember { mutableStateOf(false) }
@@ -331,9 +356,9 @@ public fun TrackingScreen(
         if (timeRangeFilter != null) filterLedger(events, null, timeRangeFilter)
         else filterByPeriod(events, period, System.currentTimeMillis() / 1000L)
     }
-    val walletLabels = remember(wallets) { wallets.associate { it.id to it.label } }
-    val filteredEvents = remember(txPeriodEvents, categoryFilter, txSearch, walletLabels) {
-        searchLedger(filterLedger(txPeriodEvents, categoryFilter, null), txSearch) { walletLabels[it] }
+    val walletLabels = walletLabelById
+    val filteredEvents = remember(txPeriodEvents, categoryFilter, txSearch, walletLabels, channelFilter) {
+        searchLedger(filterByChannel(filterLedger(txPeriodEvents, categoryFilter, null), channelFilter), txSearch) { walletLabels[it] }
     }
 
     // Phase 3.13 — keyboard shortcut handler. Uses `onKeyEvent` (post-
@@ -456,8 +481,19 @@ public fun TrackingScreen(
                 }
             }
 
-            val labelByWalletIdForExport = wallets.associate { it.id to it.label }
+            val labelByWalletIdForExport = walletLabelById
             if (section == TrackerSection.TRANSACTIONS) {
+                // Schema v8 — income and spending outside the wallets.
+                OutlinedButton(
+                    onClick = { manualDialog = ManualDialogState() },
+                    modifier = Modifier.fillMaxWidth().testTag(ManualTxnTags.ADD),
+                ) { Text(stringResource(Res.string.mtx_add)) }
+                ChannelFilterRow(
+                    events = txPeriodEvents,
+                    accounts = manualAccountList,
+                    selected = channelFilter,
+                    onSelect = { channelFilter = it },
+                )
                 OutlinedButton(
                     onClick = {
                         scope.launch {
@@ -586,6 +622,7 @@ public fun TrackingScreen(
                                 RegistryStore.bumpDataVersion()
                             }
                         },
+                        onPayBill = { b -> payingBill = b },
                         onMarkBillPaidAmount = { b, sat ->
                             val registry = RegistryStore.current() ?: return@TrackingDashboardTab
                             scope.launch {
@@ -751,7 +788,22 @@ public fun TrackingScreen(
                         timeRangeFilter = timeRangeFilter,
                         onClearTimeRange = { timeRangeFilter = null },
                         onSelectCategory = { categoryFilter = it },
-                        onEditCategory = { event -> editing = event },
+                        onEditCategory = { event ->
+                            // An off-wallet entry opens its own editor.
+                            val manualId = ManualTxns.idOf(event)
+                            val registry = RegistryStore.current()
+                            if (manualId == null || registry == null) {
+                                editing = event
+                            } else {
+                                scope.launch {
+                                    val row = withContext(Dispatchers.IO) {
+                                        runCatching { registry.listManualTxns() }.getOrDefault(emptyList()).firstOrNull { it.id == manualId }
+                                    }
+                                    if (row != null) manualDialog = ManualDialogState(editing = row, category = event.category)
+                                }
+                            }
+                        },
+                        extraLabels = manualLabels,
                         periodEvents = txPeriodEvents,
                         search = txSearch,
                         onSearchChange = { txSearch = it },
@@ -1440,7 +1492,8 @@ public fun TrackingScreen(
                 showNewBill = false
                 billDialog = null
             },
-            onSave = { name, amountSat, dueDay, displayLabel, variable ->
+            knownCategories = categories,
+            onSave = { name, amountSat, dueDay, displayLabel, variable, category ->
                 val registry = RegistryStore.current()
                 if (registry == null) {
                     lastError = registryNotOpen
@@ -1462,6 +1515,7 @@ public fun TrackingScreen(
                                 registry.addBill(name, amountSat, dueDay.toUInt(), displayLabel)
                             }
                             registry.setBillVariable(id, variable)
+                            registry.setBillCategory(id, category)
                         }
                     }.onFailure { e ->
                         lastError = e.message ?: getString(Res.string.trk_err_save_bill)
@@ -1487,6 +1541,138 @@ public fun TrackingScreen(
                     }
                     showNewBill = false
                     billDialog = null
+                    RegistryStore.bumpDataVersion()
+                }
+            },
+        )
+    }
+
+    // Schema v8 — "mark paid": pick the transaction that paid the bill.
+    payingBill?.let { bill ->
+        val candidates = remember(bill, events, bills) { billPaymentCandidates(bill, events, bills, todayLocal()) }
+        BillPayDialog(
+            bill = bill,
+            candidates = candidates,
+            walletLabel = { walletLabelById[it] ?: it.take(8) },
+            onDismiss = { payingBill = null },
+            onLink = { ev ->
+                payingBill = null
+                val registry = RegistryStore.current() ?: return@BillPayDialog
+                val category = bill.category?.takeIf { it.isNotBlank() }
+                scope.launch {
+                    runCatching {
+                        withContext(Dispatchers.IO) {
+                            registry.markBillPaidBy(
+                                bill.id,
+                                ev.timestampUnix?.toLong() ?: (System.currentTimeMillis() / 1000L),
+                                ev.amountSat,
+                                billPaidRef(ev),
+                            )
+                            // It counts in the bill's budget category.
+                            if (category != null && ev.category != category) {
+                                registry.setEventCategory(ev.walletId, ev.txidOrPaymentId, category)
+                            }
+                        }
+                    }.onSuccess {
+                        if (category != null) TrackerCache.patchEventCategory(ev.txidOrPaymentId, category)
+                    }.onFailure { e ->
+                        lastError = e.message ?: getString(Res.string.trk_err_mark_bill)
+                    }
+                    RegistryStore.bumpDataVersion()
+                }
+            },
+            onPayOutside = {
+                payingBill = null
+                manualDialog = ManualDialogState(
+                    preset = ManualTxnPreset(category = bill.category, note = bill.name),
+                    forBill = bill,
+                )
+            },
+            onOnlyMark = {
+                payingBill = null
+                // A variable bill still asks what was paid (schema v7).
+                if (bill.variable) {
+                    billAmountAsk = bill
+                    return@BillPayDialog
+                }
+                val registry = RegistryStore.current() ?: return@BillPayDialog
+                scope.launch {
+                    runCatching {
+                        withContext(Dispatchers.IO) { registry.markBillPaid(bill.id, System.currentTimeMillis() / 1000L) }
+                    }.onFailure { e ->
+                        lastError = e.message ?: getString(Res.string.trk_err_mark_bill)
+                    }
+                    RegistryStore.bumpDataVersion()
+                }
+            },
+        )
+    }
+
+    billAmountAsk?.let { bill ->
+        BillPaidAmountDialog(
+            bill,
+            onDismiss = { billAmountAsk = null },
+            onSave = { sat ->
+                billAmountAsk = null
+                val registry = RegistryStore.current() ?: return@BillPaidAmountDialog
+                scope.launch {
+                    runCatching {
+                        withContext(Dispatchers.IO) { registry.markBillPaidAmount(bill.id, System.currentTimeMillis() / 1000L, sat) }
+                    }.onFailure { e ->
+                        lastError = e.message ?: getString(Res.string.trk_err_mark_bill)
+                    }
+                    RegistryStore.bumpDataVersion()
+                }
+            },
+        )
+    }
+
+    // Schema v8 — add / edit an off-wallet entry (optionally paying a bill).
+    manualDialog?.let { state ->
+        ManualTxnDialog(
+            editing = state.editing,
+            editingCategory = state.category,
+            accounts = manualAccountList,
+            knownCategories = categories,
+            preset = state.preset,
+            title = state.forBill?.let { stringResource(Res.string.bill_pay_title, it.name) },
+            walletLabels = wallets.filter { it.id !in excludedWalletIds }.map { it.label },
+            onAddAccount = { name, ccy, balance ->
+                RegistryStore.current()?.let { registry ->
+                    runCatching {
+                        withContext(Dispatchers.IO) {
+                            val id = registry.addManualAsset(name, "cash", balance, ccy, null, null, null, null, null)
+                            registry.listManualAssets().firstOrNull { it.id == id }
+                        }
+                    }.onFailure { e -> lastError = e.message ?: getString(Res.string.mtx_err_save) }
+                        .getOrNull()
+                        ?.also { RegistryStore.bumpDataVersion() }
+                        ?.asManualAccount()
+                }
+            },
+            onDismiss = { manualDialog = null },
+            onDelete = state.editing?.let { row ->
+                {
+                    manualDialog = null
+                    val registry = RegistryStore.current()
+                    if (registry != null) {
+                        scope.launch {
+                            runCatching { withContext(Dispatchers.IO) { registry.deleteManualTxn(row.id) } }
+                                .onFailure { e -> lastError = e.message ?: getString(Res.string.mtx_err_delete) }
+                            RegistryStore.bumpDataVersion()
+                        }
+                    }
+                }
+            },
+            onSave = { draft ->
+                manualDialog = null
+                val registry = RegistryStore.current() ?: return@ManualTxnDialog
+                scope.launch {
+                    runCatching {
+                        withContext(Dispatchers.IO) { saveManualTxn(registry, state, draft) }
+                    }.onFailure { e ->
+                        lastError = e.message ?: getString(Res.string.mtx_err_save)
+                    }
                     RegistryStore.bumpDataVersion()
                 }
             },
@@ -1850,4 +2036,36 @@ public object TrackingTags {
     public const val HEADER_LOCK: String = "tracking.header-lock"
     /** Focusable root receiving the keyboard shortcuts. */
     public const val ROOT: String = "tracking.root"
+}
+
+/** Schema v8 — the off-wallet entry dialog: a new entry, an edit, or a bill paid outside the wallets. */
+internal data class ManualDialogState(
+    val editing: io.bhodl.ffi.ManualTxnFfi? = null,
+    val category: String? = null,
+    val preset: ManualTxnPreset = ManualTxnPreset(),
+    val forBill: io.bhodl.ffi.TrackingBillFfi? = null,
+)
+
+/**
+ * Schema v8 — save an off-wallet entry with its category; when it pays
+ * a bill, mark the bill paid by it. Blocking: call off the UI thread.
+ */
+internal fun saveManualTxn(registry: io.bhodl.ffi.RegistryHandle, state: ManualDialogState, draft: ManualTxnDraft) {
+    val editing = state.editing
+    val id = if (editing != null) {
+        registry.updateManualTxn(
+            editing.id, draft.direction, draft.amountSat, draft.amountFiat, draft.currency, draft.occurredUnix, draft.note,
+        )
+        editing.id
+    } else {
+        registry.addManualTxn(
+            draft.direction, draft.amountSat, draft.amountFiat, draft.currency, draft.occurredUnix, draft.accountRef, draft.note,
+        )
+    }
+    val walletId = io.bhodl.ffi.manualTxnWalletId(editing?.accountRef ?: draft.accountRef)
+    val eventId = io.bhodl.ffi.manualTxnEventId(id)
+    registry.setEventCategory(walletId, eventId, draft.category)
+    state.forBill?.let { bill ->
+        registry.markBillPaidBy(bill.id, draft.occurredUnix, draft.amountSat, "$walletId|$eventId")
+    }
 }

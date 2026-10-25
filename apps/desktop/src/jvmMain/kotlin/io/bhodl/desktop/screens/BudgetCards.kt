@@ -370,6 +370,8 @@ internal fun BillsCalendarStrip(
     modifier: Modifier = Modifier,
     /** Schema v7 — a bill marked paid with the amount actually paid. */
     onMarkPaidAmount: (TrackingBillFfi, ULong) -> Unit = { b, _ -> onToggleBillPaid(b, true) },
+    /** Schema v8 — when set, "mark paid" opens the pay flow instead. */
+    onPayBill: ((TrackingBillFfi) -> Unit)? = null,
 ) {
     val upcoming = upcomingBills(bills, today)
     var askAmount by remember { mutableStateOf<TrackingBillFfi?>(null) }
@@ -427,6 +429,7 @@ internal fun BillsCalendarStrip(
                             .clickable(role = Role.Checkbox) {
                                 when {
                                     paid -> onToggleBillPaid(b, false)
+                                    onPayBill != null -> onPayBill(b)
                                     b.variable -> askAmount = b
                                     else -> onMarkPaidAmount(b, b.amountSat)
                                 }

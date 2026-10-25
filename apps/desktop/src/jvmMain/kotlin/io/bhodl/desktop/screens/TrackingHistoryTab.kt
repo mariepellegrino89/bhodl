@@ -123,8 +123,10 @@ internal fun HistoryTabBody(
     search: String = "",
     onSearchChange: (String) -> Unit = {},
     onQuickCategorize: (io.bhodl.ffi.PaymentEvent, String) -> Unit = { _, _ -> },
+    /** Schema v8 — labels of the manual accounts (cash, bank, card), by their synthetic wallet id. */
+    extraLabels: Map<String, String> = emptyMap(),
 ) {
-    val labelByWalletId = wallets.associate { it.id to it.label }
+    val labelByWalletId = wallets.associate { it.id to it.label } + extraLabels
     // Phase 3.7 — running balance map keyed by txid. Walk the full
     // event stream oldest-first, accumulating signed amounts; mempool
     // events (timestampUnix == null) are appended last with the

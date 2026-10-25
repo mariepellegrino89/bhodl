@@ -63,6 +63,11 @@ server cannot link your addresses to your IP address.
   at that day's market price, every spend or sale as a disposal (weighted average cost),
   with realized and unrealized gain/loss. Change the price of any transaction or exclude
   it; transfers between your own wallets are left out automatically. Not tax advice.
+- **Off-wallet income and spending** (cash, bank account, credit card, other): enter it in
+  euro, dollars or francs and it is stored in sat at that day's BTC price, so budgets and
+  reports cover what you spend outside the wallets too. The account's balance (or the
+  card's debt) moves with each entry, and Transactions filter by channel. A bill can be marked paid by the
+  transaction that paid it, wallet or off-wallet, and counts in its budget category.
 - Budgets, bills, recurring-payment detection, auto-categorization rules, savings and
   sinking-fund goals, KPIs on the home (savings rate, burn, FIRE, runway, opportunity cost),
   90-day cash-flow forecast, monthly review reminder, reports (category pie and

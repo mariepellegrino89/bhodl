@@ -1,5 +1,6 @@
 package io.bhodl.desktop.screens
 
+import io.bhodl.shared.resources.bill_category
 import io.bhodl.shared.resources.bill_fixed
 import io.bhodl.shared.resources.bill_variable
 import io.bhodl.shared.resources.bill_estimate_sat
@@ -70,8 +71,10 @@ import io.bhodl.shared.resources.trp_field_name
 internal fun BillEditDialog(
     editing: TrackingBillFfi?,
     onDismiss: () -> Unit,
-    onSave: (name: String, amountSat: ULong, dueDay: Int, displayLabel: String?, variable: Boolean) -> Unit,
+    onSave: (name: String, amountSat: ULong, dueDay: Int, displayLabel: String?, variable: Boolean, category: String?) -> Unit,
     onDelete: (id: Long) -> Unit,
+    /** Schema v8 — categories offered for the bill's budget category. */
+    knownCategories: List<String> = emptyList(),
 ) {
     var name by remember(editing?.id) { mutableStateOf(editing?.name ?: "") }
     var amountStr by remember(editing?.id) {
@@ -86,6 +89,8 @@ internal fun BillEditDialog(
     // Schema v7 — a variable bill (power, gas): the amount is an estimate,
     // the real one is asked when it is marked paid.
     var variable by remember(editing?.id) { mutableStateOf(editing?.variable ?: false) }
+    // Schema v8 — the budget category its payments count against.
+    var category by remember(editing?.id) { mutableStateOf(editing?.category.orEmpty()) }
     val amount: ULong? = amountStr.trim().takeIf { it.isNotBlank() }?.toULongOrNull()
     val dueDay: Int? = dueDayStr.trim().toIntOrNull()?.coerceIn(1, 31)
     val canSave = name.isNotBlank() && amount != null && dueDay != null
@@ -138,6 +143,13 @@ internal fun BillEditDialog(
                     ),
                     modifier = Modifier.fillMaxWidth().testTag(BillTags.INPUT_DUEDAY),
                 )
+                CategoryField(
+                    value = category,
+                    onValueChange = { category = it },
+                    knownCategories = knownCategories,
+                    label = stringResource(Res.string.bill_category),
+                    tag = BillTags.INPUT_CATEGORY,
+                )
                 OutlinedTextField(
                     value = displayLabel,
                     onValueChange = { displayLabel = it },
@@ -156,6 +168,7 @@ internal fun BillEditDialog(
                         dueDay!!,
                         displayLabel.trim().ifBlank { null },
                         variable,
+                        category.trim().ifBlank { null },
                     )
                 },
                 enabled = canSave,
@@ -188,6 +201,7 @@ internal object BillTags {
     const val INPUT_AMOUNT: String = "bill.input-amount"
     const val INPUT_DUEDAY: String = "bill.input-dueday"
     const val INPUT_LABEL: String = "bill.input-label"
+    const val INPUT_CATEGORY: String = "bill.input-category"
     fun paidChip(id: Long): String = "bill.paid.$id"
     const val KIND_FIXED: String = "bill.kind.fixed"
     const val KIND_VARIABLE: String = "bill.kind.variable"

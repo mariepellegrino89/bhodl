@@ -543,4 +543,43 @@ class UcCacheTrackerTest {
         assertNull(TrackerCache.lastError.value)
         assertEquals(false, TrackerCache.refreshing.value)
     }
+
+    // Schema v8 — income and spending outside the wallets.
+    @Test
+    fun `off-wallet entries join the events with their category and can pay a bill`() {
+        addWallet("Main", SIGNET_A)
+        val bill = registry.addBill("Luce e gas", 140_000UL, 15u, null)
+        registry.setBillCategory(bill, "Bollette")
+        val state = io.bhodl.desktop.screens.ManualDialogState(
+            forBill = registry.listBills().single(),
+        )
+        val draft = io.bhodl.desktop.screens.ManualTxnDraft(
+            direction = ManualTxns.DIRECTION_OUT,
+            amountSat = 61_000UL,
+            amountFiat = 42.5,
+            currency = "EUR",
+            occurredUnix = 1_760_000_000L,
+            accountRef = null,
+            category = "Bollette",
+            note = "Bolletta",
+        )
+        io.bhodl.desktop.screens.saveManualTxn(registry, state, draft)
+        refresh()
+
+        val ev = TrackerCache.events.value.single()
+        assertTrue(ManualTxns.isManual(ev.walletId))
+        assertEquals(io.bhodl.ffi.manualTxnWalletId(null), ev.walletId)
+        assertEquals(PaymentDirection.OUTGOING, ev.direction)
+        assertEquals(61_000UL, ev.amountSat)
+        assertEquals("Bollette", ev.category, "counts in the Bollette budget")
+        val paid = TrackerCache.bills.value.single()
+        assertEquals("${ev.walletId}|${ev.txidOrPaymentId}", paid.paidRef)
+        assertEquals(61_000UL, paid.lastPaidAmountSat)
+
+        // Deleting the entry takes it out of the events and unpays the bill.
+        registry.deleteManualTxn(ManualTxns.idOf(ev)!!)
+        refresh()
+        assertTrue(TrackerCache.events.value.isEmpty())
+        assertNull(TrackerCache.bills.value.single().lastPaidUnix)
+    }
 }
