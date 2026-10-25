@@ -22,7 +22,7 @@ class EsploraEndpointTest {
     @Test
     fun `current returns the mempool_space signet default when no override is set`() {
         assertEquals(EsploraEndpoint.DEFAULT_SIGNET, EsploraEndpoint.current())
-        assertEquals("https://mempool.space/signet/api", EsploraEndpoint.current())
+        assertEquals("https://blockstream.info/signet/api", EsploraEndpoint.current())
     }
 
     @Test

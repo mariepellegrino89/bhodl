@@ -37,8 +37,13 @@ public object EsploraEndpoint {
     /** mempool.space's public testnet4 REST endpoint. */
     public const val DEFAULT_TESTNET4: String = "https://mempool.space/testnet4/api"
 
-    /** mempool.space's public signet REST endpoint. */
-    public const val DEFAULT_SIGNET: String = "https://mempool.space/signet/api"
+    /**
+     * Blockstream's public signet REST endpoint. Not mempool.space: in
+     * October 2026 its signet API answered simple calls but stalled the
+     * requests of a full wallet scan (3 of 3 live scans timed out while
+     * blockstream.info completed 3 of 3).
+     */
+    public const val DEFAULT_SIGNET: String = "https://blockstream.info/signet/api"
 
     /**
      * Regtest has no public endpoint — default to a local electrs

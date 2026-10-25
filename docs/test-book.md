@@ -12,7 +12,7 @@
 > phrase, promote watch, migrazione pre-3.0 e debug watch screen sono
 > stati rimossi; restano nella storia git.
 >
-> I test di rete girano su **signet** con endpoint `mempool.space/signet`
+> I test di rete girano su **signet** con endpoint `blockstream.info/signet`
 > (o endpoint personalizzato via Settings). Serve un wallet di firma
 > esterno su signet (Sparrow, hardware wallet…) da cui esportare l'xpub
 > e con cui pagare gli indirizzi derivati da BHODL; in alternativa il
@@ -66,7 +66,7 @@ Cosa resta manuale, e perché:
 |-------|------------------------------------------------|------|
 | 0.1   | `./gradlew :apps:desktop:run` apre la finestra BHODL senza errori sul terminale. | [ ] |
 | 0.2   | `~/.bhodl/` è vuota (test "fresh install"). Se esiste, la rinomino o uso "Erase ALL local wallets…" da Welcome / Factory reset da Settings. | [ ] |
-| 0.3   | Network reachability: `curl https://mempool.space/signet/api/blocks/tip/height` ritorna un numero. | [ ] |
+| 0.3   | Network reachability: `curl https://blockstream.info/signet/api/blocks/tip/height` ritorna un numero. | [ ] |
 | 0.4   | Wallet di firma signet pronto (es. Sparrow su signet): annota l'xpub di account (`tpub` / `vpub`), il tipo di script e il primo indirizzo di ricezione. | [ ] |
 
 ---
