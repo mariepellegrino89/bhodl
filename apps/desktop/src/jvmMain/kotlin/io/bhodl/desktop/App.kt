@@ -207,6 +207,7 @@ public fun App() {
                 onTabSelected = { tab ->
                     navController.handleRailTab(tab, current = Tab.fromSection(section))
                 },
+                onBack = navController.railBack(Tab.fromSection(section)),
             ) {
                 TrackingScreen(
                     section = section,
@@ -419,8 +420,12 @@ internal fun NavController.handleRailTab(
     current: Tab,
     walletOpen: Boolean = WalletStore.current() != null,
     firstWalletId: String? = TrackerCache.wallets.value.firstOrNull()?.id,
+    /** False when going back: the move must not enter the history again. */
+    record: Boolean = true,
 ) {
     if (tab == current) return
+    // Redesign 2026-10 — the rail's Back returns to the section left here.
+    if (record && tab != Tab.Settings) io.bhodl.desktop.ui.BackNavigation.recordTab(current)
     when (tab) {
         Tab.Wallet -> {
             if (!walletOpen && firstWalletId != null) {
@@ -437,6 +442,21 @@ internal fun NavController.handleRailTab(
         Tab.Settings -> navigate(Route.Settings)
         else -> navigateToSection(tab.toSection() ?: TrackerSection.HOME)
     }
+}
+
+/**
+ * Redesign 2026-10 — the rail's Back once no in-screen page is open: the
+ * previous navigation entry, else the section visited before; null when
+ * there is nowhere to go back to.
+ */
+internal fun NavController.railBack(current: Tab): (() -> Unit)? = when {
+    previousBackStackEntry != null -> { { popBackStack() } }
+    io.bhodl.desktop.ui.BackNavigation.tabHistory.isNotEmpty() -> {
+        {
+            io.bhodl.desktop.ui.BackNavigation.popTab()?.let { handleRailTab(it, current, record = false) }
+        }
+    }
+    else -> null
 }
 
 /**
@@ -524,6 +544,7 @@ private fun WalletShell(navController: NavController, content: @Composable () ->
     io.bhodl.desktop.ui.TwoTabShell(
         selected = Tab.Wallet,
         onTabSelected = { tab -> navController.handleRailTab(tab, current = Tab.Wallet) },
+        onBack = navController.railBack(Tab.Wallet),
         content = content,
     )
 }

@@ -1,5 +1,11 @@
 package io.bhodl.desktop
 
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.material3.Text
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.runDesktopComposeUiTest
@@ -39,6 +45,7 @@ class UcNavigationSecurityTest {
     fun setUp() {
         dir = kotlin.io.path.createTempDirectory("bhodl-uc-nav-").toFile()
         SettingsStore.reset()
+        io.bhodl.desktop.ui.BackNavigation.reset()
     }
 
     @AfterTest
@@ -109,6 +116,42 @@ class UcNavigationSecurityTest {
             assertEquals("tracking:home", nc.currentBackStackEntry!!.describe())
             assertNull(nc.previousBackStackEntry)
         }
+    }
+
+    @Test
+    fun `rail Back returns to the section visited before`() = runDesktopComposeUiTest {
+        val nc = host(Route.Tracking())
+        assertNull(nc.railBack(Tab.Home), "nothing to go back to yet")
+        runOnIdle { nc.handleRailTab(Tab.Budget, current = Tab.Home) }
+        waitForIdle()
+        runOnIdle { nc.handleRailTab(Tab.Reports, current = Tab.Budget) }
+        waitForIdle()
+        runOnIdle { nc.railBack(Tab.Reports)!!.invoke() }
+        waitForIdle()
+        runOnIdle { assertEquals("tracking:budget", nc.currentBackStackEntry!!.describe()) }
+        runOnIdle { nc.railBack(Tab.Budget)!!.invoke() }
+        waitForIdle()
+        runOnIdle {
+            assertEquals("tracking:home", nc.currentBackStackEntry!!.describe())
+            assertNull(nc.railBack(Tab.Home), "going back did not refill the history")
+        }
+    }
+
+    @Test
+    fun `rail Back closes an in-screen page first`() = runDesktopComposeUiTest {
+        var open by androidx.compose.runtime.mutableStateOf(true)
+        setContent {
+            io.bhodl.ui.theme.BhodlTheme {
+                io.bhodl.desktop.ui.TwoTabShell(selected = Tab.Portfolio, onTabSelected = {}, onBack = null) {
+                    io.bhodl.desktop.ui.BackHandlerEffect(enabled = open) { open = false }
+                    Text(if (open) "item page" else "class page")
+                }
+            }
+        }
+        onNodeWithTag(io.bhodl.desktop.ui.TwoTabShellTags.BACK).assertIsEnabled().performClick()
+        waitForIdle()
+        assertEquals(false, open)
+        onNodeWithTag(io.bhodl.desktop.ui.TwoTabShellTags.BACK).assertIsNotEnabled()
     }
 
     @Test

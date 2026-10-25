@@ -2590,3 +2590,16 @@ Gli screenshot della revisione grafica finiscono in `apps/desktop/build/screensh
 | 66.6 | Aggiungi          | 1. I quattro pulsanti tratteggiati.                           | Si apre il modulo giusto; "+ Wallet (xpub)" apre l'aggiunta wallet.      | [ ] |
 | 66.7 | Finestra stretta  | 1. Restringi sotto 1100 px.                                   | Il pannello va sotto le card.                                            | [ ] |
 | 66.8 | Tema chiaro       | 1. Tema chiaro.                                               | Leggibile.                                                               | [auto] screenshot `portfolio-light-liabilities.png` |
+
+## 67. Pulsante Indietro sempre presente (2026-10-25)
+
+> In cima alla barra laterale c'è sempre "←". Chiude prima la pagina interna
+> aperta (per esempio la voce del Portafoglio), poi torna alla schermata
+> precedente, poi alla sezione visitata prima (fino a 30). Grigio quando non
+> c'è dove tornare.
+
+| #    | Test                | Passi                                                        | Atteso                                                        | Pass |
+|------|---------------------|--------------------------------------------------------------|---------------------------------------------------------------|------|
+| 67.1 | Sezioni             | 1. Home → Budget → Report. 2. ← due volte.                   | Report → Budget → Home; poi il pulsante è grigio.              | [auto] UcNavigationSecurityTest.`rail Back returns to the section visited before` |
+| 67.2 | Pagina interna      | 1. Portafoglio, clic su una voce. 2. ←.                      | Torna al pannello della classe, resta in Portafoglio.          | [auto] UcNavigationSecurityTest.`rail Back closes an in-screen page first` |
+| 67.3 | Wallet              | 1. Da Home apri un wallet. 2. ←.                             | Torna alla Home.                                              | [ ] |

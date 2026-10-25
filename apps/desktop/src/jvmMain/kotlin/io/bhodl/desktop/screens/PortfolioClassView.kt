@@ -303,6 +303,7 @@ internal fun PortfolioClassView(
     // Proposal D — a click on an item of the panel opens its page.
     var openKey by remember { mutableStateOf<String?>(null) }
     val openRow = sheet.sections.flatMap { it.rows }.firstOrNull { it.key == openKey }
+    io.bhodl.desktop.ui.BackHandlerEffect(enabled = openRow != null) { openKey = null }
 
     if (openRow != null) {
         val openClass = PortfolioClass.entries.first { it.section == openRow.section }
