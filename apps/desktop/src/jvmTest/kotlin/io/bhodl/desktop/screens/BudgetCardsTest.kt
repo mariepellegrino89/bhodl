@@ -1,5 +1,6 @@
 package io.bhodl.desktop.screens
 
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.runtime.getValue
@@ -76,6 +77,22 @@ class BudgetCardsTest {
         assertEquals(27_692L, weeklyFromMonthly(120_000L), "52 weeks / 12 months")
         // An earlier month: the whole month, nothing outside it.
         assertEquals(listOf("2026-09-30"), eventsInMonth(events, java.time.YearMonth.of(2026, 9), zone).map { it.txidOrPaymentId })
+    }
+
+    @Test
+    fun `no category gets no budget - its chip opens those transactions`() = runDesktopComposeUiTest {
+        var opened: String? = null
+        var edited: String? = null
+        val rows = listOf(
+            BudgetRow(io.bhodl.desktop.ui.UNCATEGORISED_KEY, null, 52_000UL, TrackingDirection.EXPENSE, null),
+            BudgetRow("Regali", null, 50_000UL, TrackingDirection.EXPENSE, null),
+        )
+        setContent { BhodlTheme { BudgetCategoryGrid(rows, emptyMap(), onEditBudget = { c, _ -> edited = c }, onViewTransactions = { opened = it }) } }
+        onNodeWithTag(BudgetCardsTags.category(io.bhodl.desktop.ui.UNCATEGORISED_KEY)).assertTextEquals("Uncategorised · 52,000 sat").performClick()
+        assertEquals("", opened, "the \"no category\" filter of the ledger")
+        assertNull(edited)
+        onNodeWithTag(BudgetCardsTags.category("Regali")).performClick()
+        assertEquals("Regali", edited)
     }
 
     @Test

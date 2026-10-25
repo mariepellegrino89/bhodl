@@ -1,5 +1,7 @@
 package io.bhodl.desktop.screens
 
+import io.bhodl.desktop.ui.isUncategorised
+import io.bhodl.desktop.ui.categoryDisplayName
 import io.bhodl.shared.resources.bgm_this_month
 import io.bhodl.ffi.PaymentEvent
 import androidx.compose.foundation.Canvas
@@ -271,14 +273,17 @@ internal fun BudgetCategoryGrid(
             androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(stringResource(Res.string.bgc_no_budget), style = BhodlTheme.typography.labelMedium, color = BhodlTheme.colors.textTertiary, modifier = Modifier.padding(top = 6.dp))
                 unbudgeted.forEach { r ->
+                    // "No category" gets no budget: its chip opens those
+                    // transactions, to categorise them.
+                    val none = isUncategorised(r.category)
                     Text(
-                        "${r.category} · ${displayAmount(r.actualSat.toLong())}  +",
+                        "${categoryDisplayName(r.category)} · ${displayAmount(r.actualSat.toLong())}" + if (none) "" else "  +",
                         style = BhodlTheme.typography.labelMedium,
-                        color = BhodlTheme.colors.textPrimary,
+                        color = if (none) BhodlTheme.colors.financialPending else BhodlTheme.colors.textPrimary,
                         modifier = Modifier
                             .clip(RoundedCornerShape(999.dp))
                             .border(1.dp, BhodlTheme.colors.outline, RoundedCornerShape(999.dp))
-                            .clickable(role = Role.Button) { onEditBudget(r.category, null) }
+                            .clickable(role = Role.Button) { if (none) onViewTransactions("") else onEditBudget(r.category, null) }
                             .padding(horizontal = 12.dp, vertical = 6.dp)
                             .testTag(BudgetCardsTags.category(r.category)),
                     )

@@ -1,5 +1,6 @@
 package io.bhodl.desktop.screens
 
+import io.bhodl.desktop.ui.isUncategorised
 import io.bhodl.shared.resources.bgm_monthly_label
 import io.bhodl.shared.resources.bgm_weekly_hint
 import androidx.compose.foundation.layout.heightIn
@@ -218,12 +219,13 @@ private fun BudgetRowView(
                     modifier = Modifier
                         .tableCell(this, c)
                         .clip(RoundedCornerShape(4.dp))
-                        .clickable { onEditBudget(row.category, row.budgetedSat) }
+                        .clickable(enabled = !isUncategorised(row.category)) { onEditBudget(row.category, row.budgetedSat) }
                         .padding(2.dp)
                         .testTag(BudgetTags.editChip(row.category)),
                 ) {
                     Text(
-                        text = budget?.let { displayAmount(it) } ?: stringResource(Res.string.trp_budget_set),
+                        text = budget?.let { displayAmount(it) }
+                            ?: if (isUncategorised(row.category)) "—" else stringResource(Res.string.trp_budget_set),
                         style = BhodlTheme.typography.bodyMedium,
                         color = if (budget != null) BhodlTheme.colors.textPrimary
                         else BhodlTheme.colors.accentNeon,
@@ -522,7 +524,8 @@ internal fun computeBudgetRows(
         val outSat = outByCategory[category] ?: 0UL
         return if (inSat > outSat) TrackingDirection.INCOME else TrackingDirection.EXPENSE
     }
-    val ownBudgets = budgets.filter { directionOf(it.category) == direction }
+    // A budget on "no category" (older data) is ignored: it can't be set any more.
+    val ownBudgets = budgets.filter { directionOf(it.category) == direction && !isUncategorised(it.category) }
     val budgetByCategory = ownBudgets.associateBy { it.category }
     val allCategories = (actualByCategory.keys + budgetByCategory.keys).distinct()
     return allCategories

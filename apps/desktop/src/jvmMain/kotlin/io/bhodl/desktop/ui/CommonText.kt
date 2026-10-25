@@ -12,6 +12,12 @@ import org.jetbrains.compose.resources.stringResource
  */
 internal const val UNCATEGORISED_KEY: String = "Uncategorised"
 
+/** Whether [raw] names the "no category" bucket (no budget can be set on it). */
+internal fun isUncategorised(raw: String?): Boolean {
+    val t = raw?.trim().orEmpty()
+    return t.isEmpty() || t == UNCATEGORISED_KEY || t == "Uncategorized"
+}
+
 /**
  * Display name of a tracker category: the user's own category text as
  * typed, or the localized "Uncategorised" for a missing / blank one (and
