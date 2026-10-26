@@ -66,4 +66,6 @@
     <string name="units_intro_got_it">Ho capito</string>
     <!-- /Privacy, Security Hub, accessibility, units onboarding -->
     <string name="security_action_wallets">Wallet</string>
+    <string name="hdr_clearnet_mainnet">Mainnet su clearnet</string>
+    <string name="hdr_clearnet_mainnet_help">I wallet mainnet si sincronizzano senza Tor: il server Esplora vede il tuo indirizzo IP insieme agli indirizzi che gli chiedi. Attiva Tor in Impostazioni → Rete.</string>
 </resources>

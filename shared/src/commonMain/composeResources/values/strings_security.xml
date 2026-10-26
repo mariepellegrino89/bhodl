@@ -66,4 +66,6 @@
     <string name="units_intro_got_it">Got it</string>
     <!-- /Privacy, Security Hub, accessibility, units onboarding -->
     <string name="security_action_wallets">Wallets</string>
+    <string name="hdr_clearnet_mainnet">Mainnet over clearnet</string>
+    <string name="hdr_clearnet_mainnet_help">The mainnet wallets sync without Tor: the Esplora server sees your IP address next to the addresses it is asked about. Turn Tor on in Settings → Network.</string>
 </resources>

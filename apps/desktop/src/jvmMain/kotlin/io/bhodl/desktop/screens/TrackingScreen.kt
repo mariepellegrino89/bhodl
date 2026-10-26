@@ -473,7 +473,14 @@ public fun TrackingScreen(
                         color = BhodlTheme.colors.textPrimary,
                     )
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    // 2026-10-26 — the footer bar's useful part, up here.
+                    io.bhodl.desktop.ui.TrackerHeaderStatus(
+                        mainnetWallets = wallets.any { it.network.equals("mainnet", ignoreCase = true) || it.network.equals("bitcoin", ignoreCase = true) },
+                        lastSyncUnix = lastSyncUnix,
+                        showSync = section != TrackerSection.HOME,
+                        onOpenSecurityHub = onOpenSecurityHub,
+                    )
                     androidx.compose.material3.TextButton(
                         onClick = onOpenModules,
                         modifier = Modifier.testTag(TrackingTags.HEADER_MODULES),
@@ -870,17 +877,10 @@ public fun TrackingScreen(
                 }
             }
 
-            // Phase 3.11 — footer status bar (Sparrow / Bitcoin Core
-            // convention). Pinned at the bottom of the Tracking screen
-            // (outside the scrollable body) so the user always sees
-            // network / Tor / sync state regardless of how far they
-            // scrolled inside a tab.
-            io.bhodl.desktop.ui.BhodlFooterStatusBar(
-                network = WalletStore.network(),
-                walletCount = includedGroupedWallets.size,
-                lastSyncUnix = lastSyncUnix,
-                onOpenSecurityHub = onOpenSecurityHub,
-            )
+            // 2026-10-26 — no footer status bar on the tracker sections:
+            // network and server belong to the Wallet view; the privacy
+            // eye, the Security shield, the last sync and a mainnet-over-
+            // clearnet warning sit in the header (TrackerHeaderStatus).
         }
     }
 
