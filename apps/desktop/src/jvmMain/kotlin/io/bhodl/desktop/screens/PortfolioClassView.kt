@@ -207,6 +207,7 @@ import java.util.Locale
 internal object PortfolioCardsTags {
     const val VIEW: String = "portfolio-cards.view"
     fun classCard(c: PortfolioClass): String = "portfolio-cards.class.${c.name.lowercase()}"
+    fun classShare(c: PortfolioClass): String = "portfolio-cards.share.${c.name.lowercase()}"
     fun item(key: String): String = "portfolio-cards.item.$key"
     const val DETAIL: String = "portfolio-cards.detail"
     const val DETAIL_TITLE: String = "portfolio-cards.detail.title"
@@ -362,6 +363,7 @@ internal fun PortfolioClassView(
         val left: @Composable (Modifier) -> Unit = { m ->
             Column(m, verticalArrangement = Arrangement.spacedBy(18.dp)) {
                 PortfolioHero(sheet, period, heroActions)
+                val shares = remember(sheet) { classShares(sheet) }
                 BoxWithConstraints(Modifier.fillMaxWidth()) {
                     val columns = if (maxWidth < 660.dp) 1 else 2
                     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -375,6 +377,7 @@ internal fun PortfolioClassView(
                                     ClassCard(
                                         cls = cls,
                                         section = sections[cls.section],
+                                        share = shares[cls],
                                         meta = classMeta(cls, sheet, investments, lotsByInvestmentId, nowUnix),
                                         points = series[cls].orEmpty(),
                                         selected = panelOpen && cls == selectedClass,
@@ -587,10 +590,30 @@ private fun compactAmount(sat: Long): String {
     return amountSign(sat, plusForPositive = false) + body
 }
 
+/**
+ * The number on each class card: an asset class as a share of the total
+ * assets (they add up to 100%, like the ring), the debts as a share of
+ * the assets (leverage). Not of the net worth: with debts the asset
+ * classes would add up to more than 100%. Null without assets.
+ */
+internal fun classShares(sheet: PortfolioSheet): Map<PortfolioClass, Double> {
+    val subtotal = PortfolioClass.entries.associateWith { cls ->
+        sheet.sections.firstOrNull { it.section == cls.section }?.subtotalSat ?: 0L
+    }
+    val assets = subtotal.filterKeys { it != PortfolioClass.LIABILITIES }.values.filter { it > 0L }.sum()
+    if (assets <= 0L) return emptyMap()
+    return subtotal.mapNotNull { (cls, v) ->
+        val amount = if (cls == PortfolioClass.LIABILITIES) kotlin.math.abs(v) else v.coerceAtLeast(0L)
+        cls to amount * 100.0 / assets
+    }.toMap()
+}
+
 @Composable
 private fun ClassCard(
     cls: PortfolioClass,
     section: SheetSectionModel?,
+    /** Share of the total assets; for the debts, the leverage (see [classShares]). */
+    share: Double?,
     meta: String,
     points: List<Pair<Long, Double>>,
     selected: Boolean,
@@ -617,8 +640,14 @@ private fun ClassCard(
                 Text(stringResource(classLabel(cls)), style = BhodlTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = BhodlTheme.colors.textPrimary)
                 Text(meta, style = BhodlTheme.typography.labelMedium, color = BhodlTheme.colors.textSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            section?.pctOfNetWorth?.let {
-                Text(formatPct(it, signed = false), style = BhodlTheme.typography.mono, color = BhodlTheme.colors.textSecondary)
+            share?.let {
+                val pct = formatPct(it, signed = false)
+                Text(
+                    if (cls == PortfolioClass.LIABILITIES) stringResource(Res.string.pfb_meta_leverage, pct) else pct,
+                    style = BhodlTheme.typography.mono,
+                    color = BhodlTheme.colors.textSecondary,
+                    modifier = Modifier.testTag(PortfolioCardsTags.classShare(cls)),
+                )
             }
         }
         Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -779,8 +808,10 @@ internal fun classSummary(
 /** Proposal B — title, net worth with its change and the class ring. */
 @Composable
 private fun PortfolioHero(sheet: PortfolioSheet, period: TrackingPeriod, actions: @Composable () -> Unit) {
+    // The asset classes only: the debts show as leverage on their card.
     val shares = sheet.sections.mapNotNull { s ->
-        PortfolioClass.entries.firstOrNull { it.section == s.section }?.let { it to kotlin.math.abs(s.subtotalSat) }
+        PortfolioClass.entries.firstOrNull { it.section == s.section && it != PortfolioClass.LIABILITIES }
+            ?.let { it to s.subtotalSat }
     }.filter { it.second > 0L }
     val total = shares.sumOf { it.second }.coerceAtLeast(1L)
     val colors = shares.map { classColor(it.first) }
