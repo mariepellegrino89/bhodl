@@ -559,7 +559,7 @@ pub fn open_registry_in_memory(conn: Connection) -> Result<Registry, OnchainErro
 ///
 /// Not downgrade-compatible: an older build refuses a registry stamped
 /// with a higher version (see the L9 gate in `ensure_schema`).
-pub(crate) const SCHEMA_VERSION: i64 = 8;
+pub const SCHEMA_VERSION: i64 = 8;
 
 /// v8 — income and spending outside the wallets. `amount_sat` is the
 /// value at the day's BTC rate, fixed when the row is saved (the
