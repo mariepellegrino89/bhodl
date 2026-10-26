@@ -1,5 +1,8 @@
 package io.bhodl.desktop.screens
 
+import androidx.compose.material3.OutlinedButton
+import io.bhodl.shared.resources.tm_try
+import io.bhodl.shared.resources.tm_try_body
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -48,6 +51,8 @@ import org.jetbrains.compose.resources.stringResource
 public fun WelcomeScreen(
     onGetStarted: () -> Unit,
     onResetComplete: () -> Unit,
+    /** Test mode — open the sample data (no PIN); `null` hides the button. */
+    onTryTestMode: (() -> Unit)? = null,
     // Injection seam so Compose UI tests can target a tempdir
     // instead of `~/.bhodl/`.
     dataDir: java.io.File = WalletPaths.defaultDataDir(),
@@ -91,6 +96,22 @@ public fun WelcomeScreen(
                     .testTag(WelcomeTags.GET_STARTED),
             ) {
                 Text(stringResource(Res.string.onb_get_started))
+            }
+            if (onTryTestMode != null) {
+                OutlinedButton(
+                    onClick = onTryTestMode,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag(WelcomeTags.TRY_TEST_MODE),
+                ) {
+                    Text(stringResource(Res.string.tm_try))
+                }
+                Text(
+                    text = stringResource(Res.string.tm_try_body),
+                    style = BhodlTheme.typography.labelMedium,
+                    color = BhodlTheme.colors.textSecondary,
+                    textAlign = TextAlign.Center,
+                )
             }
 
             // Reset zone — visually de-emphasised. Audit 2026-10 (M8):
@@ -136,4 +157,5 @@ public fun WelcomeScreen(
 public object WelcomeTags {
     public const val GET_STARTED: String = "welcome.get-started"
     public const val RESET: String = "welcome.reset"
+    public const val TRY_TEST_MODE: String = "welcome.try-test-mode"
 }

@@ -54,6 +54,7 @@ pub const VALID_SOURCES: &[&str] = &[
     "coingecko-range",   // /coins/bitcoin/market_chart/range
     "blockchain-info",   // /charts/market-price (USD only)
     "ecb-triangulated",  // blockchain-info USD × Frankfurter X/USD
+    "demo",              // test-mode profile: generated, never fetched
 ];
 
 /// Supported ISO 4217 currency codes. Mirrors `FiatCurrency` on the Kotlin side.
@@ -727,6 +728,9 @@ fn cache_range(
 pub struct BtcRateRepo {
     conn: Mutex<Connection>,
     agent: ureq::Agent,
+    /// Cache only: a missing day is "network unavailable", never fetched
+    /// (test-mode profiles, which carry their own rates).
+    offline: bool,
 }
 
 impl std::fmt::Debug for BtcRateRepo {
@@ -751,7 +755,15 @@ impl BtcRateRepo {
         Ok(Self {
             conn: Mutex::new(conn),
             agent,
+            offline: false,
         })
+    }
+
+    /// Answer from the cache only: no request ever leaves the device.
+    #[must_use]
+    pub fn offline(mut self) -> Self {
+        self.offline = true;
+        self
     }
 
     /// Route every rate fetch through the SOCKS5 proxy `proxy_url`
@@ -825,6 +837,9 @@ impl BtcRateRepo {
     /// Internal: fetch a single (date, currency) from network sources.
     /// Pure network — touches no lock and no cache.
     fn fetch_remote(&self, norm: i64, currency: &str) -> Result<Fetched, RateError> {
+        if self.offline {
+            return Err(RateError::NetworkUnavailable);
+        }
         let agent = &self.agent;
         let limiter = coingecko_limiter();
         let days_back = (now_unix() - norm) / SECS_PER_DAY;
@@ -940,7 +955,11 @@ impl BtcRateHistoryRepository for BtcRateRepo {
         // CoinGecko (keyless) only serves the last 365 days; older
         // days go straight to the per-day triangulation path.
         let window_start = today - COINGECKO_KEYLESS_WINDOW_DAYS * SECS_PER_DAY;
-        let (old_missing, recent_missing) = split_missing_by_window(&missing, window_start);
+        let (old_missing, recent_missing) = if self.offline {
+            (Vec::new(), Vec::new())
+        } else {
+            split_missing_by_window(&missing, window_start)
+        };
 
         if let (Some(&range_start), Some(&last_missing)) =
             (recent_missing.first(), recent_missing.last())
@@ -1088,6 +1107,28 @@ mod tests {
         assert_eq!(normalize_to_utc_midnight(midnight), midnight);
         assert_eq!(normalize_to_utc_midnight(noon), midnight);
         assert_eq!(normalize_to_utc_midnight(evening), midnight);
+    }
+
+    #[test]
+    fn an_offline_repo_answers_from_the_cache_and_never_fetches() {
+        let repo = BtcRateRepo::in_memory().unwrap().offline();
+        let day = 1_713_484_800_i64; // 2024-04-19
+        {
+            let conn = repo.conn.lock().unwrap();
+            cache_insert(&conn, day, "EUR", 60_000.0, "demo").unwrap();
+        }
+        assert_eq!(repo.rate_at(day + 3600, "EUR").unwrap(), Some(60_000.0));
+        // A missing day is "network unavailable", at once.
+        assert!(matches!(
+            repo.rate_at(day + SECS_PER_DAY, "EUR"),
+            Err(RateError::NetworkUnavailable)
+        ));
+        // A range returns what the cache holds, with gaps.
+        let points = repo
+            .range(day - SECS_PER_DAY, day + SECS_PER_DAY, "EUR")
+            .unwrap();
+        assert_eq!(points.len(), 1);
+        assert_eq!(points[0].date_unix, day);
     }
 
     #[test]

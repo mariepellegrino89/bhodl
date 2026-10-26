@@ -87,6 +87,11 @@ fun main() {
         File(WalletPaths.defaultDataDir(), PinAttemptTracker.PIN_FAILURES_FILE_NAME),
     )
 
+    // Test mode — `BHODL_DEMO=1` starts in test mode on the project test
+    // data, `BHODL_DEMO=<file>` on that `.bhodl-test` file. App() then
+    // finds the registry open and starts on the tracker.
+    startTestModeIfRequested(System.getenv("BHODL_DEMO"))
+
     val windowState = WindowState(
         // UX review 2026-10 (item 17) — the dense desktop layouts (rail +
         // full-width wallet workspace + tracker tables) open at a
@@ -195,5 +200,17 @@ fun main() {
             }
         }
     }
+    }
+}
+
+/** `BHODL_DEMO`: "1" = project test data, a path = that test-data file. */
+internal fun startTestModeIfRequested(value: String?) {
+    val v = value?.trim().orEmpty()
+    if (v.isEmpty() || v == "0") return
+    kotlinx.coroutines.runBlocking {
+        runCatching {
+            io.bhodl.desktop.data.TestMode.enter()
+            if (v != "1") io.bhodl.desktop.data.TestMode.importFrom(File(v))
+        }.onFailure { System.err.println("[bhodl] BHODL_DEMO: ${it.message}") }
     }
 }

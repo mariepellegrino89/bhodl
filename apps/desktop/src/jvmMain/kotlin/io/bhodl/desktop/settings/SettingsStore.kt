@@ -379,14 +379,14 @@ public object SettingsStore {
     public fun setCategoryColor(category: String, colorIndex: Int) {
         val key = category.trim().lowercase().takeIf { it.isNotEmpty() } ?: return
         _categoryColors.value = _categoryColors.value + (key to colorIndex)
-        persistIfEnabled()
+        profileSettingsChanged()
     }
 
     public fun addCustomCategory(category: String) {
         val name = category.trim().takeIf { it.isNotEmpty() } ?: return
         if (_customCategories.value.any { it.equals(name, ignoreCase = true) }) return
         _customCategories.value = _customCategories.value + name
-        persistIfEnabled()
+        profileSettingsChanged()
     }
 
     /** Rehydrate without a write-through (see [replaceExcludedWalletIds]). */
@@ -573,27 +573,98 @@ public object SettingsStore {
 
     private val _moduleInvestments = mutableStateOf(false)
     public val moduleInvestments: State<Boolean> get() = _moduleInvestments
-    public fun setModuleInvestments(v: Boolean) { _moduleInvestments.value = v; persistIfEnabled() }
+    public fun setModuleInvestments(v: Boolean) { _moduleInvestments.value = v; profileSettingsChanged() }
 
     private val _moduleBudgetBills = mutableStateOf(false)
     public val moduleBudgetBills: State<Boolean> get() = _moduleBudgetBills
-    public fun setModuleBudgetBills(v: Boolean) { _moduleBudgetBills.value = v; persistIfEnabled() }
+    public fun setModuleBudgetBills(v: Boolean) { _moduleBudgetBills.value = v; profileSettingsChanged() }
 
     private val _moduleSavingsGoals = mutableStateOf(false)
     public val moduleSavingsGoals: State<Boolean> get() = _moduleSavingsGoals
-    public fun setModuleSavingsGoals(v: Boolean) { _moduleSavingsGoals.value = v; persistIfEnabled() }
+    public fun setModuleSavingsGoals(v: Boolean) { _moduleSavingsGoals.value = v; profileSettingsChanged() }
 
     private val _moduleManualAssets = mutableStateOf(false)
     public val moduleManualAssets: State<Boolean> get() = _moduleManualAssets
-    public fun setModuleManualAssets(v: Boolean) { _moduleManualAssets.value = v; persistIfEnabled() }
+    public fun setModuleManualAssets(v: Boolean) { _moduleManualAssets.value = v; profileSettingsChanged() }
 
     private val _moduleAnalyticsLabs = mutableStateOf(false)
     public val moduleAnalyticsLabs: State<Boolean> get() = _moduleAnalyticsLabs
-    public fun setModuleAnalyticsLabs(v: Boolean) { _moduleAnalyticsLabs.value = v; persistIfEnabled() }
+    public fun setModuleAnalyticsLabs(v: Boolean) { _moduleAnalyticsLabs.value = v; profileSettingsChanged() }
 
     private val _modulesBannerDismissed = mutableStateOf(false)
     public val modulesBannerDismissed: State<Boolean> get() = _modulesBannerDismissed
     public fun setModulesBannerDismissed(v: Boolean) { _modulesBannerDismissed.value = v; persistIfEnabled() }
+
+    /** The five module switches together. */
+    public data class ModuleFlags(
+        val investments: Boolean,
+        val budgetBills: Boolean,
+        val savingsGoals: Boolean,
+        val manualAssets: Boolean,
+        val analyticsLabs: Boolean,
+    )
+
+    public fun moduleFlags(): ModuleFlags = ModuleFlags(
+        _moduleInvestments.value, _moduleBudgetBills.value, _moduleSavingsGoals.value,
+        _moduleManualAssets.value, _moduleAnalyticsLabs.value,
+    )
+
+    private fun applyModuleFlags(f: ModuleFlags) {
+        _moduleInvestments.value = f.investments
+        _moduleBudgetBills.value = f.budgetBills
+        _moduleSavingsGoals.value = f.savingsGoals
+        _moduleManualAssets.value = f.manualAssets
+        _moduleAnalyticsLabs.value = f.analyticsLabs
+    }
+
+    /**
+     * What belongs to a profile rather than to the app: the module
+     * switches and the categories added or recoloured. A test profile
+     * carries its own (see [beginProfileSettings]).
+     */
+    public data class ProfileSettings(
+        val modules: ModuleFlags,
+        val categoryColors: Map<String, Int> = emptyMap(),
+        val customCategories: List<String> = emptyList(),
+    )
+
+    public fun profileSettings(): ProfileSettings =
+        ProfileSettings(moduleFlags(), _categoryColors.value, _customCategories.value)
+
+    private fun applyProfileSettings(p: ProfileSettings) {
+        applyModuleFlags(p.modules)
+        _categoryColors.value = p.categoryColors
+        _customCategories.value = p.customCategories
+    }
+
+    // Test mode — while a test profile is open its settings are shown
+    // and changes go back to it; settings.json keeps the real profile's.
+    private var realProfile: ProfileSettings? = null
+    private var profileSink: ((ProfileSettings) -> Unit)? = null
+
+    /** What settings.json stores: the real profile's, also in test mode. */
+    internal fun persistedProfileSettings(): ProfileSettings = realProfile ?: profileSettings()
+
+    /** Show [settings] (a test profile's); changes go to [sink], not to settings.json. */
+    public fun beginProfileSettings(settings: ProfileSettings, sink: (ProfileSettings) -> Unit) {
+        if (realProfile == null) realProfile = profileSettings()
+        profileSink = null
+        applyProfileSettings(settings)
+        profileSink = sink
+    }
+
+    /** Back to the real profile's settings. */
+    public fun endProfileSettings() {
+        val real = realProfile ?: return
+        profileSink = null
+        realProfile = null
+        applyProfileSettings(real)
+    }
+
+    private fun profileSettingsChanged() {
+        val sink = profileSink
+        if (sink != null) sink(profileSettings()) else persistIfEnabled()
+    }
 
     public val anyModuleEnabled: Boolean
         get() = _moduleInvestments.value || _moduleBudgetBills.value ||
@@ -604,6 +675,8 @@ public object SettingsStore {
      * future) by a "Reset to defaults" button in Settings.
      */
     public fun reset() {
+        realProfile = null
+        profileSink = null
         _themeMode.value = ThemeMode.System
         _categoryColors.value = emptyMap()
         _customCategories.value = emptyList()

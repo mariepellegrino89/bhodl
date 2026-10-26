@@ -556,10 +556,16 @@ pub fn open_registry_in_memory(conn: Connection) -> Result<Registry, OnchainErro
 ///   currency and stored with the sat value at the day's BTC rate; and
 ///   `tracking_bills.category` / `tracking_bills.paid_ref` — the budget
 ///   category of a bill and the transaction that paid it. No backfill.
+/// - v9: test-mode profiles —: `profile_meta` (key/value facts, among
+///   them the test-mode flag) and `demo_events` (the wallet transactions
+///   of a test profile). No backfill.
 ///
 /// Not downgrade-compatible: an older build refuses a registry stamped
 /// with a higher version (see the L9 gate in `ensure_schema`).
-pub const SCHEMA_VERSION: i64 = 8;
+pub const SCHEMA_VERSION: i64 = 9;
+
+mod demo;
+pub use demo::DemoEvent;
 
 /// v8 — income and spending outside the wallets. `amount_sat` is the
 /// value at the day's BTC rate, fixed when the row is saved (the
@@ -749,6 +755,15 @@ fn ensure_schema(conn: &Connection) -> Result<(), OnchainError> {
             .map_err(|e| OnchainError::Storage(e.to_string()))?;
         for stmt in ALTER_BILLS_LINK_SQL {
             add_column_idempotent(&tx, stmt)?;
+        }
+    }
+    if current_version < 9 {
+        for stmt in [
+            demo::CREATE_PROFILE_META_TABLE_SQL,
+            demo::CREATE_DEMO_EVENTS_TABLE_SQL,
+        ] {
+            tx.execute(stmt, [])
+                .map_err(|e| OnchainError::Storage(e.to_string()))?;
         }
     }
 

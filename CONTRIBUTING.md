@@ -112,6 +112,22 @@ cargo deny check
 ./gradlew :apps:desktop:run
 ```
 
+### Shared test data
+
+Work and report bugs on test data, never on your own wallets. Start the app in test mode
+with `BHODL_DEMO=1 ./gradlew :apps:desktop:run` (or Settings › Test mode): a separate
+profile opens with the project's test data and your real data stays closed.
+
+- To show a bug, reproduce it in test mode, then Settings › Test mode › *Export test data*
+  and attach the `.bhodl-test` file to the issue. Whoever opens it (*Import test data*, or
+  `BHODL_DEMO=/path/to/file.bhodl-test`) sees exactly your data, with dates moved to their
+  day (tick "keep the file's dates" for a date-specific bug).
+- *Mark as initial state* fixes the point *Back to initial state* returns to; the file
+  carries it.
+- The project's test data is `apps/desktop/src/jvmMain/resources/demo/base.bhodl-test`. To
+  change it for everyone, export and replace that file in a pull request, saying what you
+  changed. Two people changing it at once do not merge: the last file wins.
+
 Dependency bumps: Gradle verifies artifact checksums, so after changing a version run
 `./gradlew --write-verification-metadata sha256 :shared:jvmTest :apps:desktop:jvmTest` and commit
 the updated `gradle/verification-metadata.xml`. The `OSV scan` job then checks it for known

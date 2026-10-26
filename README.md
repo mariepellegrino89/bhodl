@@ -77,6 +77,12 @@ server cannot link your addresses to your IP address.
 
 **Everywhere**
 
+- **Test mode**: a separate profile with sample data (wallets, transactions, budgets,
+  bills, goals, portfolio) to try the app without a PIN. Your real data stays closed while
+  it is on. Test data can be changed freely, exported as one `.bhodl-test` file (sent by
+  mail or chat, or committed) and imported by someone else, with a marked initial state to
+  go back to. It never touches the network. Settings › Test mode, or "Try with sample
+  data" on the welcome screen.
 - Privacy mode (Ctrl+Shift+H) hides every amount, including chart axes and tooltips.
 - Security Hub: device PIN (change it here), recovery code, auto-lock, Tor and label-export
   status on one screen.
@@ -106,6 +112,18 @@ only needed for the integration tests. Gradle comes from the wrapper.
 
 The first build compiles OpenSSL and SQLCipher from source and takes around 10 minutes;
 later builds are incremental.
+
+To start straight in test mode, on the project's test data or on a shared file:
+
+```sh
+BHODL_DEMO=1 ./gradlew :apps:desktop:run                       # project test data
+BHODL_DEMO=/path/to/data.bhodl-test ./gradlew :apps:desktop:run  # a shared file
+```
+
+The project's test data is `apps/desktop/src/jvmMain/resources/demo/base.bhodl-test`. To
+share an update with everyone, export from test mode and replace that file in a pull
+request; to rebuild it from the generator (`DemoSeed`), run
+`BHODL_WRITE_DEMO_DATA=<path> ./gradlew :apps:desktop:jvmTest --tests "*TestModeTest.write*"`.
 
 ### Windows notes
 

@@ -2776,3 +2776,32 @@ Gli screenshot della revisione grafica finiscono in `apps/desktop/build/screensh
 | 76.2 | Dal Budget           | 1. Budget → ‹ Settembre. 2. Cibo → Vedi transazioni.          | Transazioni, vista Mese su Settembre, filtro Cibo.               | [ ] |
 | 76.3 | Ritorno              | 1. In Transazioni passa a Agosto. 2. Torna al Budget.         | Il Budget mostra Agosto.                                         | [ ] |
 
+
+## 77. Modalità test (2026-10-26)
+
+> Impostazioni › Modalità test (o "Prova con dati di esempio" nella schermata di
+> benvenuto) apre un profilo separato (`~/.bhodl/demo`) con i dati di test del
+> progetto: due wallet signet con otto mesi di transazioni, budget, bollette,
+> obiettivi, regole, movimenti fuori dai wallet, investimenti, beni e debiti. Non
+> serve il PIN; il database reale resta chiuso. Una fascia arancione "MODALITÀ TEST"
+> resta in alto su ogni schermata; "Esci dalla modalità test" (fascia o
+> Impostazioni) porta al PIN reale. In modalità test niente va in rete: i wallet non
+> si sincronizzano, i cambi BTC sono quelli del profilo, nessun blocco automatico.
+> I moduli e le categorie aggiunte appartengono al profilo di test e non toccano
+> quelli reali. Comandi: Esporta / Importa dati di test (un file `.bhodl-test` con i
+> dati e lo stato iniziale; all'import le date si spostano a oggi, salvo "Mantieni
+> le date del file"), Segna come stato iniziale, Torna allo stato iniziale, Carica i
+> dati di test del progetto. `BHODL_DEMO=1` (o `=<file>`) avvia già in modalità test.
+
+| #    | Test                  | Passi                                                         | Atteso                                                           | Pass |
+|------|-----------------------|---------------------------------------------------------------|------------------------------------------------------------------|------|
+| 77.1 | Entrare               | 1. Impostazioni → Modalità test → Entra.                      | Home dei dati di test, fascia in alto; nessuna richiesta di PIN. | [auto] TestModeTest.`entering builds the test profile…` + [ ] verifica in app |
+| 77.2 | Dati reali chiusi     | 1. In modalità test guarda wallet, budget, portafoglio.       | Solo dati di test; "Cancella dati" non c'è.                      | [ ] |
+| 77.3 | Offline               | 1. Stacca la rete. 2. Entra, apri un wallet, Home, Report.    | Saldi, transazioni, cambi e grafici presenti; nessun errore di sync. | [auto] TestModeTest (refresh con sync) + [ ] |
+| 77.4 | Uscire                | 1. Fascia → Esci.                                             | Schermata del PIN reale; moduli e categorie reali come prima.    | [auto] TestModeTest.`leaving puts the real settings back…` |
+| 77.5 | Esporta e importa     | 1. Aggiungi un movimento. 2. Esporta. 3. Su un altro PC (o dopo "Carica i dati del progetto") Importa. | Il movimento c'è, con la data spostata di quanti giorni sono passati. | [auto] TestModeTest.`a transaction added by one person…` |
+| 77.6 | Mantieni le date      | 1. Importa con "Mantieni le date del file".                   | Le date sono quelle del file.                                    | [auto] stesso test |
+| 77.7 | Stato iniziale        | 1. Segna come stato iniziale. 2. Aggiungi un movimento. 3. Torna allo stato iniziale. | Il movimento sparisce; la data dello stato iniziale è mostrata. | [auto] TestModeTest + TestModeSectionTest |
+| 77.8 | Database reale        | 1. Importa un file che non è di test (o un file qualsiasi).   | Rifiutato con il motivo; i dati di test restano.                 | [auto] TestModeTest.`a real registry or a broken file…` |
+| 77.9 | Benvenuto             | 1. Installazione nuova → "Prova con dati di esempio".         | Modalità test senza creare un PIN; uscendo si torna al benvenuto. | [ ] |
+| 77.10 | Avvio diretto        | 1. `BHODL_DEMO=1 ./gradlew :apps:desktop:run`.                | L'app parte già in modalità test.                                | [ ] |
