@@ -107,6 +107,10 @@ internal data class MonthlyFlow(
     val label: String,
     val incomingSat: ULong,
     val outgoingSat: ULong,
+    /** Short month name under its bars ("ott"). */
+    val monthLabel: String = label,
+    /** The year under the month, on the first bar and on every January; null otherwise. */
+    val yearLabel: String? = null,
 )
 
 @Composable
@@ -183,17 +187,27 @@ internal fun InflowOutflowChart(
             }
         }
 
-        // Month labels (first, middle, last)
-        if (months.size >= 2) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Text(months.first().label, style = BhodlTheme.typography.labelMedium, color = BhodlTheme.colors.textTertiary)
-                if (months.size >= 3) {
-                    Text(months[months.size / 2].label, style = BhodlTheme.typography.labelMedium, color = BhodlTheme.colors.textTertiary)
+        // One label under every pair of bars: the month, and the year on
+        // the first bar and on each January.
+        Row(modifier = Modifier.fillMaxWidth().testTag(CoreChartsTags.INFLOW_OUTFLOW_MONTHS)) {
+            months.forEach { m ->
+                Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        m.monthLabel,
+                        style = BhodlTheme.typography.labelMedium,
+                        color = BhodlTheme.colors.textSecondary,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Clip,
+                    )
+                    Text(
+                        m.yearLabel.orEmpty(),
+                        style = BhodlTheme.typography.labelMedium,
+                        color = BhodlTheme.colors.textTertiary,
+                        maxLines = 1,
+                        softWrap = false,
+                    )
                 }
-                Text(months.last().label, style = BhodlTheme.typography.labelMedium, color = BhodlTheme.colors.textTertiary)
             }
         }
 
@@ -266,13 +280,21 @@ internal fun computeMonthlyFlows(
         }
     if (byMonth.isEmpty()) return emptyList()
     val sorted = byMonth.toSortedMap()
-    return sorted.map { (ym, evs) ->
+    val first = sorted.firstKey()
+    // Every month from the first to the last, empty ones included: the
+    // axis is continuous and each label sits under its own bars.
+    val all = generateSequence(first) { it.plusMonths(1) }.takeWhile { it <= sorted.lastKey() }
+        .associateWith { sorted[it].orEmpty() }
+    return all.map { (ym, evs) ->
         val incoming = evs.sumOf { it.externalInflowSat() }
         val outgoing = evs.sumOf { it.externalOutflowSat() }
+        val name = ym.month.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.getDefault())
         MonthlyFlow(
-            label = "${ym.month.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.getDefault())} ${ym.year % 100}",
+            label = "$name ${ym.year % 100}",
             incomingSat = incoming,
             outgoingSat = outgoing,
+            monthLabel = name,
+            yearLabel = if (ym == first || ym.monthValue == 1) ym.year.toString() else null,
         )
     }
 }
@@ -281,4 +303,5 @@ internal object CoreChartsTags {
     const val NW_DONUT: String = "core-charts.nw-donut"
     const val NW_DONUT_CENTER: String = "core-charts.nw-donut.center"
     const val INFLOW_OUTFLOW: String = "core-charts.inflow-outflow"
+    const val INFLOW_OUTFLOW_MONTHS: String = "core-charts.inflow-outflow.months"
 }
