@@ -139,12 +139,12 @@ class UcWalletHistoryTest {
             registry.setEventCategory(row.id, own.txid, "ignored")
             val fake = FakeWalletPort().apply {
                 transactions += listOf(fromRegistry, own)
-                txCategories[own.txid] = "salary"
+                txCategories[own.txid] = "consulting"
             }
             WalletStore.set(fake, Network.SIGNET, row.id, row.label)
             setContent { BhodlTheme { HistoryScreen(syncOnEnter = false) } }
             waitUntilAtLeastOneExists(hasText("groceries", substring = true), timeoutMillis = 3_000)
-            waitUntilAtLeastOneExists(hasText("salary", substring = true), timeoutMillis = 3_000)
+            waitUntilAtLeastOneExists(hasText("consulting", substring = true), timeoutMillis = 3_000)
             assertEquals(
                 0,
                 onAllNodes(hasText("ignored", substring = true), useUnmergedTree = true)

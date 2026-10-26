@@ -314,7 +314,7 @@ private fun CategoryChip(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            text = if (tagged) category!! else stringResource(Res.string.trk_hist_add_category),
+            text = if (tagged) categoryDisplayName(category) else stringResource(Res.string.trk_hist_add_category),
             style = BhodlTheme.typography.bodyMedium,
             color = if (tagged) BhodlTheme.colors.brandPrimary
             else BhodlTheme.colors.textTertiary,
@@ -360,7 +360,7 @@ private fun CategoryFilterRow(
         }
         categories.forEach { cat ->
             FilterChipPill(
-                label = cat,
+                label = categoryDisplayName(cat),
                 selected = selected == cat,
                 onClick = { onSelect(cat) },
                 testTagId = null,
@@ -508,7 +508,7 @@ internal fun CategoryEditDialog(
                         choices = choices,
                         query = input,
                         filter = menuFilter,
-                        onPick = { input = it; menuOpen = false; pickedColor = null },
+                        onPick = { input = storedCategoryName(it, knownCategories); menuOpen = false; pickedColor = null },
                         onNew = { input = it; menuOpen = false },
                     )
                 }

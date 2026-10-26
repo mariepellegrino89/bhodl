@@ -887,6 +887,20 @@ pub struct TrackingBillFfi {
     pub paid_ref: Option<String>,
 }
 
+/// Registry schema v9 — a wallet transaction of a test-mode profile.
+#[derive(uniffi::Record)]
+pub struct DemoEventFfi {
+    pub wallet_id: String,
+    pub event_id: String,
+    /// `"in"` or `"out"`.
+    pub direction: String,
+    pub amount_sat: u64,
+    pub fee_sat: Option<u64>,
+    pub occurred_unix: i64,
+    /// `null` = unconfirmed.
+    pub block_height: Option<u32>,
+}
+
 /// Registry schema v8 — income or spending outside the wallets (cash,
 /// bank account, card). Its events carry `wallet_id` =
 /// `manual:<account_ref or "cash">` and id `manual-<id>`.
@@ -2226,6 +2240,84 @@ impl RegistryHandle {
     }
 
     // ----------------------------------------------------------------
+    // Registry schema v9 — test-mode profiles
+    // ----------------------------------------------------------------
+
+    /// Mark this registry as a test-mode profile (irreversible).
+    pub fn mark_demo_profile(&self) -> Result<(), WalletError> {
+        Ok(self.registry()?.mark_demo_profile()?)
+    }
+
+    /// True for a test-mode profile.
+    pub fn is_demo_profile(&self) -> Result<bool, WalletError> {
+        Ok(self.registry()?.is_demo_profile()?)
+    }
+
+    /// A free profile fact (e.g. the modules of a test profile).
+    pub fn profile_meta(&self, key: String) -> Result<Option<String>, WalletError> {
+        Ok(self.registry()?.profile_meta(&key)?)
+    }
+
+    /// Set or (with `null`) remove a profile fact.
+    pub fn set_profile_meta(&self, key: String, value: Option<String>) -> Result<(), WalletError> {
+        Ok(self.registry()?.set_profile_meta(&key, value.as_deref())?)
+    }
+
+    /// Add wallet transactions to a test-mode profile (refused on a
+    /// real registry).
+    pub fn add_demo_events(&self, events: Vec<DemoEventFfi>) -> Result<(), WalletError> {
+        let registry = self.registry()?;
+        for e in events {
+            registry.add_demo_event(&bhodl_wallet_onchain::DemoEvent {
+                wallet_id: e.wallet_id,
+                event_id: e.event_id,
+                direction: e.direction,
+                amount_sat: e.amount_sat,
+                fee_sat: e.fee_sat,
+                occurred_unix: e.occurred_unix,
+                block_height: e.block_height,
+            })?;
+        }
+        Ok(())
+    }
+
+    /// The test-mode wallet transactions, oldest first (empty on a real
+    /// registry).
+    pub fn list_demo_events(&self) -> Result<Vec<DemoEventFfi>, WalletError> {
+        Ok(self
+            .registry()?
+            .list_demo_events()?
+            .into_iter()
+            .map(|e| DemoEventFfi {
+                wallet_id: e.wallet_id,
+                event_id: e.event_id,
+                direction: e.direction,
+                amount_sat: e.amount_sat,
+                fee_sat: e.fee_sat,
+                occurred_unix: e.occurred_unix,
+                block_height: e.block_height,
+            })
+            .collect())
+    }
+
+    /// Write the BTC rates a test-mode profile carries (refused on a
+    /// real registry).
+    pub fn put_demo_rates(
+        &self,
+        currency: String,
+        points: Vec<RatePointFfi>,
+    ) -> Result<(), WalletError> {
+        let pairs: Vec<(i64, f64)> = points.iter().map(|p| (p.date_unix, p.rate)).collect();
+        Ok(self.registry()?.put_demo_rates(&currency, &pairs)?)
+    }
+
+    /// Move every date of a test-mode profile by `days` (refused on a
+    /// real registry); returns the rows touched.
+    pub fn shift_demo_dates(&self, days: i64) -> Result<u64, WalletError> {
+        Ok(self.registry()?.shift_demo_dates(days)?)
+    }
+
+    // ----------------------------------------------------------------
     // Phase 4.5 — Savings goals
     // ----------------------------------------------------------------
 
@@ -3316,6 +3408,7 @@ impl RegistryHandle {
         // Phase 7.10 — pre-load crypto event kinds with the same
         // strategy as categories: one bulk SELECT per refresh.
         let crypto_kind_dump = guard.dump_crypto_event_kinds()?;
+        let demo_events = guard.list_demo_events()?;
         drop(guard);
         let category_index: std::collections::HashMap<(String, String), String> = category_dump
             .into_iter()
@@ -3371,6 +3464,26 @@ impl RegistryHandle {
                     crypto_event_kind,
                 });
             }
+        }
+        // v9 — a test-mode profile's wallet transactions (none on a real one).
+        for e in demo_events {
+            let key = (e.wallet_id.clone(), e.event_id.clone());
+            out.push(PaymentEvent {
+                category: category_index.get(&key).cloned(),
+                crypto_event_kind: crypto_kind_index.get(&key).cloned(),
+                wallet_id: e.wallet_id,
+                txid_or_payment_id: e.event_id,
+                kind: PaymentKind::OnChain,
+                direction: if e.direction == "in" {
+                    PaymentDirection::Incoming
+                } else {
+                    PaymentDirection::Outgoing
+                },
+                amount_sat: e.amount_sat,
+                fee_sat: e.fee_sat,
+                timestamp_unix: u64::try_from(e.occurred_unix).ok(),
+                block_height: e.block_height,
+            });
         }
         Ok(out)
     }
@@ -4836,9 +4949,17 @@ impl RegistryHandle {
     /// already-derived key (no Argon2, no PIN), routing fetches through
     /// `proxy_url` when set. A separate SQLCipher connection, so rate
     /// fetches never contend with the registry mutex.
+    ///
+    /// A test-mode profile answers from its own rates only: nothing is
+    /// ever fetched for it.
     fn rate_repo(&self, proxy_url: Option<&str>) -> Result<BtcRateRepo, WalletError> {
         let db_path = self.data_dir.join(REGISTRY_FILE_NAME);
-        Ok(BtcRateRepo::open(&db_path, &self.device_key)?.with_proxy(proxy_url)?)
+        let repo = BtcRateRepo::open(&db_path, &self.device_key)?.with_proxy(proxy_url)?;
+        Ok(if self.registry()?.is_demo_profile()? {
+            repo.offline()
+        } else {
+            repo
+        })
     }
 
     /// A second registry connection for long-running jobs (backfill,

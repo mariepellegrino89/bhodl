@@ -564,6 +564,10 @@ public object TrackerCache {
      * plus a short lookahead — instead of a full stop-gap scan.
      */
     public suspend fun refresh(syncEsplora: Boolean = true, fullScan: Boolean = true) {
+        // Test mode: the test profile's wallets never sync.
+        val testMode = TestMode.isActive()
+        @Suppress("NAME_SHADOWING")
+        val syncEsplora = syncEsplora && !testMode
         refreshMutex.withLock {
             val registry = RegistryStore.current() ?: run {
                 _lastError.value = localizedText(Res.string.trk_cache_err_registry_closed)
@@ -654,6 +658,15 @@ public object TrackerCache {
                             stale += row.id
                         }
                     }
+                    // Test mode: balances and transactions are the test profile's.
+                    if (testMode) {
+                        val figures = demoWalletFigures(runCatching { registry.listDemoEvents() }.getOrDefault(emptyList()))
+                        for (row in list) {
+                            perRow[row.id] = figures[row.id]?.balanceSat ?: 0uL
+                            perRowTxs[row.id] = figures[row.id]?.transactions.orEmpty()
+                        }
+                        stale.clear()
+                    }
                     // A registry-only refresh doesn't sync, so it can't
                     // clear "stale": keep the previous verdict for wallets
                     // that still exist and add any that failed to open.
@@ -665,7 +678,7 @@ public object TrackerCache {
                     }
                     // Only a real network sync stamps lastSyncUnix (no
                     // watch wallets at all counts as trivially synced).
-                    val networkSynced = syncEsplora && (anySyncOk || !anySyncAttempted)
+                    val networkSynced = testMode || (syncEsplora && (anySyncOk || !anySyncAttempted))
 
                     // Collapse registry rows that track the same account
                     // (e.g. a WatchHd mirror + a WatchXpub of the same
@@ -770,7 +783,14 @@ public object TrackerCache {
                         dismissedKeys = dismissedKeys,
                     )
 
-                    val bitcoinAsset = registry.aggregateWatchBalanceSat(io.bhodl.desktop.wizard.WalletStore.network())
+                    val bitcoinAsset = if (testMode) {
+                        // Test mode: the same per-network sum, of the test balances.
+                        val network = io.bhodl.desktop.wizard.WalletStore.network()
+                        list.filter { EsploraEndpoint.networkOf(it.network) == network }
+                            .fold(0uL) { acc, w -> acc + (perRow[w.id] ?: 0uL) }
+                    } else {
+                        registry.aggregateWatchBalanceSat(io.bhodl.desktop.wizard.WalletStore.network())
+                    }
                     // Phase 7.3 — aggregate investments and probe
                     // PriceCache once. Both `pricingAvailable=false ⇒
                     // investmentsAsset=0` and `pricingAvailable=true ⇒

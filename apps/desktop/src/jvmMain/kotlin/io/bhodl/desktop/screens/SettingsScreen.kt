@@ -1,5 +1,7 @@
 package io.bhodl.desktop.screens
 
+import io.bhodl.shared.resources.tm_group
+import io.bhodl.shared.resources.tm_group_sub
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
@@ -116,7 +118,12 @@ public fun SettingsScreen(
     // default value preserves production behaviour; tests MUST pass
     // a `@TempDir` to override.
     dataDir: java.io.File = WalletPaths.defaultDataDir(),
+    /** Test mode: enter (closes the real session), leave, and the rebuild after a command. */
+    onEnterTestMode: suspend () -> Unit = {},
+    onExitTestMode: () -> Unit = {},
+    onTestDataReloaded: () -> Unit = {},
 ) {
+    val testMode by io.bhodl.desktop.data.TestMode.active
     val themeMode by SettingsStore.themeMode
     val esploraUrls by SettingsStore.esploraUrls
     val localeOverride by SettingsStore.localeOverride
@@ -301,7 +308,15 @@ public fun SettingsScreen(
                     // settings" tab; this page keeps the app-wide
                     // preferences and the full data wipe.
                     WalletSettingsPointer(onOpenWalletSettings = onOpenWalletSettings)
-                    WipeSection(onWiped = onWalletWiped, dataDir = dataDir)
+                    // In test mode the real data is closed: nothing to wipe here.
+                    if (!testMode) WipeSection(onWiped = onWalletWiped, dataDir = dataDir)
+                }
+                SettingsGroupCard(SettingsGroup.TEST_MODE, groupY) {
+                    TestModeSection(
+                        onEnter = onEnterTestMode,
+                        onExit = onExitTestMode,
+                        onReloaded = onTestDataReloaded,
+                    )
                 }
                 OutlinedButton(
                     onClick = onBack,
@@ -328,6 +343,7 @@ public enum class SettingsGroup(
     TRACKER(Res.string.stg_tracker, Res.string.stg_tracker_sub),
     SECURITY(Res.string.stg_security, Res.string.stg_security_sub),
     DATA(Res.string.stg_data, Res.string.stg_data_sub),
+    TEST_MODE(Res.string.tm_group, Res.string.tm_group_sub),
 }
 
 @Composable

@@ -57,6 +57,7 @@ import io.bhodl.shared.resources.onb_registry_open_failed
 import io.bhodl.ui.theme.BhodlTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.jetbrains.compose.resources.stringResource
 
@@ -104,13 +105,18 @@ public fun App() {
     // flipping the language chip in Settings rebuilds every visible
     // `stringResource` while the back stack is preserved.
     val localeOverride by SettingsStore.localeOverride
+    val testMode by io.bhodl.desktop.data.TestMode.active
     key(localeOverride) {
+    androidx.compose.foundation.layout.Column(Modifier.fillMaxSize()) {
+    // Test mode: a band on every screen, with the way out.
+    if (testMode) io.bhodl.desktop.screens.TestModeBand(onExit = { navController.exitTestMode() })
     NavHost(
         navController = navController,
         startDestination = startDestination,
         // Idle-lock activity hook — every pointer / key event refreshes
         // the device-PIN idle clock. Never consumed.
         modifier = Modifier
+            .weight(1f)
             .pointerInput(Unit) {
                 awaitPointerEventScope {
                     while (true) {
@@ -130,6 +136,12 @@ public fun App() {
                 // After a wipe: rebuild the boot decision with a
                 // single-entry back stack.
                 onResetComplete = { navController.restartAtBootGuard() },
+                onTryTestMode = {
+                    io.bhodl.desktop.AppScope.io.launch(kotlinx.coroutines.Dispatchers.Main) {
+                        runCatching { navController.enterTestMode() }
+                            .onFailure { System.err.println("[bhodl] test mode: ${it.message}") }
+                    }
+                },
             )
         }
 
@@ -266,6 +278,9 @@ public fun App() {
                     null
                 },
                 onOpenSecurityHub = { navController.navigate(Route.SecurityHub) },
+                onEnterTestMode = { navController.enterTestMode() },
+                onExitTestMode = { navController.exitTestMode() },
+                onTestDataReloaded = { navController.reopenSettings() },
             )
         }
 
@@ -288,6 +303,7 @@ public fun App() {
             )
         }
     }
+    } // end Column (test-mode band + NavHost)
     } // end `key(localeOverride)` — see comment above NavHost.
 }
 
@@ -315,6 +331,8 @@ internal suspend fun runIdleLockWatcher(
 
 /** [IdleLock] policy applied to the current registry / session state. */
 internal fun idleLockDue(): Boolean {
+    // Test mode holds no secret: nothing to lock.
+    if (io.bhodl.desktop.data.TestMode.isActive()) return false
     val registryOpen = RegistryStore.current() != null
     return IdleLock.shouldLock(
         sessionOpen = registryOpen,
@@ -358,6 +376,41 @@ internal fun NavController.lockAndRouteToGate(target: () -> Route = { bootGuardT
     navigate(target()) {
         popUpTo(0) { inclusive = true }
     }
+}
+
+/**
+ * Test mode — close the real session, open the test profile and land
+ * on its Home. A failure leaves the real gate (the real session is
+ * already closed) and rethrows for the caller to show.
+ */
+internal suspend fun NavController.enterTestMode() {
+    lockSession()
+    try {
+        io.bhodl.desktop.data.TestMode.enter()
+    } catch (e: Throwable) {
+        restartAtBootGuard()
+        throw e
+    }
+    navigate(Route.Tracking()) {
+        popUpTo(0) { inclusive = true }
+    }
+}
+
+/** Test mode — close the test profile; the real data needs the real PIN. */
+internal fun NavController.exitTestMode() {
+    io.bhodl.desktop.data.TestMode.exit()
+    lockAndRouteToGate()
+}
+
+/**
+ * After a test-mode command reopened the profile: rebuild the screens
+ * (no wallet is open any more) and come back to Settings.
+ */
+internal fun NavController.reopenSettings() {
+    navigate(Route.Tracking()) {
+        popUpTo(0) { inclusive = true }
+    }
+    navigate(Route.Settings)
 }
 
 /** The in-memory half of [lockAndRouteToGate]. */
@@ -496,7 +549,19 @@ internal fun OpenWalletRoute(walletId: String, onOpened: () -> Unit, onBack: () 
             }
         }.fold(
             onSuccess = { (handle, network, label) ->
-                WalletStore.set(handle, network, walletId, label)
+                if (io.bhodl.desktop.data.TestMode.isActive()) {
+                    // Test mode: the wallet shows the test profile's transactions.
+                    WalletStore.set(
+                        io.bhodl.desktop.data.DemoWalletPort(io.bhodl.desktop.wallet.UniffiWalletPort(handle)) {
+                            RegistryStore.current()?.let { reg ->
+                                runCatching { io.bhodl.desktop.data.demoWalletFigures(reg.listDemoEvents())[walletId] }.getOrNull()
+                            }
+                        },
+                        network, walletId, label,
+                    )
+                } else {
+                    WalletStore.set(handle, network, walletId, label)
+                }
                 onOpened()
             },
             onFailure = { error = it.userMessage(localizedText(Res.string.onb_registry_open_failed)) },

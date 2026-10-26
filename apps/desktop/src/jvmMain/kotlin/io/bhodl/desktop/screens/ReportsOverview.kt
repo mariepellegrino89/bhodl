@@ -1,5 +1,6 @@
 package io.bhodl.desktop.screens
 
+import io.bhodl.desktop.ui.categoryDisplayName
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -163,7 +164,8 @@ internal fun ReportTotalsRow(now: PeriodTotals, prev: PeriodTotals?) {
 @Composable
 internal fun ReportInsightsRow(insights: ReportInsights) {
     val none = stringResource(Res.string.txc_uncategorized)
-    fun name(c: CategoryCompare) = c.category ?: none
+    @Composable
+    fun name(c: CategoryCompare) = c.category?.let { categoryDisplayName(it) } ?: none
     Row(Modifier.fillMaxWidth().testTag(ReportsOverviewTags.INSIGHTS), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Insight(stringResource(Res.string.rpo_grew), insights.grew?.let { "${name(it)} ${pctText(it.changePct!!)}" }, BhodlTheme.colors.financialNegative, Modifier.weight(1f))
         Insight(stringResource(Res.string.rpo_dropped), insights.dropped?.let { "${name(it)} ${pctText(it.changePct!!)}" }, BhodlTheme.colors.financialPositive, Modifier.weight(1f))
@@ -188,7 +190,8 @@ internal fun OutflowDonutCard(rows: List<CategoryCompare>, selected: String?, on
     Column(modifier.bhodlCard().padding(16.dp).testTag(ReportsOverviewTags.DONUT), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Title(stringResource(Res.string.rpo_donut), stringResource(Res.string.rpo_donut_help))
         Row(horizontalArrangement = Arrangement.spacedBy(18.dp), verticalAlignment = Alignment.CenterVertically) {
-            val desc = rows.joinToString { "${it.category ?: none} ${Math.round(it.nowSat * 100.0 / total)}%" }
+            val names = rows.map { r -> r.category?.let { categoryDisplayName(it) } ?: none }
+            val desc = rows.zip(names).joinToString { (r, n) -> "$n ${Math.round(r.nowSat * 100.0 / total)}%" }
             Box(contentAlignment = Alignment.Center, modifier = Modifier.size(170.dp).semantics { contentDescription = desc }) {
                 Canvas(Modifier.size(170.dp)) {
                     val stroke = 26.dp.toPx()
@@ -224,7 +227,7 @@ internal fun OutflowDonutCard(rows: List<CategoryCompare>, selected: String?, on
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         Box(Modifier.size(10.dp).clip(RoundedCornerShape(2.dp)).background(colors[i]))
-                        Text(r.category ?: none, style = BhodlTheme.typography.bodyMedium, color = BhodlTheme.colors.textPrimary, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(r.category?.let { categoryDisplayName(it) } ?: none, style = BhodlTheme.typography.bodyMedium, color = BhodlTheme.colors.textPrimary, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(displayAmount(r.nowSat), style = BhodlTheme.typography.mono, color = BhodlTheme.colors.textSecondary)
                         Text("${Math.round(r.nowSat * 100.0 / total)}%", style = BhodlTheme.typography.mono, color = BhodlTheme.colors.textTertiary, modifier = Modifier.width(40.dp))
                     }
@@ -245,7 +248,7 @@ internal fun PairedBarsCard(rows: List<CategoryCompare>, selected: String?, modi
             val color = categoryColor(r.category)
             val dim = selected != null && r.category != selected
             Row(Modifier.fillMaxWidth().alpha(if (dim) 0.4f else 1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(r.category ?: none, style = BhodlTheme.typography.bodyMedium, color = BhodlTheme.colors.textPrimary, modifier = Modifier.width(120.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(r.category?.let { categoryDisplayName(it) } ?: none, style = BhodlTheme.typography.bodyMedium, color = BhodlTheme.colors.textPrimary, modifier = Modifier.width(120.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     BoxWithConstraints(Modifier.fillMaxWidth().height(10.dp)) {
                         Box(Modifier.width(maxWidth * (r.nowSat.toFloat() / max)).fillMaxHeight().clip(RoundedCornerShape(3.dp)).background(color))

@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="tm_group">Modalità test</string>
+    <string name="tm_group_sub">Prova l’app con dati di test e condividili</string>
+    <string name="tm_band">MODALITÀ TEST · solo dati di test, i tuoi dati reali sono chiusi</string>
+    <string name="tm_band_exit">Esci dalla modalità test</string>
+    <string name="tm_intro">La modalità test apre un profilo separato con dati di esempio: wallet, transazioni, budget, bollette, obiettivi e portafoglio. I tuoi dati reali restano chiusi e non si possono vedere né modificare. I dati di test si possono cambiare liberamente, salvare in un file e mandare ad altre persone, per esempio agli sviluppatori che lavorano a BHODL.</string>
+    <string name="tm_enter">Entra in modalità test</string>
+    <string name="tm_try">Prova con dati di esempio</string>
+    <string name="tm_try_body">Non serve un PIN. Puoi uscire dalla modalità test quando vuoi.</string>
+    <string name="tm_active_intro">Sei in modalità test. Tutto quello che cambi resta nei dati di test.</string>
+    <string name="tm_initial_state">Stato iniziale segnato il %1$s.</string>
+    <string name="tm_no_initial_state">Nessuno stato iniziale segnato.</string>
+    <string name="tm_export">Esporta dati di test…</string>
+    <string name="tm_import">Importa dati di test…</string>
+    <string name="tm_mark_initial">Segna come stato iniziale</string>
+    <string name="tm_restore_initial">Torna allo stato iniziale</string>
+    <string name="tm_load_project">Carica i dati di test del progetto</string>
+    <string name="tm_exit">Esci dalla modalità test</string>
+    <string name="tm_working">In corso…</string>
+    <string name="tm_exported">Salvati in %1$s</string>
+    <string name="tm_done">Fatto.</string>
+    <string name="tm_file_filter">Dati di test BHODL</string>
+    <string name="tm_export_dialog">Esporta dati di test</string>
+    <string name="tm_import_dialog">Importa dati di test</string>
+    <string name="tm_confirm">Conferma</string>
+    <string name="tm_cancel">Annulla</string>
+    <string name="tm_import_title">Sostituire i dati di test?</string>
+    <string name="tm_import_body">I dati di test attuali e il loro stato iniziale vengono sostituiti da quelli del file. Se vuoi tenerli, esportali prima.</string>
+    <string name="tm_import_keep_dates">Mantieni le date del file (altrimenti si spostano a oggi)</string>
+    <string name="tm_export_first">Esporta prima i miei…</string>
+    <string name="tm_mark_title">Segnare come stato iniziale?</string>
+    <string name="tm_mark_body">I dati di test così come sono ora diventano lo stato a cui riporta “Torna allo stato iniziale”. Lo stato iniziale precedente viene sostituito.</string>
+    <string name="tm_restore_title">Tornare allo stato iniziale?</string>
+    <string name="tm_restore_body">Tutte le modifiche fatte dopo lo stato iniziale vanno perse. Se vuoi tenerle, esporta prima i dati di test.</string>
+    <string name="tm_project_title">Caricare i dati di test del progetto?</string>
+    <string name="tm_project_body">I dati di test attuali e il loro stato iniziale vengono sostituiti dai dati di test che arrivano con BHODL.</string>
+    <string name="tm_err_not_test">Questo file non contiene dati di test BHODL. Si possono importare solo dati di test.</string>
+    <string name="tm_err_bad_file">Il file non si può leggere come dati di test BHODL.</string>
+    <string name="tm_err_newer">Questo file è stato creato da una versione più recente di BHODL. Aggiorna l’app per aprirlo.</string>
+    <string name="tm_err_too_large">Il file è troppo grande per contenere dati di test.</string>
+    <string name="tm_err_no_initial">Nessuno stato iniziale segnato.</string>
+    <string name="tm_err_generic">La modalità test non è riuscita: %1$s</string>
+</resources>

@@ -54,7 +54,7 @@ pub use net_worth_history::{
     onchain_balance_at, reconstruct_net_worth_history,
 };
 pub use registry::{
-    EventCostBasis, LotSelection, MANUAL_ACCOUNT_OTHER, MANUAL_WALLET_ID_PREFIX,
+    DemoEvent, EventCostBasis, LotSelection, MANUAL_ACCOUNT_OTHER, MANUAL_WALLET_ID_PREFIX,
     REGISTRY_FILE_NAME, REGISTRY_KDF_FILE_NAME, Registry,
     SCHEMA_VERSION as REGISTRY_SCHEMA_VERSION, WalletKind, WalletRecord, manual_txn_event_id,
     manual_txn_wallet_id, open_registry, open_registry_in_memory,

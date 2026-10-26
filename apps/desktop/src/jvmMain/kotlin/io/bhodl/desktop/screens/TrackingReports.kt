@@ -1,5 +1,6 @@
 package io.bhodl.desktop.screens
 
+import io.bhodl.desktop.ui.categoryDisplayName
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -298,7 +299,7 @@ internal fun CategoryReportTable(events: List<PaymentEvent>) {
                 weights = listOf(2.4f, 0.6f, 1.4f, 1.4f, 1.4f, 0.8f, 1.2f),
                 endAligned = setOf(1, 2, 3, 4, 5),
                 cells = listOf(
-                    r.category.ifBlank { uncategorised },
+                    if (r.category.isBlank()) uncategorised else categoryDisplayName(r.category),
                     r.count.toString(),
                     signedBare(amounts, r.inSat.toLong()),
                     signedBare(amounts, -r.outSat.toLong()),
