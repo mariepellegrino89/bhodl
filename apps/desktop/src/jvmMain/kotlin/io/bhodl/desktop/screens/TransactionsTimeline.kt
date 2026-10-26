@@ -1,5 +1,6 @@
 package io.bhodl.desktop.screens
 
+import io.bhodl.desktop.ui.categoryDisplayName
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -135,6 +136,8 @@ internal fun searchLedger(events: List<PaymentEvent>, query: String, walletLabel
     val digits = q.filter { it.isDigit() }
     return events.filter { e ->
         e.category?.lowercase()?.contains(q) == true ||
+            // A classic category is found by its name in any app language.
+            presetCategoryNamed(e.category)?.names?.any { it.contains(q) } == true ||
             walletLabel(e.walletId)?.lowercase()?.contains(q) == true ||
             e.txidOrPaymentId.lowercase().contains(q) ||
             (digits.isNotEmpty() && digits.length == q.length && e.amountSat.toString().contains(digits))
@@ -209,7 +212,7 @@ internal fun TxWhereCard(periodEvents: List<PaymentEvent>, modifier: Modifier = 
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Box(Modifier.size(9.dp).clip(RoundedCornerShape(2.dp)).background(colors[i]))
                     Text(
-                        when (c) { "\u0000other" -> otherLabel; null -> noneLabel; else -> c },
+                        when (c) { "\u0000other" -> otherLabel; null -> noneLabel; else -> categoryDisplayName(c) },
                         style = BhodlTheme.typography.labelMedium, color = BhodlTheme.colors.textPrimary,
                     )
                     Text("${Math.round(v * 100.0 / total)}%", style = BhodlTheme.typography.labelMedium, color = BhodlTheme.colors.textTertiary)
@@ -291,7 +294,7 @@ internal fun TxTimeline(
 
 @Composable
 private fun TxRow(e: PaymentEvent, wallet: String, chip: @Composable (PaymentEvent) -> Unit) {
-    val title = e.category?.takeIf { it.isNotBlank() } ?: stringResource(
+    val title = e.category?.takeIf { it.isNotBlank() }?.let { categoryDisplayName(it) } ?: stringResource(
         when (e.direction) {
             PaymentDirection.INCOMING -> Res.string.trk_hist_received
             PaymentDirection.OUTGOING -> Res.string.trk_hist_sent
@@ -357,7 +360,7 @@ internal fun TxReviewLane(
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     quickCategories.forEach { c ->
                         Text(
-                            c,
+                            categoryDisplayName(c),
                             style = BhodlTheme.typography.labelMedium,
                             color = BhodlTheme.colors.textPrimary,
                             modifier = Modifier

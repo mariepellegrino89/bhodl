@@ -416,7 +416,7 @@ internal fun TxTableRow(
                 )
             }
             if (!category.isNullOrBlank()) {
-                WalletChip(text = category, color = BhodlTheme.colors.accentNeon)
+                WalletChip(text = io.bhodl.desktop.ui.categoryDisplayName(category), color = BhodlTheme.colors.accentNeon)
             }
         }
         SignedAmountText(

@@ -486,7 +486,7 @@ internal fun CategoryField(
             choices = categoryChoices(knownCategories),
             query = value,
             filter = menuFilter,
-            onPick = { onValueChange(it); menuOpen = false },
+            onPick = { onValueChange(storedCategoryName(it, knownCategories)); menuOpen = false },
             onNew = { onValueChange(it); menuOpen = false },
         )
     }

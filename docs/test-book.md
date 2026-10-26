@@ -2805,3 +2805,21 @@ Gli screenshot della revisione grafica finiscono in `apps/desktop/build/screensh
 | 77.8 | Database reale        | 1. Importa un file che non è di test (o un file qualsiasi).   | Rifiutato con il motivo; i dati di test restano.                 | [auto] TestModeTest.`a real registry or a broken file…` |
 | 77.9 | Benvenuto             | 1. Installazione nuova → "Prova con dati di esempio".         | Modalità test senza creare un PIN; uscendo si torna al benvenuto. | [ ] |
 | 77.10 | Avvio diretto        | 1. `BHODL_DEMO=1 ./gradlew :apps:desktop:run`.                | L'app parte già in modalità test.                                | [ ] |
+
+## 78. Categorie predefinite nella lingua dell'app (2026-10-26)
+
+> Le 15 categorie classiche (Cibo/Food, Trasporti/Transport, Casa/Home…) si vedono
+> nella lingua dell'app in qualunque lingua siano state salvate: righe e chip delle
+> Transazioni, filtri, "Dove sono andati i sats", Budget, Report, vista Wallet. Il
+> valore salvato non cambia, quindi budget e regole restano validi. Scegliendo una
+> categoria classica già usata nei dati, si salva con la grafia già presente (con
+> l'app in inglese, scegliere "Food" quando esiste "Cibo" salva "Cibo"), così budget e
+> totali non si dividono. La ricerca trova una categoria classica col nome in
+> qualunque lingua. Le categorie create dall'utente restano come scritte.
+
+| #    | Test                  | Passi                                                         | Atteso                                                           | Pass |
+|------|-----------------------|---------------------------------------------------------------|------------------------------------------------------------------|------|
+| 78.1 | Cambio lingua         | 1. Dati con "Cibo" e "Transport". 2. Passa a English, poi a Italiano. | In inglese "Food" e "Transport", in italiano "Cibo" e "Trasporti", su ogni sezione. | [auto] LanguageAuditTest |
+| 78.2 | Grafia conservata     | 1. App in inglese, dati con "Cibo". 2. Categoria di una transazione → "Food". | Salvato "Cibo": il budget Cibo la conta.                     | [auto] CategoryNamesTest |
+| 78.3 | Categorie proprie     | 1. Categoria "Affitto ricevuto". 2. Cambia lingua.            | Resta "Affitto ricevuto".                                        | [auto] CategoryNamesTest |
+| 78.4 | Ricerca               | 1. App in inglese, Transazioni, cerca "cibo" e "food".        | Entrambe trovano le transazioni "Cibo".                          | [ ] |

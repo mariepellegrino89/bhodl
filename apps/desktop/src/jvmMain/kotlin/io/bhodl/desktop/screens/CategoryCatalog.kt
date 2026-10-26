@@ -81,8 +81,33 @@ internal object CategoryPalette {
     fun color(index: Int): Color = (if (BhodlTheme.colors.isDark) dark else light)[Math.floorMod(index, size)]
 }
 
-/** A classic category: its label, the names it is recognised by (any language) and its colour slot. */
-internal data class PresetCategory(val label: StringResource, val aliases: List<String>, val colorIndex: Int)
+/**
+ * A classic category: its label, the names it is recognised by (any
+ * language) and its colour slot. The first two aliases are its label in
+ * English and in Italian: a category stored under either is shown in
+ * the app's language ([presetCategoryNamed]).
+ */
+internal data class PresetCategory(val label: StringResource, val aliases: List<String>, val colorIndex: Int) {
+    /** The label in every app language, lower-case. */
+    val names: List<String> get() = aliases.take(2)
+}
+
+/** The classic category [name] is the label of (in any app language), if any. */
+internal fun presetCategoryNamed(name: String?): PresetCategory? {
+    val key = name?.trim()?.lowercase()?.takeIf { it.isNotEmpty() } ?: return null
+    return PRESET_CATEGORIES.firstOrNull { key in it.names }
+}
+
+/**
+ * The text to store for a picked [choice]: a classic category already
+ * used in the data ([known]) keeps the spelling it has there, so its
+ * budget and totals still match after a language change; anything else
+ * is stored as picked.
+ */
+internal fun storedCategoryName(choice: String, known: List<String>): String {
+    val preset = presetCategoryNamed(choice) ?: return choice
+    return known.firstOrNull { presetCategoryNamed(it) == preset } ?: choice
+}
 
 internal val PRESET_CATEGORIES: List<PresetCategory> = listOf(
     PresetCategory(Res.string.cat_preset_food, listOf("food", "cibo", "groceries", "spesa", "alimentari"), 0),
@@ -91,7 +116,7 @@ internal val PRESET_CATEGORIES: List<PresetCategory> = listOf(
     PresetCategory(Res.string.cat_preset_utilities, listOf("utilities", "bollette", "bills"), 3),
     PresetCategory(Res.string.cat_preset_health, listOf("health", "salute"), 4),
     PresetCategory(Res.string.cat_preset_leisure, listOf("leisure", "svago", "entertainment", "intrattenimento"), 5),
-    PresetCategory(Res.string.cat_preset_shopping, listOf("shopping"), 6),
+    PresetCategory(Res.string.cat_preset_shopping, listOf("shopping", "shopping"), 6),
     PresetCategory(Res.string.cat_preset_travel, listOf("travel", "viaggi", "viaggio"), 7),
     PresetCategory(Res.string.cat_preset_subscriptions, listOf("subscriptions", "abbonamenti"), 8),
     PresetCategory(Res.string.cat_preset_education, listOf("education", "istruzione"), 9),

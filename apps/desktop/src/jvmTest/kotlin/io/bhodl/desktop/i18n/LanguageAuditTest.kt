@@ -34,7 +34,8 @@ import kotlin.test.assertTrue
  * card: no visible text may be copy of the OTHER language (a resource
  * value that differs between `values` and `values-it`, or a hardcoded
  * literal duplicating one). User data (names typed by the user) is kept
- * language-neutral in the fixture so it never counts.
+ * language-neutral in the fixture so it never counts — except classic
+ * categories, stored in either language and shown in the app's.
  */
 @OptIn(ExperimentalTestApi::class)
 class LanguageAuditTest {
@@ -87,21 +88,22 @@ class LanguageAuditTest {
         leg("loose", PaymentDirection.OUTGOING, 12_000UL, 1)
         for (m in 0L..5L) {
             registry.setEventCategory(w.id, "in$m", "Qwop")
-            registry.setEventCategory(w.id, "gym$m", "Zork")
-            registry.setEventCategory(w.id, "food$m", "Blix")
+            // Classic categories stored in each language: shown in the app's.
+            registry.setEventCategory(w.id, "gym$m", "Cibo")
+            registry.setEventCategory(w.id, "food$m", "Transport")
         }
         TrackerCache.watchEventsSource = { reg ->
             legs.map { it.copy(category = reg.getEventCategory(it.walletId, it.txidOrPaymentId)) }
         }
-        registry.setBudget("Zork", 30_000UL, "monthly")
-        registry.setBudget("Blix", 200_000UL, "monthly")
+        registry.setBudget("Cibo", 30_000UL, "monthly")
+        registry.setBudget("Transport", 200_000UL, "monthly")
         val bill = registry.addBill("Zz", 40_000UL, 28u, null)
         registry.setBillVariable(bill, true)
         registry.addSavingsGoal("Gg", 10_000_000UL, 2_000_000UL, "#3FB950", null, null, null, "manual", null, "savings")
         registry.addLiability("Ll", 500_000UL, "credit-card", null)
         registry.addManualAsset("Aa", "cash", 1_000.0, "EUR", null, null, null, null, null)
         registry.addManualTxn("out", 50_000UL, 30.0, "EUR", now - 86_400, null, "Nn")
-        registry.addRule("Rr", "amount_out", "eq", "40000", "category", "Zork", 0, true)
+        registry.addRule("Rr", "amount_out", "eq", "40000", "category", "Cibo", 0, true)
         runBlocking { TrackerCache.refresh(syncEsplora = false) }
     }
 

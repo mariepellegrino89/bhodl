@@ -325,7 +325,7 @@ private fun CategoryCard(
                 Text("${Math.round(fraction * 100)}%", style = BhodlTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold), color = BhodlTheme.colors.textPrimary)
             }
             Column(Modifier.weight(1f)) {
-                Text(r.category, style = BhodlTheme.typography.titleMedium, color = BhodlTheme.colors.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(categoryDisplayName(r.category), style = BhodlTheme.typography.titleMedium, color = BhodlTheme.colors.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(
                     "${displayAmount(spent)} / ${displayAmount(budget)}",
                     style = BhodlTheme.typography.labelMedium,
