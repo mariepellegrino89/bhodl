@@ -3,6 +3,12 @@ package io.bhodl.desktop.screens
 import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsNodeInteractionsProvider
+import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertIsNotSelected
+import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.hasAnyChild
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onNodeWithTag
@@ -91,6 +97,39 @@ class ReportsOverviewTest {
         onNodeWithTag(ReportsOverviewTags.BARS).assertExists()
         onNodeWithTag(ReportsTags.kind(ReportKind.WALLETS)).performClick()
         waitUntilDoesNotExist(hasTestTag(ReportsOverviewTags.DONUT), timeoutMillis = 3_000)
+    }
+
+    @Test
+    fun `the period All has no previous window - no change and no thin bar`() = runDesktopComposeUiTest(width = 1440, height = 1100) {
+        TrackerCache.seedForTest(wallets = wallets, events = current + previous)
+        TrackerUiState.period.value = TrackingPeriod.D30
+        setContent { BhodlTheme { TrackingScreen(section = TrackerSection.REPORTS) } }
+        waitUntilAtLeastOneExists(hasTestTag(ReportsOverviewTags.DONUT), timeoutMillis = 5_000)
+        onNodeWithTag(ReportsOverviewTags.previousBar("Spesa"), useUnmergedTree = true).assertExists()
+
+        TrackerUiState.period.value = TrackingPeriod.ALL
+        waitUntilDoesNotExist(hasTestTag(ReportsOverviewTags.previousBar("Spesa")), timeoutMillis = 3_000)
+        onNodeWithTag(ReportsOverviewTags.bar("Spesa"), useUnmergedTree = true).assertExists()
+        onAllNodes(hasTestTag(ReportsOverviewTags.previousBar("Ristoranti")), useUnmergedTree = true).assertCountEquals(0)
+        onNodeWithTag(ReportsOverviewTags.bar("Spesa")).assert(hasAnyChild(hasText("—")))
+    }
+
+    @Test
+    fun `a legend click highlights that category in the pie and the bars, a second click clears it`() = runDesktopComposeUiTest(width = 1440, height = 1100) {
+        TrackerCache.seedForTest(wallets = wallets, events = current + previous)
+        setContent { BhodlTheme { TrackingScreen(section = TrackerSection.REPORTS) } }
+        waitUntilAtLeastOneExists(hasTestTag(ReportsOverviewTags.DONUT), timeoutMillis = 5_000)
+        onNodeWithTag(ReportsOverviewTags.legend("Spesa")).assertIsNotSelected()
+
+        onNodeWithTag(ReportsOverviewTags.legend("Spesa")).performClick()
+        onNodeWithTag(ReportsOverviewTags.legend("Spesa")).assertIsSelected()
+        onNodeWithTag(ReportsOverviewTags.legend("Ristoranti")).assertIsNotSelected()
+        onNodeWithTag(ReportsOverviewTags.bar("Spesa")).assertIsSelected()
+        onNodeWithTag(ReportsOverviewTags.bar("Ristoranti")).assertIsNotSelected()
+
+        onNodeWithTag(ReportsOverviewTags.legend("Spesa")).performClick()
+        onNodeWithTag(ReportsOverviewTags.legend("Spesa")).assertIsNotSelected()
+        onNodeWithTag(ReportsOverviewTags.bar("Spesa")).assertIsNotSelected()
     }
 
     @Test

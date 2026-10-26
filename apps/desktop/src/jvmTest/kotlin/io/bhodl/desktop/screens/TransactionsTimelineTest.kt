@@ -3,6 +3,8 @@ package io.bhodl.desktop.screens
 import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsNodeInteractionsProvider
+import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
@@ -142,6 +144,23 @@ class TransactionsTimelineTest {
         waitUntil(timeoutMillis = 3_000) { onAllNodesWithTag(TxTimelineTags.ROW).fetchSemanticsNodes().size == 60 }
         onNodeWithTag(TxTimelineTags.SEARCH).performScrollTo().performTextInput("t59")
         waitUntil(timeoutMillis = 3_000) { onAllNodesWithTag(TxTimelineTags.ROW).fetchSemanticsNodes().size == 1 }
+    }
+
+    @Test
+    fun `changing the period moves the summaries and the timeline together`() = runDesktopComposeUiTest {
+        val events = listOf(
+            ev("recent", PaymentDirection.OUTGOING, 1_000UL, now - 2 * day, "Spesa"),
+            ev("older", PaymentDirection.OUTGOING, 5_000UL, now - 60 * day, "Lisbon trip"),
+        )
+        seed(events)
+        setContent { BhodlTheme { TrackingScreen(section = TrackerSection.TRANSACTIONS) } }
+        val tripInSummary = hasText("Lisbon trip") and hasAnyAncestor(hasTestTag(TxTimelineTags.WHERE))
+        waitUntil(timeoutMillis = 3_000) { onAllNodesWithTag(TxTimelineTags.ROW).fetchSemanticsNodes().size == 1 }
+        onAllNodes(tripInSummary, useUnmergedTree = true).assertCountEquals(0)
+
+        TrackerUiState.period.value = TrackingPeriod.D90
+        waitUntil(timeoutMillis = 3_000) { onAllNodesWithTag(TxTimelineTags.ROW).fetchSemanticsNodes().size == 2 }
+        waitUntilAtLeastOneExists(tripInSummary, timeoutMillis = 3_000)
     }
 
     @Test
