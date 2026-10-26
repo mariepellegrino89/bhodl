@@ -144,6 +144,40 @@ class UcCardsTrackerTest {
     }
 
     @Test
+    fun `TRK-033 a new colour for an existing category recolours every transaction of it`() = runDesktopComposeUiTest {
+        val before = categoryColorIndex("Cibo", SettingsStore.categoryColors.value)
+        setContent {
+            BhodlTheme { CategoryEditDialog(ev(category = "Cibo"), listOf("Cibo"), onDismiss = {}, onSave = {}) }
+        }
+        onNodeWithTag(CategoryPickerTags.swatch(6)).performClick()
+        onNodeWithTag(TrackingTags.CATEGORY_SAVE).performClick()
+        assertEquals(6, SettingsStore.categoryColors.value["cibo"])
+        // The colour belongs to the name: every "Cibo" row, and its English label, follow.
+        assertEquals(6, categoryColorIndex("Cibo", SettingsStore.categoryColors.value))
+        assertEquals(6, categoryColorIndex("Food", SettingsStore.categoryColors.value))
+        assertTrue(before != 6)
+    }
+
+    @Test
+    fun `TRK-033 added categories and their colours survive a restart`() {
+        val file = File(kotlin.io.path.createTempDirectory("bhodl-uc-colours-").toFile(), "settings.json")
+        try {
+            SettingsStore.addCustomCategory("Palestra")
+            SettingsStore.setCategoryColor("Palestra", 4)
+            SettingsStore.setCategoryColor("Cibo", 6)
+            SettingsPersistence.save(file).getOrThrow()
+            SettingsStore.reset()
+            assertTrue(SettingsStore.customCategories.value.isEmpty())
+            SettingsPersistence.rehydrate(file).getOrThrow()
+            assertEquals(listOf("Palestra"), SettingsStore.customCategories.value)
+            assertEquals(4, SettingsStore.categoryColors.value["palestra"])
+            assertEquals(6, SettingsStore.categoryColors.value["cibo"])
+        } finally {
+            file.parentFile.deleteRecursively()
+        }
+    }
+
+    @Test
     fun `category colours - classic ones differ, aliases share, the user's choice wins`() {
         assertEquals(0, categoryColorIndex("Cibo", emptyMap()))
         assertEquals(1, categoryColorIndex("Trasporti", emptyMap()))

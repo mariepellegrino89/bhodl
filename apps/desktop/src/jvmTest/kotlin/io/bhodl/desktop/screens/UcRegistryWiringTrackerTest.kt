@@ -25,6 +25,7 @@ import io.bhodl.ffi.PaymentKind
 import io.bhodl.ffi.RegistryHandle
 import io.bhodl.ffi.WalletRecordFfi
 import io.bhodl.ui.theme.BhodlTheme
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import java.io.File
 import kotlin.test.AfterTest
@@ -301,6 +302,26 @@ class UcRegistryWiringTrackerTest {
         waitForIdle()
         assertEquals(0, onAllNodes(hasTestTag(RuleTags.FROM_EDIT_PANEL)).fetchSemanticsNodes().size, "no follow-up prompt")
         assertEquals(0, registry.listRules().size)
+    }
+
+    @Test
+    fun `TRK-034 a category saved during a slow sync shows before the sync ends`() = runDesktopComposeUiTest {
+        legs = listOf(leg("a", 5_000UL, now - 3_600, PaymentDirection.INCOMING))
+        refresh()
+        setContent { BhodlTheme { TrackingScreen(section = TrackerSection.TRANSACTIONS) } }
+        waitForIdle()
+        // A sync that never finishes while the category is saved.
+        val release = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val sync = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch { TrackerCache.holdRefreshForTest(release) }
+        try {
+            onAllNodesWithTag(TrackingTags.CATEGORY_CHIP)[0].performScrollTo().performClick()
+            onNodeWithTag(TrackingTags.CATEGORY_INPUT).performTextInput("Spesa")
+            onNodeWithTag(TrackingTags.CATEGORY_SAVE).performClick()
+            until("shown in the cache") { TrackerCache.events.value.any { it.txidOrPaymentId == "a" && it.category == "Spesa" } }
+            assertTrue(sync.isActive, "the sync is still running")
+        } finally {
+            release.complete(Unit)
+        }
     }
 
     private companion object {

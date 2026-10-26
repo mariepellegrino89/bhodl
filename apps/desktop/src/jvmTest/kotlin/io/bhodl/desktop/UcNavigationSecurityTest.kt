@@ -156,6 +156,44 @@ class UcNavigationSecurityTest {
     }
 
     @Test
+    fun `rail Back from a wallet opened on the home returns to the home`() = runDesktopComposeUiTest {
+        lateinit var nc: NavHostController
+        setContent {
+            nc = rememberNavController()
+            io.bhodl.ui.theme.BhodlTheme {
+                NavHost(nc, startDestination = Route.Tracking()) {
+                    composable<Route.Tracking> { entry ->
+                        val section = TrackerSection.fromWire(entry.toRoute<Route.Tracking>().section)
+                        io.bhodl.desktop.ui.TwoTabShell(
+                            selected = Tab.fromSection(section),
+                            onTabSelected = {},
+                            onBack = nc.railBack(Tab.fromSection(section)),
+                        ) { Text("section " + section.wire) }
+                    }
+                    // As in App: the open step hands over to the workspace and leaves the stack.
+                    composable<Route.OpenWallet> {
+                        androidx.compose.runtime.LaunchedEffect(Unit) {
+                            nc.navigate(Route.Dashboard) { popUpTo<Route.OpenWallet> { inclusive = true } }
+                        }
+                    }
+                    composable<Route.Dashboard> {
+                        io.bhodl.desktop.ui.TwoTabShell(selected = Tab.Wallet, onTabSelected = {}, onBack = nc.railBack(Tab.Wallet)) {
+                            Text("wallet workspace")
+                        }
+                    }
+                }
+            }
+        }
+        waitForIdle()
+        runOnIdle { nc.navigate(Route.OpenWallet(walletId = "w1")) }
+        waitUntil(timeoutMillis = 3_000) { runOnIdle { nc.currentBackStackEntry?.describe() } == "dashboard" }
+        val back = io.bhodl.desktop.ui.TwoTabShellTags.BACK
+        runOnIdle { onNodeWithTag(back).fetchSemanticsNode().config[androidx.compose.ui.semantics.SemanticsActions.OnClick].action!!.invoke() }
+        waitForIdle()
+        runOnIdle { assertEquals("tracking:home", nc.currentBackStackEntry!!.describe()) }
+    }
+
+    @Test
     fun `rail Back closes an in-screen page first`() = runDesktopComposeUiTest {
         var open by androidx.compose.runtime.mutableStateOf(true)
         setContent {

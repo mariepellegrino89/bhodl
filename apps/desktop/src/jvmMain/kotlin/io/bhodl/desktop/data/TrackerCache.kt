@@ -550,6 +550,11 @@ public object TrackerCache {
         }
     }
 
+    /** Tests: hold the refresh lock until [release], like a slow network sync does. */
+    internal suspend fun holdRefreshForTest(release: kotlinx.coroutines.CompletableDeferred<Unit>) {
+        refreshMutex.withLock { release.await() }
+    }
+
     /** Diagnostics on stderr, only when the app runs with `BHODL_DEBUG=1`. */
     private fun debugLog(message: String) {
         if (System.getenv("BHODL_DEBUG") == "1") System.err.println("[bhodl] $message")
