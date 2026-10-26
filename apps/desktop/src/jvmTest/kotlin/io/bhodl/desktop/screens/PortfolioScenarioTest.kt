@@ -157,6 +157,26 @@ class PortfolioScenarioTest {
     }
 
     @Test
+    fun `spending 100 euro from a bank account lowers net worth by 100 euro in sat`() {
+        val bank = registry.addManualAsset("Conto", "cash", 1_000.0, "EUR", null, null, null, null, null)
+        fun netWorth() = computeTrackerNetWorth(
+            walletSat = 0UL,
+            investments = emptyList(),
+            lotsByInvestmentId = emptyMap(),
+            cachedInvestmentsSat = 0UL,
+            manualAssets = registry.listManualAssets(),
+            cachedManualAssetsSat = 0UL,
+            liabilities = registry.listLiabilities(),
+            liveBtcRate = btcEur,
+            dashboardFiatCode = "EUR",
+        ).netWorthSat
+        val before = netWorth()
+        registry.addManualTxn("out", 200_000UL, 100.0, "EUR", d2, "asset:$bank", "Spesa")
+        // 100 EUR at 50,000 EUR/BTC; fiat values are truncated to the sat, as in every aggregate.
+        assertTrue(kotlin.math.abs(before - 200_000L - netWorth()) <= 1L, "before $before, after ${netWorth()}")
+    }
+
+    @Test
     fun `net worth adds wallet BTC, investments and manual assets and subtracts liabilities`() {
         val id = etf(price = 125.0)
         registry.addInvestmentLot(id, 20.0, 100.0, 0.0, d1, null)

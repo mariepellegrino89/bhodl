@@ -198,6 +198,30 @@ class TestModeTest {
     }
 
     @Test
+    fun `BHODL_DEMO starts the app in test mode, empty or 0 does not`() {
+        for (off in listOf(null, "", " ", "0")) {
+            io.bhodl.desktop.startTestModeIfRequested(off)
+            assertFalse(TestMode.isActive(), "BHODL_DEMO=$off")
+        }
+        io.bhodl.desktop.startTestModeIfRequested("1")
+        assertTrue(TestMode.isActive())
+        assertTrue(registry().isDemoProfile())
+        assertEquals(io.bhodl.desktop.navigation.Route.Tracking(), io.bhodl.desktop.startRoute(walletOpen = false, registryOpen = true))
+    }
+
+    @Test
+    fun `trying test mode on a fresh install needs no PIN and leaving it goes back to Welcome`() = runBlocking<Unit> {
+        val paths = io.bhodl.desktop.wizard.WalletPaths.from(root)
+        assertEquals(io.bhodl.desktop.navigation.Route.Welcome, io.bhodl.desktop.bootGuardTarget(paths))
+        TestMode.enter()
+        assertFalse(File(root, "registry.sqlite").exists(), "no device PIN was created")
+        TestMode.exit()
+        // The test profile on disk is not a real profile: still Welcome, not the PIN gate or a cleanup.
+        assertTrue(File(root, "demo").isDirectory)
+        assertEquals(io.bhodl.desktop.navigation.Route.Welcome, io.bhodl.desktop.bootGuardTarget(paths))
+    }
+
+    @Test
     fun `the project test data bundled with the app opens as a test profile`() = runBlocking<Unit> {
         TestMode.projectData = savedProject
         if (savedProject() == null) return@runBlocking

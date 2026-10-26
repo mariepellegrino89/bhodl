@@ -11,6 +11,7 @@ import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.runDesktopComposeUiTest
 import io.bhodl.desktop.data.ManualAccount
 import io.bhodl.desktop.data.ManualTxns
+import io.bhodl.desktop.data.btcRateOn
 import io.bhodl.desktop.data.fiatToSatAtRate
 import io.bhodl.desktop.data.manualAccounts
 import io.bhodl.desktop.prices.FiatCurrency
@@ -81,6 +82,38 @@ class ManualTxnTest {
         assertEquals(DAY, d.occurredUnix)
         assertEquals("Cibo", d.category)
         assertNull(d.accountRef)
+    }
+
+    @Test
+    fun `without a price for that day a euro amount cannot be saved, the same amount in sat can`() = runDesktopComposeUiTest {
+        var saved: ManualTxnDraft? = null
+        setContent {
+            BhodlTheme {
+                ManualTxnDialog(
+                    editing = null, editingCategory = null, accounts = cash, knownCategories = emptyList(),
+                    onDismiss = {}, onSave = { saved = it }, nowUnix = DAY, rateOn = { _, _ -> null },
+                )
+            }
+        }
+        onNodeWithTag(ManualTxnTags.AMOUNT).performTextInput("30")
+        waitUntil(timeoutMillis = 3_000) { onAllNodes(hasTestTag(ManualTxnTags.PREVIEW), useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
+        onNodeWithTag(ManualTxnTags.PREVIEW, useUnmergedTree = true).assertTextContains("No BTC price for that day", substring = true)
+        onNodeWithTag(ManualTxnTags.SAVE).assertIsNotEnabled()
+
+        onNodeWithTag(ManualTxnTags.currency("sat")).performClick()
+        onNodeWithTag(ManualTxnTags.AMOUNT).performTextInput("60000")
+        onNodeWithTag(ManualTxnTags.SAVE).performClick()
+        assertEquals(60_000UL, saved!!.amountSat)
+        assertNull(saved!!.amountFiat)
+    }
+
+    @Test
+    fun `offline, a past day missing from the cache has no price`() = kotlinx.coroutines.runBlocking {
+        io.bhodl.desktop.wizard.RegistryStore.clear()
+        io.bhodl.desktop.prices.PriceCache.seedForTest(price = null)
+        io.bhodl.desktop.prices.PriceCache.clearSessionCaches()
+        val lastYear = java.time.LocalDate.now(java.time.ZoneOffset.UTC).minusYears(1).atStartOfDay().toEpochSecond(java.time.ZoneOffset.UTC)
+        assertNull(btcRateOn(lastYear, "EUR"))
     }
 
     @Test
