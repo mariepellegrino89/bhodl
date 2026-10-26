@@ -188,9 +188,22 @@ public object SettingsStore {
     private val _localeOverride = mutableStateOf<String?>(null)
     public val localeOverride: State<String?> get() = _localeOverride
 
+    /** The OS locale, captured before any override: "follow the system" goes back to it. */
+    private val systemLocale: java.util.Locale = java.util.Locale.getDefault()
+
     public fun setLocaleOverride(tag: String?) {
-        _localeOverride.value = tag?.trim()?.takeIf { it.isNotBlank() }
+        val clean = tag?.trim()?.takeIf { it.isNotBlank() }
+        // The JVM locale changes BEFORE the state: the screen that the
+        // state change rebuilds (App's key(localeOverride)) then reads
+        // the new language. Applied later (a LaunchedEffect) it rebuilt
+        // with the old strings.
+        applyLocale(clean)
+        _localeOverride.value = clean
         persistIfEnabled()
+    }
+
+    private fun applyLocale(tag: String?) {
+        java.util.Locale.setDefault(tag?.let { java.util.Locale.forLanguageTag(it) } ?: systemLocale)
     }
 
     private val _torEnabled = mutableStateOf(false)
@@ -596,6 +609,7 @@ public object SettingsStore {
         _customCategories.value = emptyList()
         _esploraUrls.value = emptyMap()
         _localeOverride.value = null
+        applyLocale(null)
         _torEnabled.value = false
         _torProxyUrl.value = DEFAULT_TOR_PROXY_URL
         _colorConvention.value = ColorConvention.WESTERN

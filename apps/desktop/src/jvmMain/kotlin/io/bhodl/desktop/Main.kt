@@ -125,26 +125,10 @@ fun main() {
     // straight to the neon palette regardless of useDarkTheme.
     val neonMode = themeMode == ThemeMode.Neon
     val useDarkTheme = themeMode.usesDarkPalette(systemDark)
-    // Compose-resources reads `Locale.getDefault()` per stringResource
-    // lookup. Override it as a JVM-wide side effect when the user
-    // picks a specific language in Settings.
-    //
-    // We deliberately do NOT wrap the subtree in `key(localeOverride) { App() }`
-    // any more (smoke 2026-05-12, finding #11 follow-up): the `key`
-    // forces a full NavHost remount, which (a) discards the
-    // user's current location and (b) re-routes through the boot
-    // guard — landing them on Dashboard regardless of where they were
-    // when they flipped languages. With the `key` removed, the user
-    // STAYS on the screen they were on; the strings on that screen
-    // are stale until the next recomposition (a nav, a state change),
-    // but the trade-off is far less disruptive than a forced
-    // remount.
-    val localeOverride by SettingsStore.localeOverride
-    LaunchedEffect(localeOverride) {
-        if (localeOverride != null) {
-            Locale.setDefault(Locale.forLanguageTag(localeOverride!!))
-        }
-    }
+    // Language: compose-resources reads `Locale.getDefault()`, which
+    // SettingsStore.setLocaleOverride sets before the state change; App's
+    // key(localeOverride) then rebuilds the screens (back stack kept) in
+    // the new language.
     // Phase 5.0 — boot the BTC/fiat price cache once per process.
     // The PriceCache loop respects SettingsStore.fiatCurrency and is
     // idempotent on repeated start() calls.
