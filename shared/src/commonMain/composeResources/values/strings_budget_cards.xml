@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="bgc_summary">Budget · %1$s</string>
-    <string name="bgc_summary_help">Expense budgets prorated to the selected period. Outer ring: what you spent of the budget. Inner ring: income received of the income you expected. Budgets are in sats, so the BTC price moves them too.</string>
+    <string name="bgc_summary_help">Monthly expense budgets, for the month chosen above. Outer ring: what you spent of the budget. Inner ring: income received of the income you expected. Budgets are in sats, so the BTC price moves them too.</string>
     <string name="bgc_left_center">left</string>
     <string name="bgc_over_center">over budget</string>
     <string name="bgc_budget">Budget</string>

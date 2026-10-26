@@ -266,4 +266,17 @@ class RuleSuggestionsTest {
         blockHeight = null,
         category = category,
     )
+
+    @Test
+    fun `exact-amount rule names follow the app language`() {
+        val draft = ruleDraftFromEdit(event("w-daily", "aa", 21_000UL), "Netflix", null, RulePatternKind.AMOUNT, "Importo esatto")
+        assertEquals("Importo esatto → Netflix", draft!!.name)
+        // A rule saved with the English name shows translated.
+        assertEquals(
+            "Importo esatto → Netflix",
+            io.bhodl.desktop.domain.displayRuleName("Exact amount → Netflix", { it.toString() }, "Importo esatto"),
+        )
+        assertEquals("Rent", io.bhodl.desktop.domain.displayRuleName("Rent", { it.toString() }, "Importo esatto"))
+    }
 }
+

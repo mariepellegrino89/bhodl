@@ -1,4 +1,5 @@
 package io.bhodl.desktop.screens
+import io.bhodl.shared.resources.rule_exact_amount
 import io.bhodl.desktop.domain.RuleDraft
 import io.bhodl.desktop.domain.RulePatternKind
 import io.bhodl.desktop.domain.ruleDraftFromEdit
@@ -461,9 +462,12 @@ internal fun CategoryEditDialog(
     val isKnown = choices.any { categoryMatches(it, input, exact = true) }
     var ruleKind by remember(event.txidOrPaymentId) { mutableStateOf<RulePatternKind?>(null) }
     var applyExisting by remember(event.txidOrPaymentId) { mutableStateOf(true) }
+    val exactAmountName = stringResource(Res.string.rule_exact_amount)
     val ruleDraft = ruleOption?.takeIf { makeRule }?.let { ctx ->
-        val kind = ruleKind ?: RulePatternKind.entries.firstOrNull { ruleDraftFromEdit(event, input, ctx.walletLabel, it) != null }
-        kind?.let { ruleDraftFromEdit(event, input, ctx.walletLabel, it) }
+        val kind = ruleKind ?: RulePatternKind.entries.firstOrNull {
+            ruleDraftFromEdit(event, input, ctx.walletLabel, it, exactAmountName) != null
+        }
+        kind?.let { ruleDraftFromEdit(event, input, ctx.walletLabel, it, exactAmountName) }
     }
     val ruleMatches = remember(ruleDraft, ruleOption?.events) {
         if (ruleDraft == null || ruleOption == null) emptyList()

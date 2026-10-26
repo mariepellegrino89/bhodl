@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="bgc_summary">Budget · %1$s</string>
-    <string name="bgc_summary_help">Budget di spesa proporzionati al periodo scelto. Anello esterno: quanto hai speso del budget. Anello interno: entrate ricevute rispetto a quelle previste. I budget sono in sat, quindi li muove anche il prezzo di BTC.</string>
+    <string name="bgc_summary_help">Budget di spesa mensili, per il mese scelto sopra. Anello esterno: quanto hai speso del budget. Anello interno: entrate ricevute rispetto a quelle previste. I budget sono in sat, quindi li muove anche il prezzo di BTC.</string>
     <string name="bgc_left_center">restano</string>
     <string name="bgc_over_center">oltre il budget</string>
     <string name="bgc_budget">Budget</string>

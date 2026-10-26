@@ -1,4 +1,5 @@
 package io.bhodl.desktop.screens
+import io.bhodl.shared.resources.common_uncategorised
 import io.bhodl.desktop.data.ChannelFilter
 import io.bhodl.desktop.data.filterByChannel
 import io.bhodl.desktop.data.asManualAccount
@@ -1383,6 +1384,7 @@ public fun TrackingScreen(
     // the candidate's stats — no extra dialog: the user already
     // confirmed by clicking accept, and the bill itself remains
     // editable from the Bills card.
+    val uncategorisedName = stringResource(Res.string.common_uncategorised)
     billPrefillFromRecurring?.let { candidate ->
         val registry = RegistryStore.current()
         if (registry == null) {
@@ -1393,7 +1395,8 @@ public fun TrackingScreen(
                 runCatching {
                     // The bill is the authoritative record now: the
                     // suggestion is dismissed in the same step.
-                    withContext(Dispatchers.IO) { acceptRecurringAsBill(registry, candidate) }
+                    val name = if (io.bhodl.desktop.ui.isUncategorised(candidate.displayName)) uncategorisedName else candidate.displayName
+                    withContext(Dispatchers.IO) { acceptRecurringAsBill(registry, candidate, name = name) }
                 }.onFailure { e ->
                     lastError = e.message ?: getString(Res.string.trk_err_accept_as_bill)
                 }

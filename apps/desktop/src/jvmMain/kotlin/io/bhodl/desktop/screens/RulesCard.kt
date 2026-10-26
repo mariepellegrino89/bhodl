@@ -1,5 +1,6 @@
 package io.bhodl.desktop.screens
 
+import io.bhodl.shared.resources.rule_exact_amount
 import io.bhodl.shared.resources.trk_cat_make_rule
 import io.bhodl.desktop.ui.tableRowClickable
 import io.bhodl.desktop.ui.tableCell
@@ -259,7 +260,7 @@ private fun RuleDataRow(
         }
         Column(modifier = Modifier.tableCell(this, RuleCol.RULE)) {
             Text(
-                text = io.bhodl.desktop.domain.displayRuleName(rule.name, fmt),
+                text = io.bhodl.desktop.domain.displayRuleName(rule.name, fmt, stringResource(Res.string.rule_exact_amount)),
                 style = BhodlTheme.typography.bodyMedium,
                 color = if (rule.enabled) BhodlTheme.colors.textPrimary
                     else BhodlTheme.colors.textTertiary,

@@ -163,9 +163,11 @@ internal fun acceptRecurringAsBill(
     registry: RegistryHandle,
     candidate: RecurringCandidate,
     zone: java.time.ZoneId = java.time.ZoneId.systemDefault(),
+    /** The bill's name: the group's category, or "Uncategorised" in the app language. */
+    name: String = candidate.displayName,
 ): Long {
     val day = java.time.Instant.ofEpochSecond(candidate.nextEstimatedUnix).atZone(zone).dayOfMonth
-    val id = registry.addBill(candidate.displayName, candidate.avgAmountSat, day.toUInt(), null)
+    val id = registry.addBill(name, candidate.avgAmountSat, day.toUInt(), null)
     // Schema v8 — the bill counts against the group's category.
     candidate.sampleEvents.firstNotNullOfOrNull { it.category?.takeIf { c -> c.isNotBlank() } }
         ?.let { registry.setBillCategory(id, it) }

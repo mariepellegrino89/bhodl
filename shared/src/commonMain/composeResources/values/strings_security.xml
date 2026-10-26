@@ -5,7 +5,7 @@
     <string name="privacy_show_amounts">Show amounts</string>
     <string name="privacy_toggle_tooltip">%1$s (Ctrl+Shift+H)</string>
     <string name="privacy_section_title">Privacy mode</string>
-    <string name="privacy_section_body">Privacy mode masks every amount in the app: balances, tables, chart axes and tooltips, Sankey and donut labels. Toggle it with Ctrl+Shift+H or the eye icon in the status bar. Payment confirmations always show the real amounts. Exports still contain real values and ask before saving.</string>
+    <string name="privacy_section_body">Privacy mode masks every amount in the app: balances, tables, chart axes and tooltips, Sankey and donut labels. Toggle it with Ctrl+Shift+H or the eye icon at the top right. Exports still contain real values and ask before saving.</string>
     <string name="privacy_hidden_now">Hide amounts now</string>
     <string name="privacy_start_hidden">Start with balances hidden</string>
     <string name="privacy_export_title">Privacy mode is on</string>
