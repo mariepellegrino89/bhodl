@@ -5,13 +5,9 @@ import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.test.ExperimentalTestApi
-import androidx.compose.ui.test.SemanticsNodeInteractionsProvider
-import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onNodeWithTag
-import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.runDesktopComposeUiTest
 import androidx.compose.ui.test.waitUntilAtLeastOneExists
@@ -24,9 +20,7 @@ import io.bhodl.ffi.PaymentKind
 import io.bhodl.ffi.TrackingBillFfi
 import io.bhodl.ffi.TrackingBudgetFfi
 import io.bhodl.ui.theme.BhodlTheme
-import java.io.File
 import java.time.LocalDate
-import javax.imageio.ImageIO
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -42,7 +36,7 @@ import kotlin.test.assertTrue
 class BudgetCardsTest {
 
     @BeforeTest fun setUp() { SettingsStore.reset(); TrackerCache.reset(); TrackerUiState.clearFilters(); TrackerUiState.period.value = TrackingPeriod.D30 }
-    @AfterTest fun tearDown() { TrackerUiState.clearFilters(); TrackerCache.reset(); SettingsStore.reset() }
+    @AfterTest fun tearDown() { ScreenshotCheck.releaseClock(); TrackerUiState.clearFilters(); TrackerCache.reset(); SettingsStore.reset() }
 
     private fun row(cat: String, budget: ULong?, actual: ULong) = BudgetRow(cat, budget, actual, TrackingDirection.EXPENSE, budget)
 
@@ -123,7 +117,9 @@ class BudgetCardsTest {
         assertEquals(listOf(LocalDate.of(2026, 10, 28), LocalDate.of(2026, 11, 1), LocalDate.of(2026, 11, 20)), list.map { it.second })
     }
 
-    private val now = System.currentTimeMillis() / 1000L
+    // Fixed "now" (ScreenshotCheck): the render shows the same month and dates every day.
+    private val now = ScreenshotCheck.NOW_UNIX
+    private val today = PortfolioFixtures.TODAY
     private fun out(id: String, cat: String, sat: ULong, d: Long) =
         PaymentEvent("w1", id, PaymentKind.ON_CHAIN, PaymentDirection.OUTGOING, sat, null, (now - d * 86_400L).toULong(), null, cat, null)
 
@@ -137,12 +133,13 @@ class BudgetCardsTest {
             TrackingBudgetFfi("Spesa", 700_000UL, "monthly", 0), TrackingBudgetFfi("Ristoranti", 350_000UL, "monthly", 0),
             TrackingBudgetFfi("Trasporti", 300_000UL, "monthly", 0), TrackingBudgetFfi("Abbonamenti", 120_000UL, "monthly", 0),
         ),
-        bills = listOf(bill(1, "Luce", LocalDate.now().plusDays(3).dayOfMonth), bill(2, "Internet", LocalDate.now().plusDays(11).dayOfMonth)),
+        bills = listOf(bill(1, "Luce", today.plusDays(3).dayOfMonth), bill(2, "Internet", today.plusDays(11).dayOfMonth)),
         categories = listOf("Abbonamenti", "Regali", "Ristoranti", "Spesa", "Stipendio", "Trasporti"),
     )
 
     @Test
     fun `category cards drill into transactions and render dark and light`() = runDesktopComposeUiTest(width = 1440, height = 1250) {
+        ScreenshotCheck.pinClock()
         seed()
         for ((dark, name) in listOf(true to "budget-dark", false to "budget-light")) {
             setContent { BhodlTheme(useDarkTheme = dark) { TrackingScreen(section = TrackerSection.BUDGET) } }
@@ -150,13 +147,8 @@ class BudgetCardsTest {
             waitUntilAtLeastOneExists(hasTestTag(BudgetCardsTags.category("Ristoranti")))
             onNodeWithTag(BudgetCardsTags.BILLS).assertExists()
             waitForIdle()
-            shot(name)
+            screenshot(name)
         }
-    }
-
-    private fun SemanticsNodeInteractionsProvider.shot(name: String) {
-        val dir = File(System.getProperty("bhodl.screenshots", "build/screenshots")).apply { mkdirs() }
-        ImageIO.write(onRoot().captureToImage().toAwtImage(), "png", File(dir, "$name.png"))
     }
 
     @Test

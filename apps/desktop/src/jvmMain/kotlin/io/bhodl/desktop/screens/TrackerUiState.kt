@@ -1,5 +1,6 @@
 package io.bhodl.desktop.screens
 
+import io.bhodl.desktop.AppClock
 import androidx.compose.runtime.mutableStateOf
 
 /**
@@ -43,7 +44,7 @@ internal object TrackerUiState {
      * the other, so "view transactions" from a September budget lists
      * September.
      */
-    val month = mutableStateOf(java.time.YearMonth.now())
+    val month = mutableStateOf(AppClock.currentMonth())
 
     /** Transactions show [month] instead of the global period. */
     val txByMonth = mutableStateOf(false)

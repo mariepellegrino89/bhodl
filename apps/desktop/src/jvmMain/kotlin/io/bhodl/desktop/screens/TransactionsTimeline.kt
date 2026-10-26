@@ -1,5 +1,6 @@
 package io.bhodl.desktop.screens
 
+import io.bhodl.desktop.AppClock
 import io.bhodl.desktop.ui.categoryDisplayName
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -239,7 +240,7 @@ private val DAY_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("EEEE d 
 @Composable
 private fun dayLabel(epochDay: Long?): String {
     if (epochDay == null) return stringResource(Res.string.txc_pending)
-    val today = LocalDate.now(ZoneId.systemDefault()).toEpochDay()
+    val today = AppClock.today().toEpochDay()
     return when (epochDay) {
         today -> stringResource(Res.string.txc_today)
         today - 1 -> stringResource(Res.string.txc_yesterday)

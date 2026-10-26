@@ -1,14 +1,10 @@
 package io.bhodl.desktop.screens
 
-import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.test.ExperimentalTestApi
-import androidx.compose.ui.test.SemanticsNodeInteractionsProvider
 import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsSelected
-import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onNodeWithTag
-import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.runDesktopComposeUiTest
 import androidx.compose.ui.test.waitUntilAtLeastOneExists
@@ -24,8 +20,6 @@ import io.bhodl.ffi.UtxoRecord
 import io.bhodl.ffi.WalletKindFfi
 import io.bhodl.ffi.WalletRecordFfi
 import io.bhodl.ui.theme.BhodlTheme
-import java.io.File
-import javax.imageio.ImageIO
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -38,7 +32,8 @@ import kotlin.test.assertEquals
 @OptIn(ExperimentalTestApi::class)
 class WalletCardsTest {
 
-    private val now = System.currentTimeMillis() / 1000L
+    // Fixed "now" (ScreenshotCheck): the render shows the same dates every day.
+    private val now = ScreenshotCheck.NOW_UNIX
     private val day = 86_400L
 
     private val wallets = listOf(
@@ -58,8 +53,8 @@ class WalletCardsTest {
         UtxoRecord("ee:0", 40_000UL, "tb1qe", false, true),
     )
 
-    @BeforeTest fun setUp() { SettingsStore.reset(); TrackerCache.reset(); SyncCache.clear() }
-    @AfterTest fun tearDown() { WalletStore.clear(); TrackerCache.reset(); SettingsStore.reset() }
+    @BeforeTest fun setUp() { SettingsStore.reset(); TrackerCache.reset(); SyncCache.clear(); ScreenshotCheck.pinClock() }
+    @AfterTest fun tearDown() { ScreenshotCheck.releaseClock(); WalletStore.clear(); TrackerCache.reset(); SettingsStore.reset() }
 
     private fun seed() = TrackerCache.seedForTest(
         wallets = wallets,
@@ -107,12 +102,7 @@ class WalletCardsTest {
             setContent { BhodlTheme(useDarkTheme = dark) { DashboardScreen(initialTab = WalletTab.UTXOS, onOpenWallet = {}) } }
             waitUntilAtLeastOneExists(hasTestTag(WalletCardsTags.COIN_MAP), timeoutMillis = 5_000)
             waitForIdle()
-            shot(name)
+            screenshot(name)
         }
-    }
-
-    private fun SemanticsNodeInteractionsProvider.shot(name: String) {
-        val dir = File(System.getProperty("bhodl.screenshots", "build/screenshots")).apply { mkdirs() }
-        ImageIO.write(onRoot().captureToImage().toAwtImage(), "png", File(dir, "$name.png"))
     }
 }

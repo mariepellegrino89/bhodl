@@ -1,5 +1,6 @@
 package io.bhodl.desktop.screens
 
+import io.bhodl.desktop.AppClock
 import io.bhodl.shared.resources.mtx_filter_all
 import io.bhodl.shared.resources.mtx_filter_wallets
 import io.bhodl.desktop.data.ManualAccountKind
@@ -140,7 +141,7 @@ internal fun ManualTxnDialog(
     preset: ManualTxnPreset = ManualTxnPreset(),
     title: String? = null,
     /** Day zero for a new entry (test seam). */
-    nowUnix: Long = System.currentTimeMillis() / 1000L,
+    nowUnix: Long = AppClock.nowUnix(),
     /** BTC rate on a day for a currency (test seam). */
     rateOn: suspend (dateUnix: Long, currency: String) -> Double? = { d, c -> btcRateOn(d, c) },
     /** The wallets, shown (not selectable) among the channels: their spending arrives by itself. */

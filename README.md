@@ -146,10 +146,12 @@ cargo fmt --all --check
 cargo deny check                         # advisories, licenses, sources
 
 ./gradlew :shared:jvmTest                # FFI smoke tests
-./gradlew :apps:desktop:jvmTest          # desktop unit + Compose UI tests
+./gradlew :apps:desktop:jvmTest          # desktop unit + Compose UI tests (renders to build/screenshots)
+./gradlew :apps:desktop:verifyRoborazziJvm  # same + compare renders with the references (CI, Linux)
 ./gradlew :apps:desktop:integrationTest  # bitcoind regtest + electrs (Docker)
 ```
 
+Screenshot references and how to re-record them: [CONTRIBUTING](CONTRIBUTING.md#screenshot-tests).
 Live Tor tests (`scripts/tor-tests.sh`), coverage, the Android build and the details behind
 each step are in the [developer handbook](docs/handbook.md).
 

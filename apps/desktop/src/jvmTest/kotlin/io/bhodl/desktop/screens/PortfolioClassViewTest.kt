@@ -4,16 +4,12 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.test.ExperimentalTestApi
-import androidx.compose.ui.test.SemanticsNodeInteractionsProvider
 import androidx.compose.ui.test.assertTextContains
-import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onNodeWithTag
-import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.runDesktopComposeUiTest
@@ -31,8 +27,6 @@ import io.bhodl.desktop.screens.PortfolioFixtures.row
 import io.bhodl.desktop.screens.PortfolioFixtures.sell
 import io.bhodl.desktop.settings.SettingsStore
 import io.bhodl.ui.theme.BhodlTheme
-import java.io.File
-import javax.imageio.ImageIO
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -44,14 +38,14 @@ import kotlin.test.assertTrue
 /**
  * Portfolio redesign 2026-10 — class cards + list + detail card
  * ([PortfolioClassView]), the details editor and the Cards / Table
- * toggle. The last test renders the page to PNG for the visual review
- * (build/screenshots/).
+ * toggle. The render tests compare the page with its screenshot
+ * references (ScreenshotCheck).
  */
 @OptIn(ExperimentalTestApi::class)
 class PortfolioClassViewTest {
 
-    @BeforeTest fun setUp() = SettingsStore.reset()
-    @AfterTest fun tearDown() = SettingsStore.reset()
+    @BeforeTest fun setUp() { SettingsStore.reset(); ScreenshotCheck.pinClock() }
+    @AfterTest fun tearDown() { ScreenshotCheck.releaseClock(); SettingsStore.reset() }
 
     private val etf = investment(1, "VWCE · FTSE All-World", "etf", qty = 1180.0, cost = 116_112.0, price = 121.3, ticker = "VWCE.DE")
     private val gold = investment(2, "Oro · lingotti", "commodity", qty = 320.0, cost = 21_950.0, price = 81.2, unit = "g")
@@ -287,21 +281,21 @@ class PortfolioClassViewTest {
             }
         }
         waitForIdle()
-        shot("portfolio-bitcoin")
+        screenshot("portfolio-bitcoin")
         listOf(PortfolioClass.INVESTMENTS, PortfolioClass.MANUAL_ASSETS, PortfolioClass.LIABILITIES).forEach { c ->
             onNodeWithTag(PortfolioCardsTags.classCard(c)).performClick()
             waitForIdle()
-            shot("portfolio-${c.name.lowercase()}")
+            screenshot("portfolio-${c.name.lowercase()}")
         }
         onNodeWithTag(PortfolioCardsTags.classCard(PortfolioClass.INVESTMENTS)).performClick()
         onNodeWithTag(PortfolioCardsTags.item("investments:1")).performClick()
         waitForIdle()
-        shot("portfolio-drilldown-etf")
+        screenshot("portfolio-drilldown-etf")
         onNodeWithTag(PortfolioCardsTags.BACK).performClick()
         onNodeWithTag(PortfolioCardsTags.classCard(PortfolioClass.MANUAL_ASSETS)).performClick()
         onNodeWithTag(PortfolioCardsTags.item("manual_assets:8")).performClick()
         waitForIdle()
-        shot("portfolio-deposit")
+        screenshot("portfolio-deposit")
     }
 
     @Test
@@ -315,15 +309,38 @@ class PortfolioClassViewTest {
         }
         onNodeWithTag(PortfolioCardsTags.classCard(PortfolioClass.INVESTMENTS)).performClick()
         waitForIdle()
-        shot("portfolio-light-investments")
+        screenshot("portfolio-light-investments")
         onNodeWithTag(PortfolioCardsTags.classCard(PortfolioClass.LIABILITIES)).performClick()
         waitForIdle()
-        shot("portfolio-light-liabilities")
+        screenshot("portfolio-light-liabilities")
     }
 
-    private fun SemanticsNodeInteractionsProvider.shot(name: String) {
-        val dir = File(System.getProperty("bhodl.screenshots", "build/screenshots")).apply { mkdirs() }
-        ImageIO.write(onRoot().captureToImage().toAwtImage(), "png", File(dir, "$name.png"))
+    @Test
+    fun `render the portfolio cards in Italian`() = runDesktopComposeUiTest(width = 1440, height = 1500) {
+        SettingsStore.setLocaleOverride("it")
+        setContent { Page(dark = true) }
+        onNodeWithTag(PortfolioCardsTags.classCard(PortfolioClass.INVESTMENTS)).performClick()
+        waitForIdle()
+        screenshot("portfolio-it-investments")
+    }
+
+    @Test
+    fun `render the portfolio cards in a narrow window`() = runDesktopComposeUiTest(width = 900, height = 1500) {
+        setContent { Page(dark = true) }
+        waitForIdle()
+        screenshot("portfolio-narrow-bitcoin")
+        onNodeWithTag(PortfolioCardsTags.classCard(PortfolioClass.INVESTMENTS)).performClick()
+        waitForIdle()
+        screenshot("portfolio-narrow-investments")
+    }
+
+    @Composable
+    private fun Page(dark: Boolean) {
+        BhodlTheme(useDarkTheme = dark) {
+            androidx.compose.foundation.layout.Box(
+                androidx.compose.ui.Modifier.fillMaxSize().background(BhodlTheme.colors.background).padding(24.dp),
+            ) { View() }
+        }
     }
 }
 

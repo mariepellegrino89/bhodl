@@ -26,6 +26,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import io.bhodl.desktop.AppClock
 import io.bhodl.desktop.ui.DatePickerField
 import io.bhodl.desktop.ui.SlideOverPanel
 import io.bhodl.desktop.ui.displaySignedAmount
@@ -129,7 +130,7 @@ internal fun SellDialog(
     var priceStr by remember { mutableStateOf("") }
     var feesStr by remember { mutableStateOf("") }
     var saleUnix by remember {
-        mutableStateOf(System.currentTimeMillis() / 1000L)
+        mutableStateOf(AppClock.nowUnix())
     }
     var notesStr by remember { mutableStateOf("") }
     var saleBtcRate by remember { mutableStateOf<Double?>(null) }

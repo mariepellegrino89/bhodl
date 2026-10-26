@@ -1,12 +1,8 @@
 package io.bhodl.desktop.screens
 
-import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.test.ExperimentalTestApi
-import androidx.compose.ui.test.SemanticsNodeInteractionsProvider
-import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onNodeWithTag
-import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.runDesktopComposeUiTest
 import androidx.compose.ui.test.waitUntilAtLeastOneExists
@@ -20,8 +16,6 @@ import io.bhodl.ffi.PaymentKind
 import io.bhodl.ffi.WalletKindFfi
 import io.bhodl.ffi.WalletRecordFfi
 import io.bhodl.ui.theme.BhodlTheme
-import java.io.File
-import javax.imageio.ImageIO
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -35,7 +29,8 @@ import kotlin.test.assertNull
 @OptIn(ExperimentalTestApi::class)
 class ReportsOverviewTest {
 
-    private val now = System.currentTimeMillis() / 1000L
+    // Fixed "now" (ScreenshotCheck): the render shows the same dates every day.
+    private val now = ScreenshotCheck.NOW_UNIX
     private val day = 86_400L
 
     private fun ev(id: String, dir: PaymentDirection, sat: ULong, ts: Long, cat: String?) =
@@ -55,8 +50,8 @@ class ReportsOverviewTest {
         ev("p2", PaymentDirection.OUTGOING, 600_000UL, now - 41 * day, "Ristoranti"),
     )
 
-    @BeforeTest fun setUp() { SettingsStore.reset(); TrackerCache.reset(); TrackerUiState.clearFilters(); TrackerUiState.period.value = TrackingPeriod.D30 }
-    @AfterTest fun tearDown() { TrackerUiState.clearFilters(); TrackerCache.reset(); SettingsStore.reset() }
+    @BeforeTest fun setUp() { SettingsStore.reset(); TrackerCache.reset(); TrackerUiState.clearFilters(); TrackerUiState.period.value = TrackingPeriod.D30; ScreenshotCheck.pinClock() }
+    @AfterTest fun tearDown() { ScreenshotCheck.releaseClock(); TrackerUiState.clearFilters(); TrackerCache.reset(); SettingsStore.reset() }
 
     @Test
     fun `categories compare with the previous window`() {
@@ -100,12 +95,7 @@ class ReportsOverviewTest {
             setContent { BhodlTheme(useDarkTheme = dark) { TrackingScreen(section = TrackerSection.REPORTS) } }
             waitUntilAtLeastOneExists(hasTestTag(ReportsOverviewTags.DONUT), timeoutMillis = 5_000)
             waitForIdle()
-            shot(name)
+            screenshot(name)
         }
-    }
-
-    private fun SemanticsNodeInteractionsProvider.shot(name: String) {
-        val dir = File(System.getProperty("bhodl.screenshots", "build/screenshots")).apply { mkdirs() }
-        ImageIO.write(onRoot().captureToImage().toAwtImage(), "png", File(dir, "$name.png"))
     }
 }

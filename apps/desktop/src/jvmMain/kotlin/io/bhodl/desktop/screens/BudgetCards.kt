@@ -1,5 +1,6 @@
 package io.bhodl.desktop.screens
 
+import io.bhodl.desktop.AppClock
 import io.bhodl.shared.resources.bill_variable_tag
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
@@ -444,7 +445,7 @@ internal fun BillsCalendarStrip(
 }
 
 /** Today in the system zone (test seam friendly). */
-internal fun todayLocal(): LocalDate = LocalDate.now(ZoneId.systemDefault())
+internal fun todayLocal(): LocalDate = AppClock.today()
 
 /**
  * Budget redesign 2026-10 — budgets are monthly and follow the calendar
@@ -460,7 +461,7 @@ internal fun eventsThisMonth(events: List<PaymentEvent>, today: LocalDate, zone:
 internal fun eventsInMonth(events: List<PaymentEvent>, month: java.time.YearMonth, zone: ZoneId = ZoneId.systemDefault()): List<PaymentEvent> {
     val start = month.atDay(1).atStartOfDay(zone).toEpochSecond()
     val end = month.plusMonths(1).atDay(1).atStartOfDay(zone).toEpochSecond()
-    val current = month == java.time.YearMonth.now(zone)
+    val current = month == AppClock.currentMonth(zone)
     return events.filter { e ->
         val ts = e.timestampUnix?.toLong() ?: return@filter current
         ts in start until end
