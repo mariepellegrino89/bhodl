@@ -166,6 +166,9 @@ internal fun acceptRecurringAsBill(
 ): Long {
     val day = java.time.Instant.ofEpochSecond(candidate.nextEstimatedUnix).atZone(zone).dayOfMonth
     val id = registry.addBill(candidate.displayName, candidate.avgAmountSat, day.toUInt(), null)
+    // Schema v8 — the bill counts against the group's category.
+    candidate.sampleEvents.firstNotNullOfOrNull { it.category?.takeIf { c -> c.isNotBlank() } }
+        ?.let { registry.setBillCategory(id, it) }
     registry.dismissRecurring(candidate.payeeKey)
     return id
 }

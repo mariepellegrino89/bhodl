@@ -487,6 +487,7 @@ class UcCacheTrackerTest {
         val bill = registry.listBills().single()
         assertEquals(id, bill.id)
         assertEquals("Gym", bill.name)
+        assertEquals("Gym", bill.category, "the bill counts in the group's budget category")
         assertEquals(c.avgAmountSat, bill.amountSat)
         val expectedDay = java.time.Instant.ofEpochSecond(c.nextEstimatedUnix).atZone(zone).dayOfMonth
         assertEquals(expectedDay.toUInt(), bill.dueDay)
