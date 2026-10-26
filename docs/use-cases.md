@@ -16,6 +16,7 @@ Aree:
 - [D. Portafoglio e patrimonio](#d) — `PRT-*`
 - [E. Revisione: casi aggiunti](#e) — `GAP-*`
 - [F. Test aggiunti per area](#f)
+- [G. Funzioni dal 25 al 26 ottobre](#g) — `NEW-*`
 
 ## Stato dopo la campagna di test (2026-10-24)
 
@@ -1670,3 +1671,54 @@ File di test (tutti nuovi):
 - apps/desktop/src/jvmMain/kotlin/io/bhodl/desktop/screens/NetWorthCard.kt — testTag chip kind passività
 - crates/bhodl-wallet-onchain/src/net_worth_history.rs — fix GAP-018
 Nessuna stringa visibile cambiata (nessuna modifica alle risorse EN/IT).
+
+
+<a id="g"></a>
+
+## G. Funzioni dal 25 al 26 ottobre
+
+Casi d'uso delle funzioni arrivate dopo l'inventario (redesign delle
+sezioni, budget mensili, movimenti fuori dai wallet, modalità test,
+categorie tradotte). Il passo per passo è nel test-book §59–§78; qui
+il caso e il test che lo verifica. `T/` come sopra.
+
+| ID | Caso d'uso | Test | Stato |
+|----|------------|------|-------|
+| NEW-001 | Home: nei primi 3 giorni del mese la riga "Revisione del mese" apre Report e sparisce; dopo il 3 non c'è | T/screens/UcHomeTrackerTest::TRK-172, ::TRK-173 | COVERED |
+| NEW-002 | Home: ogni "?" spiega cosa misura, al passaggio del mouse e con il focus da tastiera | T/screens/UcHomeTrackerTest::TRK-174 | COVERED |
+| NEW-003 | Transazioni: cambiando periodo cambiano insieme riepiloghi e cronologia | T/screens/TransactionsTimelineTest::changing the period moves the summaries and the timeline together | COVERED |
+| NEW-004 | Obiettivo "% del netto": riquadro "Quota del netto", etichetta di scostamento solo oltre ±5 pp | T/screens/GoalsCardsTest::an allocation goal shows its share of net worth… | COVERED |
+| NEW-005 | Report, periodo Tutto: nessuna variazione e nessuna barra del periodo prima | T/screens/ReportsOverviewTest::the period All has no previous window… | COVERED |
+| NEW-006 | Report: clic sulla legenda evidenzia la categoria in torta e barre, secondo clic toglie | T/screens/ReportsOverviewTest::a legend click highlights… | COVERED |
+| NEW-007 | Wallet con sync fallita: card "stale" con "?" che dice cosa fare | T/screens/WalletCardsTest::a wallet whose sync failed says stale…, T/data/UcCacheTrackerTest | COVERED |
+| NEW-008 | Portafoglio: "Registra acquisto" chiede il titolo se sono più di uno, altrimenti apre subito il lotto | T/screens/PortfolioClassViewTest::record buy asks which holding… | COVERED |
+| NEW-009 | Portafoglio: i pulsanti tratteggiati aprono investimento, asset, debito e aggiunta wallet | T/screens/PortfolioClassViewTest::the dashed add buttons open… | COVERED |
+| NEW-010 | Indietro dal wallet aperto dalla Home torna alla Home | T/UcNavigationSecurityTest::rail Back from a wallet opened on the home returns to the home | COVERED |
+| NEW-011 | Una categoria salvata durante una sync lenta compare subito | T/screens/UcRegistryWiringTrackerTest::TRK-034 a category saved during a slow sync… | COVERED |
+| NEW-012 | Nuovo colore per una categoria esistente: cambia per tutte le sue transazioni, anche quelle salvate nell'altra lingua | T/screens/UcCardsTrackerTest::TRK-033 a new colour for an existing category… | COVERED (fix) |
+| NEW-013 | Categorie aggiunte e colori restano dopo il riavvio | T/screens/UcCardsTrackerTest::TRK-033 added categories and their colours survive a restart | COVERED |
+| NEW-014 | Budget: il 1° del mese lo speso riparte e mancano tutti i giorni del mese | T/screens/BudgetCardsTest::budgets follow the calendar month | COVERED |
+| NEW-015 | Budget e Transazioni condividono il mese; "Vedi transazioni" apre il mese e la categoria; "Questo mese" torna a oggi; fuori dal Budget torna il selettore del periodo | T/screens/BudgetCardsTest::budget and transactions share one month… | COVERED |
+| NEW-016 | Movimento in € senza prezzo BTC di quel giorno: messaggio, salvataggio solo in sat | T/screens/ManualTxnTest::without a price for that day…, ::offline, a past day missing from the cache has no price | COVERED |
+| NEW-017 | Uscita di 100 € da un conto: il patrimonio scende di 100 € in sat | T/screens/PortfolioScenarioTest::spending 100 euro from a bank account… | COVERED (±1 sat di troncamento, come ogni aggregato) |
+| NEW-018 | Modalità test: in Impostazioni niente "Cancella dati"; fuori dalla modalità test c'è | T/screens/TestModeSectionTest::in test mode Settings offers no data wipe, outside it does | COVERED |
+| NEW-019 | Modalità test da installazione nuova: niente PIN, uscendo si torna a Welcome | T/data/TestModeTest::trying test mode on a fresh install… | COVERED |
+| NEW-020 | `BHODL_DEMO=1` avvia in modalità test; vuoto o `0` no | T/data/TestModeTest::BHODL_DEMO starts the app in test mode… | COVERED |
+| NEW-021 | Ricerca per categoria predefinita in entrambe le lingue ("cibo" e "food") | T/screens/CategoryNamesTest::a search finds a classic category… | COVERED |
+| NEW-022 | Riaggiunta di un xpub rimosso: accettato, label locali perse | T/screens/UcWalletSettingsTest::WAL-032 a removed xpub can be added again… | COVERED |
+| NEW-023 | Finestra minima 960×640: l'ultimo pulsante di Welcome, PIN, Aggiungi wallet e pulizia resta raggiungibile | T/screens/SmallWindowTest | COVERED |
+| NEW-024 | Freccia Indietro in alto su Aggiungi wallet e Contatti | T/screens/UcAddWatchWalletTest::WAL-018 the back arrow…, T/screens/AddressBookScreenTest::the back arrow… | COVERED |
+
+### Cosa resta a mano (test-book, 2026-10-26)
+
+- **Rete e wallet veri** (§0, §1.10, §4.8, §4c.3, §5, §70.3, §70.4): pagamento
+  reale su signet, confronto con il wallet di firma, server di riserva. In CI
+  la parte regtest copre ricezione, saldo, UTXO e storico dopo la riapertura;
+  mancano una spesa reale con resto e il passaggio in attesa → confermata.
+- **File esterni** (§14b.12): import di un JSONL esportato da Sparrow.
+- **Collegamenti tra schermate ancora da coprire** (§1.3, §1.8, §2.3, §14c.2,
+  §16c.3, §16c.4, §17b.8): i pezzi sono testati, il percorso intero no.
+- **Aspetto e finestra** (§16.2 e le righe "finestra stretta"/"italiano"):
+  passano ai test a screenshot di riferimento.
+- **Copertura** (§17.6, §17.7): soglie non ancora imposte in CI.
+

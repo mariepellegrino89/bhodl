@@ -77,19 +77,19 @@ Cosa resta manuale, e perché:
 
 | #     | Steps                                                                 | Risultato atteso                                                                | Pass |
 |-------|-----------------------------------------------------------------------|---------------------------------------------------------------------------------|------|
-| 1.1   | App parte.                                                            | Atterra su Welcome (nessun registry su disco).                                  | [ ] |
+| 1.1   | App parte.                                                            | Atterra su Welcome (nessun registry su disco).                                  | [auto] UcBootRoutingSecurityTest.`SEC-001 empty data dir boots to Welcome` |
 | 1.2   | Leggi Welcome.                                                        | Testo: BHODL è un tracker Bitcoin watch-only, i wallet si aggiungono da xpub / descriptor / indirizzi, non tiene chiavi private e non può inviare bitcoin. Pulsante "Get started" + TextButton "Erase ALL local wallets…". Nessun pulsante create / restore. | [auto] WelcomeScreenTest.`tap get started invokes the callback and nothing else` |
 | 1.3   | Tap "Get started".                                                    | Naviga a "Create your device PIN": spiega che il PIN cifra lista wallet e dati del tracker, minimo 6 cifre, non recuperabile. Cursore nel primo campo. | [ ] |
 | 1.4   | PIN "12345", conferma "12345".                                        | Errore "PIN is too short (5 / 6 minimum)."; nessun file creato.                  | [auto] PinValidatorTest |
 | 1.5   | PIN "abcdef".                                                         | Errore "PIN must contain only digits."                                          | [auto] PinValidatorTest |
 | 1.6   | PIN "123456", conferma "654321".                                      | Errore "Device PINs do not match."                                              | [auto] PinValidatorTest |
-| 1.7   | Un solo campo compilato.                                              | "Create device PIN" disabilitato finché entrambi i campi non sono pieni.        | [ ] |
+| 1.7   | Un solo campo compilato.                                              | "Create device PIN" disabilitato finché entrambi i campi non sono pieni.        | [auto] DevicePinSetupScreenTest.`create is disabled until both fields are filled` |
 | 1.8   | PIN "123456", conferma "123456" → "Create device PIN".                | "Opening…" per ~1 s, poi naviga ad "Add watch-only wallet". In `~/.bhodl/` ci sono `registry.sqlite` e `registry.kdf.json`, nessun file `wallet.*`. | [ ] |
-| 1.9   | Chiudi l'app su "Add watch-only wallet" senza aggiungere nulla, riapri. | Atterra su DevicePinUnlock (il registry esiste), non su Welcome.                | [ ] |
+| 1.9   | Chiudi l'app su "Add watch-only wallet" senza aggiungere nulla, riapri. | Atterra su DevicePinUnlock (il registry esiste), non su Welcome.                | [auto] UcBootRoutingSecurityTest.`SEC-002 a registry on disk boots to the device PIN gate` |
 | 1.10  | Su "Add watch-only wallet": label "Signet test", Script type uguale al wallet di firma, network Signet, incolla l'xpub di `0.4`, "Add watch wallet". | "Adding…", poi il Tracker HOME mostra la riga "Signet test" con il saldo dopo la prima sync. Esiste `~/.bhodl/watch-state/<uuid>.sqlite`. | [ ] |
-| 1.11  | Aggiungi di nuovo lo stesso xpub con un'altra label.                  | Errore che indica il wallet già presente con quell'xpub; nessuna nuova riga.    | [ ] |
-| 1.12  | Aggiungi un altro xpub con label "signet TEST" (stessa label, maiuscole diverse). | Errore nome già usato.                                                          | [ ] |
-| 1.13  | Network Mainnet con Tor spento → "Add watch wallet".                  | Dialog "Mainnet sync without Tor" con avviso privacy; "Cancel" non aggiunge nulla, "Continue without Tor" procede. | [ ] |
+| 1.11  | Aggiungi di nuovo lo stesso xpub con un'altra label.                  | Errore che indica il wallet già presente con quell'xpub; nessuna nuova riga.    | [auto] UcAddWatchWalletTest.`WAL-020 the same tpub twice is refused…` |
+| 1.12  | Aggiungi un altro xpub con label "signet TEST" (stessa label, maiuscole diverse). | Errore nome già usato.                                                          | [auto] UcAddWatchWalletTest.`WAL-019 a label already used…` |
+| 1.13  | Network Mainnet con Tor spento → "Add watch wallet".                  | Dialog "Mainnet sync without Tor" con avviso privacy; "Cancel" non aggiunge nulla, "Continue without Tor" procede. | [auto] UcAddWatchWalletTest.`WAL-021 mainnet without Tor warns…` |
 
 ---
 
@@ -113,10 +113,10 @@ Cosa resta manuale, e perché:
 
 | #     | Steps                                                                 | Risultato atteso                                                                | Pass |
 |-------|-----------------------------------------------------------------------|---------------------------------------------------------------------------------|------|
-| 3.1   | Avvia app.                                                            | Boot guard rileva `registry.sqlite`, parte da DevicePinUnlock ("Enter your device PIN to open BHODL."). Cursore nel campo PIN. | [ ] |
-| 3.2   | PIN sbagliato.                                                        | "Wrong device PIN."; resta sulla schermata.                                     | [ ] |
+| 3.1   | Avvia app.                                                            | Boot guard rileva `registry.sqlite`, parte da DevicePinUnlock ("Enter your device PIN to open BHODL."). Cursore nel campo PIN. | [auto] UcBootRoutingSecurityTest.`SEC-002…` + UcPinScreensSecurityTest.`SEC-039…` |
+| 3.2   | PIN sbagliato.                                                        | "Wrong device PIN."; resta sulla schermata.                                     | [auto] UcPinScreensSecurityTest.`SEC-028 a wrong PIN shows Wrong device PIN…` |
 | 3.3   | Tre PIN sbagliati di fila.                                            | "Wrong device PIN. Wait Ns before retrying." con countdown; pulsante disabilitato per tutto il cooldown. Il cooldown cresce con i tentativi (5 s, 30 s, 2 min, 10 min). | [auto] PinAttemptTrackerTest |
-| 3.4   | PIN giusto.                                                           | Atterra sul Tracker HOME (o su LegacyCleanup, §17b, se ci sono dati di build con seed). Wallet e dati del tracker invariati. | [ ] |
+| 3.4   | PIN giusto.                                                           | Atterra sul Tracker HOME (o su LegacyCleanup, §17b, se ci sono dati di build con seed). Wallet e dati del tracker invariati. | [auto] UcPinScreensSecurityTest.`SEC-027…` + UcBootRoutingSecurityTest.`SEC-009…` |
 | 3.5   | Resta inattivo oltre il tempo di auto-lock.                           | L'app torna a DevicePinUnlock da sola.                                          | [auto] IdleLockTest |
 
 ---
@@ -132,11 +132,11 @@ Cosa resta manuale, e perché:
 | 4.3   | Lascia l'app in focus ~2 minuti.                                      | Auto-sync almeno un'altra volta; la cache di 60 s evita chiamate ravvicinate.   | [auto] DashboardScreenTest.`auto-sync is skipped when SyncCache is still fresh` |
 | 4.4   | Tab Transactions con qualche tx.                                      | Tabella con importi firmati (+ in entrata, − in uscita), stato Pending / Confirming n of 6 / nessun badge quando definitiva. Filtri e ricerca restringono la tabella. | [auto] HistoryScreenTest.`status chips follow Pending, Confirming n of 6 and no badge once final` + `incoming amounts carry a plus sign, outgoing a minus` + `filter chips and search narrow the table` |
 | 4.5   | Clicca una riga.                                                      | Pannello di dettaglio a destra: txid, importo, fee (se nota), stato, label.     | [auto] HistoryScreenTest.`clicking a row fires onTxClicked and opens the detail pane` |
-| 4.6   | Nel dettaglio: "Copy" txid, poi incolla in un editor.                 | Il txid completo.                                                               | [ ] |
+| 4.6   | Nel dettaglio: "Copy" txid, poi incolla in un editor.                 | Il txid completo.                                                               | [auto] TransactionDetailsScreenTest.`Copy fires copyToClipboard with the txid` |
 | 4.7   | "Open in mempool.space".                                              | Browser su `https://mempool.space/signet/tx/<txid>` (mainnet senza `/signet`).  | [auto] TransactionDetailsScreenTest.`Open in mempool space fires openExplorer with the full URL` (browser: manuale) |
 | 4.8   | Un pagamento in uscita fatto dal wallet di firma esterno, poi Sync.   | Compare in Transactions con importo negativo e fee.                             | [ ] |
 | 4.9   | Un trasferimento tra due wallet entrambi tracciati.                   | Classificato come "Send to self" nel tracker (§29.2).                           | [auto] SendToSelfDetectorTest |
-| 4.10  | Chiudi e riapri l'app → unlock → apri il wallet.                      | Storico identico senza attendere una nuova scansione completa.                  | [ ] |
+| 4.10  | Chiudi e riapri l'app → unlock → apri il wallet.                      | Storico identico senza attendere una nuova scansione completa.                  | [auto] uc_wallet_tests `wal_057_synced_state_is_visible_after_reopen…` + UcWalletRegtestIntegrationTest.`WAL-050 WAL-057…` |
 
 ---
 
@@ -152,11 +152,11 @@ legate all'indirizzo e copiate sul pagamento in arrivo alla sync.
 |-------|-----------------------------------------------------------------------|---------------------------------------------------------------------------------|------|
 | 4b.1  | Tab Receive.                                                          | Passo "Label this payment first": campi Label, Category, Amount, messaggio per il pagatore. Nessun indirizzo visibile. | [auto] ReceiveScreenTest.`opening the tab reveals no address until the user continues` |
 | 4b.2  | Label "Invoice #44", categoria "Freelance" → "Show address".          | Appare un indirizzo + QR + URI BIP-21; sotto "Label: Invoice #44" e la categoria. | [auto] ReceiveScreenTest.`label and category are attached to the address before it is shown` |
-| 4b.3  | Confronta l'indirizzo con il wallet di firma.                         | È il prossimo indirizzo di ricezione non usato dello stesso account (stesso tipo di script). | [ ] |
+| 4b.3  | Confronta l'indirizzo con il wallet di firma.                         | È il prossimo indirizzo di ricezione non usato dello stesso account (stesso tipo di script). | [auto] uc_wallet_tests `wal_081_next_unused_skips_an_address_that_received_funds` |
 | 4b.4  | Amount "100000".                                                      | URI `bitcoin:<addr>?amount=0.001`; QR rigenerato.                               | [auto] ReceiveScreenTest.`amount produces a BIP-21 URI with the amount in BTC` |
 | 4b.5  | Amount "abc.0.5".                                                     | Solo cifre accettate.                                                           | [auto] ReceiveScreenTest.`digits-only filter rejects letters and decimals in amount` |
 | 4b.6  | Messaggio per il pagatore "Coffee with Alice".                        | Solo il messaggio esplicito finisce nell'URI, percent-encoded (`%20`); label e categoria interne no. | [auto] ReceiveScreenTest.`only the explicit payer message reaches the URI, percent-encoded` |
-| 4b.7  | "Copy URI" / "Copy address" → incolla in un editor.                   | URI BIP-21 completo / indirizzo nudo.                                           | [ ] |
+| 4b.7  | "Copy URI" / "Copy address" → incolla in un editor.                   | URI BIP-21 completo / indirizzo nudo.                                           | [auto] UcWalletSettingsTest.`WAL-088 copy address and copy URI fill the clipboard…` |
 | 4b.8  | "Edit label" → cambia label.                                          | Stesso indirizzo, label aggiornata; nessun nuovo indirizzo rivelato.            | [auto] ReceiveScreenTest.`editing the request relabels the same address without revealing another` |
 | 4b.9  | Esci dal tab e rientra senza che l'indirizzo riceva fondi.            | Stesso indirizzo non usato (nessun buco nel gap limit).                         | [auto] ReceiveScreenTest.`re-opening the tab hands out the same unused address` |
 | 4b.10 | "New address".                                                        | Indirizzo all'indice successivo, label mantenuta.                               | [auto] ReceiveScreenTest.`New address advances to the next index and keeps the label` |
@@ -201,7 +201,7 @@ legate all'indirizzo e copiate sul pagamento in arrivo alla sync.
 | 12.1  | Transactions → riga → pannello dettaglio (o pagina TransactionDetails da deep link). | Txid completo con Copy, importo, fee, stato (confermata / "In mempool"), campo label. | [auto] TransactionDetailsScreenTest.`confirmed tx renders status, amount, fee, txid` + `pending tx renders 'In mempool' status` |
 | 12.2  | Scrivi "test label" → Save.                                           | Salvata; Save torna disabilitato.                                               | [auto] LabelsAndContactsUiTest.`tx label saves, survives a re-open, and Clear removes it` |
 | 12.3  | Chiudi e riapri il dettaglio.                                         | La label è ancora lì e compare nella riga della tabella.                         | [auto] LabelsAndContactsUiTest.`tx label saves, survives a re-open, and Clear removes it` |
-| 12.4  | Lock → unlock → riapri il wallet.                                     | La label persiste.                                                              | [ ] |
+| 12.4  | Lock → unlock → riapri il wallet.                                     | La label persiste.                                                              | [auto] uc_wallet_tests `wal_108_wal_119_labels_and_contacts_survive_closing_and_reopening…` |
 | 12.5  | Svuota il campo → Clear.                                              | Label rimossa.                                                                  | [auto] LabelsAndContactsUiTest.`tx label saves, survives a re-open, and Clear removes it` |
 | 12.6  | Txid sconosciuto via deep link.                                       | Errore "not found", Back funziona.                                              | [auto] TransactionDetailsScreenTest.`unknown txid surfaces 'not found' error` |
 
@@ -218,7 +218,7 @@ legate all'indirizzo e copiate sul pagamento in arrivo alla sync.
 | 14.3  | Label "Exchange", address signet valido → Save.                       | Il contatto compare in lista.                                                   | [auto] AddressBookScreenTest.`empty state then add then list then delete` |
 | 14.4  | Stesso address con altra label.                                       | Rifiutato (address UNIQUE), la lista resta con una voce.                        | [auto] LabelsAndContactsUiTest.`adding the same address twice is refused and the list keeps one entry` |
 | 14.5  | Delete sul contatto.                                                  | Riga rimossa.                                                                   | [auto] AddressBookScreenTest.`empty state then add then list then delete` |
-| 14.6  | Lock → unlock → riapri wallet → Contacts.                             | Le modifiche persistono (la rubrica è per wallet, nel suo watch-state cifrato). | [ ] |
+| 14.6  | Lock → unlock → riapri wallet → Contacts.                             | Le modifiche persistono (la rubrica è per wallet, nel suo watch-state cifrato). | [auto] uc_wallet_tests `wal_108_wal_119_labels_and_contacts_survive_closing_and_reopening…` |
 
 ---
 
@@ -239,7 +239,7 @@ Wallet settings.
 | 14b.5 | Tor: toggle ON, proxy `127.0.0.1:9050` (con `tor` locale attivo), Sync. | La sync passa dal proxy SOCKS5.                                                 | [auto] SettingsScreenTest.`Tor toggle reveals the proxy field and writes torEnabled=true` + DashboardScreenTest.`auto-sync passes the SettingsStore Tor proxy to the FFI` |
 | 14b.6 | Appearance › Bitcoin unit: Sats (default) / BTC / Auto, BIP177.       | Importi coerenti in workspace e tracker; la scelta resta dopo il riavvio.       | [auto] SettingsScreenTest.`appearance shows System theme selected and sats unit by default` + `unit chips and BIP177 toggle write SettingsStore and update the example` |
 | 14b.7 | Appearance › Density: Compact / Ultra-dense.                          | Righe da 32 px / 24 px nelle tabelle.                                           | [auto] SettingsScreenTest.`density chips write SettingsStore` (resa: manuale) |
-| 14b.8 | Wallet settings → rinomina il wallet (nome vuoto, nome di un altro wallet, nome nuovo). | Vuoto e duplicato rifiutati con messaggio; il nome nuovo appare nell'header e nel Tracker. | [ ] |
+| 14b.8 | Wallet settings → rinomina il wallet (nome vuoto, nome di un altro wallet, nome nuovo). | Vuoto e duplicato rifiutati con messaggio; il nome nuovo appare nell'header e nel Tracker. | [auto] UcWalletSettingsTest.`WAL-029 rename refuses blank and duplicate names…` |
 | 14b.9 | Wallet settings → "Show watch-only descriptor".                       | Mostra xpub e descriptor esterno con pulsanti Copy; "Hide" li nasconde. Nulla è mostrato prima del click. | [auto] SecretActionsUiTest.`watch-only descriptor is exported only on request` |
 | 14b.10| Wallet settings → BIP-329 "Export labels…".                           | Dialog nativo "Save as" (`bhodl-labels-YYYYMMDD-HHmmss.jsonl`); "Exported N label(s) to <path>". Il file ha una riga JSON per label. | [auto] LabelsSectionTest.`Export happy path calls FFI then save dialog and surfaces success` (dialog nativo: manuale) |
 | 14b.11| "Import labels…" dello stesso file.                                   | "Imported N label(s)." — idempotente, nessun duplicato.                         | [auto] LabelsSectionTest.`Import happy path forwards the JSONL to the FFI and reports the count` |
@@ -256,9 +256,9 @@ Wallet settings.
 |-------|-----------------------------------------------------------------------|---------------------------------------------------------------------------------|------|
 | 14c.1 | Wallet settings → "Remove this wallet".                               | Primo tap: "Tap again to remove this wallet from BHODL."; nulla è cancellato.   | [auto] SecretActionsUiTest.`remove this wallet needs a second tap` |
 | 14c.2 | Secondo tap ("Confirm: remove this wallet").                          | Torna al Tracker; la riga non c'è più; il net worth non include più quel saldo. | [ ] |
-| 14c.3 | `Get-ChildItem $env:USERPROFILE\.bhodl\watch-state`.                  | Il file `<uuid>.sqlite` del wallet rimosso non esiste più (anche su Windows: l'handle viene chiuso prima). | [ ] |
-| 14c.4 | Categorie, goal collegati a quel wallet.                              | Le categorie delle sue tx sono sparite; un goal collegato al wallet non punta più a un wallet inesistente. | [ ] |
-| 14c.5 | Riaggiungi lo stesso xpub.                                            | Accettato; storico ricostruito dalla sync, label locali perse (a meno di re-import BIP-329). | [ ] |
+| 14c.3 | `Get-ChildItem $env:USERPROFILE\.bhodl\watch-state`.                  | Il file `<uuid>.sqlite` del wallet rimosso non esiste più (anche su Windows: l'handle viene chiuso prima). | [auto] UcWalletSettingsTest.`WAL-032 GAP-024 second tap closes the handle, removes row and file…` |
+| 14c.4 | Categorie, goal collegati a quel wallet.                              | Le categorie delle sue tx sono sparite; un goal collegato al wallet non punta più a un wallet inesistente. | [auto] UcWalletSettingsTest.`WAL-032 GAP-024…` + registry.rs `remove_wallet_with_metadata_purges_dependents` |
+| 14c.5 | Riaggiungi lo stesso xpub.                                            | Accettato; storico ricostruito dalla sync, label locali perse (a meno di re-import BIP-329). | [auto] UcWalletSettingsTest.`WAL-032 a removed xpub can be added again, without the old local labels` |
 
 ---
 
@@ -272,7 +272,7 @@ Wallet settings.
 | 15.2  | Cancel.                                                               | Nulla cancellato.                                                               | [auto] SecretActionsUiTest.`wipe Cancel keeps every file and the unlocked wallet` |
 | 15.3  | Con PIN: PIN + `DELETE` → "Erase all wallets". Senza PIN: `DELETE` + spunta → "Move wallets to recovery folder". | Con PIN: "Wiped N items.", `~/.bhodl/` senza registry, watch-state né storico PIN. Senza PIN: "Moved N items to …/.bhodl-trash/<AAAAMMGG-hhmmss>", stessi percorsi relativi, recuperabili. Vedi §57. | [auto] SecretActionsUiTest.`forgot device PIN switches to the trash path` + `Welcome reset without a registry moves the files to trash after the seed acknowledgement` + LocalWipeTrashTest |
 | 15.4  | Settings → "Factory reset (all wallets)…" → `DELETE`.                 | Sessione già autenticata: basta `DELETE`, cancellazione definitiva; l'app torna a Welcome. | [auto] SettingsScreenTest.`Wipe is two-tap and clears the WalletStore on confirm` + SecretActionsUiTest.`confirmed wipe empties the data dir and drops PIN history` |
-| 15.5  | Riapri l'app.                                                         | Boot guard parte da Welcome.                                                    | [ ] |
+| 15.5  | Riapri l'app.                                                         | Boot guard parte da Welcome.                                                    | [auto] UcWipeSecurityTest.`SEC-075…` + UcNavigationSecurityTest.`SEC-076 restartAtBootGuard after a wipe lands on Welcome` |
 
 ---
 
@@ -282,7 +282,7 @@ Wallet settings.
 
 | #     | Steps                                                                 | Risultato atteso                                                                | Pass |
 |-------|-----------------------------------------------------------------------|---------------------------------------------------------------------------------|------|
-| 16.1  | Riduci la finestra al minimo (960×640).                               | I pulsanti in fondo a ogni schermata (Welcome, PIN, Add watch, LegacyCleanup) restano raggiungibili via scroll. | [ ] |
+| 16.1  | Riduci la finestra al minimo (960×640).                               | I pulsanti in fondo a ogni schermata (Welcome, PIN, Add watch, LegacyCleanup) restano raggiungibili via scroll. | [auto] SmallWindowTest.`welcome, PIN setup, add wallet and cleanup keep their last button reachable` |
 | 16.2  | Transactions e UTXOs con molte righe.                                 | Scrolling fluido, header della tabella fisso.                                   | [ ] |
 
 ---
@@ -308,8 +308,8 @@ watch-only.
 
 | #     | Steps                                                                 | Risultato atteso                                                                | Pass |
 |-------|-----------------------------------------------------------------------|---------------------------------------------------------------------------------|------|
-| 16c.1 | Apri Add watch, Contacts, Settings, Security Hub, Transaction details. | Ognuna mostra `←` in alto a sinistra (testTag `bhodl.backarrow`) che torna indietro. | [ ] |
-| 16c.2 | Lock → DevicePinUnlock.                                               | Cursore già nel campo PIN.                                                      | [ ] |
+| 16c.1 | Apri Add watch, Contacts, Settings, Security Hub, Transaction details. | Ognuna mostra `←` in alto a sinistra (testTag `bhodl.backarrow`) che torna indietro. | [auto] UcAddWatchWalletTest.`WAL-018 the back arrow at the top…` + AddressBookScreenTest.`the back arrow at the top leaves the contacts` + SettingsScreenTest / TransactionDetailsScreenTest (Back) |
+| 16c.2 | Lock → DevicePinUnlock.                                               | Cursore già nel campo PIN.                                                      | [auto] UcNavigationSecurityTest.`SEC-069…` + UcPinScreensSecurityTest.`SEC-039…` |
 | 16c.3 | Settings → Language → lingua opposta.                                 | Resti su Settings, le stringhe cambiano subito, nessun ritorno al PIN.          | [ ] |
 | 16c.4 | Dopo 16c.3 naviga nel wallet e nel tracker.                           | Tutto nella nuova lingua; back stack coerente.                                  | [ ] |
 
@@ -348,11 +348,11 @@ iniziare. Annota le recovery phrase.
 | #      | Steps                                                                 | Risultato atteso                                                                | Pass |
 |--------|-----------------------------------------------------------------------|---------------------------------------------------------------------------------|------|
 | 17b.1  | Avvia la build attuale → device PIN.                                  | Dopo l'unlock appare "Remove old spending wallets": spiega che BHODL è watch-only, che i wallet creati da recovery phrase saranno cancellati definitivamente (chiavi incluse) e come continuare a tracciarli (riaggiungerli da xpub). Riga "Old spending wallets in the wallet list: N". | [auto] WalletPathsTest.`legacySigningDataExists_detects_a_per_wallet_signing_dir` (schermata: manuale) |
-| 17b.2  | Senza spuntare la checkbox.                                           | "Delete old wallets" disabilitato.                                              | [ ] |
-| 17b.3  | "Not now".                                                            | Va al Tracker. I signing wallet non compaiono nella lista; il mirror e il watch manuale sì. Su disco `wallets/<uuid>/` è ancora presente. | [ ] |
-| 17b.4  | Lock → unlock.                                                        | LegacyCleanup ricompare.                                                        | [ ] |
+| 17b.2  | Senza spuntare la checkbox.                                           | "Delete old wallets" disabilitato.                                              | [auto] UcLegacyCleanupSecurityTest.`SEC-010 delete stays disabled until the recovery checkbox is ticked` |
+| 17b.3  | "Not now".                                                            | Va al Tracker. I signing wallet non compaiono nella lista; il mirror e il watch manuale sì. Su disco `wallets/<uuid>/` è ancora presente. | [auto] UcLegacyCleanupSecurityTest.`SEC-012 Not now continues without deleting anything` |
+| 17b.4  | Lock → unlock.                                                        | LegacyCleanup ricompare.                                                        | [auto] UcLegacyCleanupSecurityTest.`SEC-012…` + UcBootRoutingSecurityTest.`SEC-009…` |
 | 17b.5  | Spunta "I have the recovery phrases of these wallets" → "Delete old wallets". | Va al Tracker. `wallets/` non contiene più le directory dei signing wallet; il mirror resta come wallet watch-only normale con il suo storico e le sue categorie; il watch manuale è intatto. | [auto] registry::`purge_legacy_signing_wallets_keeps_mirrors_as_plain_watch_wallets` (cargo) + WalletPathsTest.`purgeLegacySigningData_removes_every_signing_artifact_and_keeps_watch_data` |
-| 17b.6  | Lock → unlock.                                                        | LegacyCleanup non compare più.                                                  | [ ] |
+| 17b.6  | Lock → unlock.                                                        | LegacyCleanup non compare più.                                                  | [auto] UcLegacyCleanupSecurityTest.`SEC-011…` + UcBootRoutingSecurityTest.`SEC-009…` |
 | 17b.7  | Data dir con solo un'installazione pre-3.0 (`wallet.sqlite`, `wallet.kdf.json`, `wallet.salt`, `wallet.network` alla radice, nessun registry). | Al boot va direttamente a LegacyCleanup (nessun PIN richiesto). Dopo la cancellazione: Welcome. I file `wallet.*` sono spariti. | [auto] WalletPathsTest.`legacySigningDataExists_detects_each_root_artifact` (boot: manuale) |
 | 17b.8  | Su Windows, tieni aperto un file della cartella con un altro programma e cancella. | "Some files could not be deleted (N). Close other programs…"; nessuna navigazione; riprovando dopo aver chiuso il programma riesce. | [ ] |
 
@@ -365,7 +365,7 @@ iniziare. Annota le recovery phrase.
 | #      | Steps                                                                 | Risultato atteso                                                                | Pass |
 |--------|-----------------------------------------------------------------------|---------------------------------------------------------------------------------|------|
 | 17c.1  | Apri il Security Hub (shield nella barra di stato, Settings › Open Security Hub o palette). | Cinque righe, in ordine: Device PIN, Auto-lock, Connection, Wallets, BIP-329 labels export. Nessuna riga su backup o recovery phrase. | [auto] SecurityHubTest.`there is one row per check, in display order` + `hub renders rows and routes the actions` |
-| 17c.2  | Riga Wallets.                                                         | "N watch-only (BHODL never holds private keys)", informativa (non conta nel punteggio). | [ ] |
+| 17c.2  | Riga Wallets.                                                         | "N watch-only (BHODL never holds private keys)", informativa (non conta nel punteggio). | [auto] UcHubPaletteSecurityTest.`SEC-133 the wallets row says watch-only…` |
 | 17c.3  | Mainnet in clearnet vs Tor ON.                                        | Connection "attention" in clearnet su mainnet, OK con Tor; su signet clearnet è solo informativa. | [auto] SecurityHubTest.`clearnet mainnet needs attention` + `clearnet on signet is only informative and no wallet makes labels informative` |
 | 17c.4  | Esporta le label (14b.10) e torna all'Hub.                            | Riga labels con la data di export; con Tor ON tutte le righe contate sono OK.   | [auto] SecurityHubTest.`exported labels and Tor make every counted check OK` |
 | 17c.5  | Hub senza wallet aperto.                                              | La riga labels non ha azione.                                                   | [auto] SecurityHubTest.`labels row has no action without an open wallet` |
@@ -2293,7 +2293,7 @@ Correzioni trovate dai test e da verificare a mano una volta:
 | 55.3 | Export CSV filtrato                    | 1. Activity: filtra per categoria. 2. Esporta CSV.                                     | Il file contiene solo le righe filtrate.                                                                 | [auto] UcTransactionsTrackerTest.`TRK-161 the CSV export follows the active filters` |
 | 55.4 | Trasferimenti tra i propri wallet      | 1. Sposta fondi tra due tuoi wallet. 2. Guarda breakdown, report e flussi mensili.     | Il trasferimento non conta come spesa.                                                                   | [auto] UcAggregationsTrackerTest.`TRK-110 send_to_self contributes only its fee to the period KPIs` |
 | 55.5 | Seconda istanza                        | 1. Avvia BHODL. 2. Avvialo di nuovo.                                                   | Il secondo avvio mostra "BHODL è già aperto" e si chiude.                                                | [auto] SingleInstanceLockTest — manual: dialog |
-| 55.6 | Home: KPI, previsione, revisione mensile | 1. Tracker › Home con transazioni nel mese.                                          | Sotto il patrimonio: striscia KPI, previsione di cassa a 90 giorni, banner di revisione mensile che apre Reports. | [ ] |
+| 55.6 | Home: KPI, previsione, revisione mensile | 1. Tracker › Home con transazioni nel mese.                                          | Sotto il patrimonio: striscia KPI, previsione di cassa a 90 giorni, banner di revisione mensile che apre Reports. | [auto] HomeCockpitTest.`render the home…` + UcHomeTrackerTest.`TRK-172…` (Home ridisegnata, vedi §59) |
 | 55.7 | Debiti                                 | 1. Aggiungi un debito di tipo carta di credito con nota "Visa".                        | Sottotitolo "Credit card · Visa" (IT: "Carta di credito · Visa"); il core rifiuta tipi sconosciuti.       | [auto] UcPortfolioNetWorthTest + registry `liability_kind_is_validated_on_add_and_update` (cargo) |
 | 55.8 | Errori tradotti                        | 1. Lingua italiana. 2. Provoca un errore di sync (endpoint irraggiungibile).            | Il messaggio è in italiano, con il dettaglio tecnico dopo i due punti.                                   | [auto] UcRuntimeStringsSecurityTest |
 
@@ -2429,9 +2429,9 @@ Gli screenshot della revisione grafica finiscono in `apps/desktop/build/screensh
 |------|--------------------------|-----------------------------------------------------------------------|--------------------------------------------------------------------------------------------------|------|
 | 59.1 | Disposizione             | 1. Tracker › Home a finestra piena, poi sotto ~1000 px.               | Patrimonio e colonna destra affiancati; sotto 1000 px uno sotto l'altro. Una sola striscia KPI.  | [auto] HomeCockpitTest.`render the home for the visual review` |
 | 59.2 | Da fare                  | 1. Una bolletta che scade tra 3 giorni, una transazione senza categoria. | Righe "Luce in scadenza tra 3 giorni" e "Transazioni senza categoria: 1"; clic → Budget / Transazioni. | [auto] HomeCockpitTest + UcHomeTrackerTest.`TRK-168 to-do rows open the section that fixes them` |
-| 59.3 | Revisione del mese       | 1. Primi giorni del mese, con transazioni. 2. "Apri".                 | La riga sparisce e si apre Report.                                                               | [ ] |
+| 59.3 | Revisione del mese       | 1. Primi giorni del mese, con transazioni. 2. "Apri".                 | La riga sparisce e si apre Report.                                                               | [auto] UcHomeTrackerTest.`TRK-172 in the first days of the month the review row opens Reports and goes away` + `TRK-173…` |
 | 59.4 | Tutto in ordine          | 1. Nessuna cosa in sospeso.                                           | "Tutto in ordine."                                                                               | [auto] UcHomeTrackerTest.`TRK-168 the home shows no stale banner…` |
-| 59.5 | Tooltip                  | 1. Passa sui "?" di Composizione, Da fare e di ogni indicatore. 2. Tab fino a un "?". | Spiegazione di cosa misura e come è calcolato; con il Tab compare la stessa spiegazione.           | [ ] |
+| 59.5 | Tooltip                  | 1. Passa sui "?" di Composizione, Da fare e di ogni indicatore. 2. Tab fino a un "?". | Spiegazione di cosa misura e come è calcolato; con il Tab compare la stessa spiegazione.           | [auto] UcHomeTrackerTest.`TRK-174 every help mark explains itself, on hover and on keyboard focus` |
 | 59.6 | Tema chiaro              | 1. Settings › Tema Chiaro.                                            | Tutto leggibile, colori del tema.                                                                | [auto] screenshot `home-light.png` |
 
 ### Verifiche automatizzate
@@ -2458,7 +2458,7 @@ Gli screenshot della revisione grafica finiscono in `apps/desktop/build/screensh
 | 60.2 | Cronologia            | 1. Scorri.                                                             | In attesa per prime, poi i giorni dal più recente, con il totale di ogni giorno.        | [auto] TransactionsTimelineTest.`days come newest first…` |
 | 60.3 | Da rivedere           | 1. Una transazione senza categoria. 2. Clic su una pillola.             | La transazione prende la categoria e sparisce dalla colonna.                            | [auto] TransactionsTimelineTest.`summaries, review lane…` |
 | 60.4 | Ricerca               | 1. Scrivi parte di categoria, wallet, txid o importo.                   | Restano solo le righe che corrispondono; l'export CSV segue la ricerca.                | [auto] TransactionsTimelineTest.`the ledger follows the period…` |
-| 60.5 | Periodo               | 1. Cambia periodo (7g / 30g / …).                                       | Riepiloghi e cronologia seguono il periodo.                                             | [ ] |
+| 60.5 | Periodo               | 1. Cambia periodo (7g / 30g / …).                                       | Riepiloghi e cronologia seguono il periodo.                                             | [auto] TransactionsTimelineTest.`changing the period moves the summaries and the timeline together` |
 | 60.6 | Mostra altre          | 1. Più di 50 transazioni.                                               | "Mostrate 50 di N · mostra altre" aggiunge 50 righe.                                    | [auto] UcTransactionsTrackerTest.`TRK-142…` |
 | 60.7 | Wallet inclusi        | 1. Clic su una pillola wallet.                                          | Diventa "Escluso" e i totali non lo contano più.                                        | [auto] UcTransactionsTrackerTest.`TRK-027…` |
 
@@ -2484,7 +2484,7 @@ Gli screenshot della revisione grafica finiscono in `apps/desktop/build/screensh
 | 61.1 | Conteggi          | 1. Obiettivi con stati diversi.                            | "N obiettivi · X in linea · Y in ritardo · Z raggiunti" coerente con le card.  | [auto] GoalsCardsTest.`counts split on track, behind and reached` |
 | 61.2 | Filtro per tipo   | 1. Clic su "Spese future".                                 | Restano solo le spese future.                                                  | [auto] GoalsCardsTest.`the type filter narrows the cards` |
 | 61.3 | Spesa futura      | 1. Obiettivo con scadenza.                                 | "Al mese serve" calcolato, scadenza e giorni mancanti.                         | [auto] screenshot `goals-dark.png` |
-| 61.4 | Allocazione       | 1. Obiettivo "% del netto".                                | Riquadro "Quota del netto"; etichetta di scostamento oltre ±5 pp.              | [ ] |
+| 61.4 | Allocazione       | 1. Obiettivo "% del netto".                                | Riquadro "Quota del netto"; etichetta di scostamento oltre ±5 pp.              | [auto] GoalsCardsTest.`an allocation goal shows its share of net worth and flags a drift of 5 pp or more` |
 | 61.5 | Finestra stretta  | 1. Restringi la finestra.                                  | 3 → 2 → 1 card per riga.                                                       | [ ] |
 
 ### Verifiche automatizzate
@@ -2509,7 +2509,7 @@ Gli screenshot della revisione grafica finiscono in `apps/desktop/build/screensh
 |------|----------------------|----------------------------------------------------------------|--------------------------------------------------------------------------|------|
 | 62.1 | Riepilogo            | 1. Budget su alcune categorie, spese nel periodo.              | Totali dei soli budget; "restano" al centro dell'anello.                 | [auto] BudgetCardsTest.`summary totals only the budgeted categories…` |
 | 62.2 | Card categoria       | 1. Clic su una card. 2. "Vedi transazioni".                    | 1: apre il budget. 2: Transazioni filtrate su quella categoria.          | [auto] UcRegistryWiringTrackerTest.`TRK-099…` |
-| 62.3 | Senza budget         | 1. Spese in una categoria senza budget.                        | Pillola "Categoria · importo +" che apre il budget.                     | [ ] |
+| 62.3 | Senza budget         | 1. Spese in una categoria senza budget.                        | Pillola "Categoria · importo +" che apre il budget.                     | [auto] BudgetCardsTest.`no category gets no budget - its chip opens those transactions` |
 | 62.4 | Bollette             | 1. Bollette nei prossimi 30 giorni. 2. "Segna pagata".         | Evidenziate se entro 3 giorni; pagata passa al mese dopo se entro 30 giorni. | [auto] BudgetCardsTest.`upcoming bills…` + UcRegistryWiringTrackerTest |
 | 62.5 | Tema chiaro          | 1. Tema chiaro.                                                | Leggibile.                                                               | [auto] screenshot `budget-light.png` |
 
@@ -2540,8 +2540,8 @@ Gli screenshot della revisione grafica finiscono in `apps/desktop/build/screensh
 | #    | Test              | Passi                                                  | Atteso                                                                   | Pass |
 |------|-------------------|--------------------------------------------------------|--------------------------------------------------------------------------|------|
 | 64.1 | Confronto         | 1. Periodo 30 giorni, spese anche nei 30 prima.        | Percentuali di variazione per categoria e sui totali.                     | [auto] ReportsOverviewTest.`categories compare with the previous window` |
-| 64.2 | Periodo "Tutto"   | 1. Periodo Tutto.                                      | Nessuna variazione, nessuna barra sottile.                                | [ ] |
-| 64.3 | Legenda           | 1. Clic su una categoria nella legenda della torta.    | Fetta e barra di quella categoria evidenziate.                            | [ ] |
+| 64.2 | Periodo "Tutto"   | 1. Periodo Tutto.                                      | Nessuna variazione, nessuna barra sottile.                                | [auto] ReportsOverviewTest.`the period All has no previous window - no change and no thin bar` |
+| 64.3 | Legenda           | 1. Clic su una categoria nella legenda della torta.    | Fetta e barra di quella categoria evidenziate.                            | [auto] ReportsOverviewTest.`a legend click highlights that category in the pie and the bars…` |
 | 64.4 | Elenco report     | 1. Clic su "Per wallet".                               | Solo la tabella per wallet.                                               | [auto] ReportsOverviewTest.`the report list switches…` |
 | 64.5 | Tema chiaro       | 1. Tema chiaro.                                        | Leggibile.                                                                | [auto] screenshot `reports-light.png` |
 
@@ -2560,7 +2560,7 @@ Gli screenshot della revisione grafica finiscono in `apps/desktop/build/screensh
 |------|---------------------|---------------------------------------------------------|-----------------------------------------------------------------|------|
 | 65.1 | Card dei conti      | 1. Apri un wallet con almeno due wallet tracciati. 2. Clic sull'altra card. | Si apre l'altro wallet.                          | [auto] WalletCardsTest.`cards show every wallet…` |
 | 65.2 | Sparkline           | 1. Wallet con movimenti negli ultimi 30 giorni.        | Linea che segue il saldo; nessuna linea se il saldo non è cambiato. | [auto] WalletCardsTest.`balance series…` |
-| 65.3 | Non aggiornato      | 1. Fai fallire la sync di un wallet.                    | Card "non aggiornato" con "?" che spiega cosa fare.            | [ ] |
+| 65.3 | Non aggiornato      | 1. Fai fallire la sync di un wallet.                    | Card "non aggiornato" con "?" che spiega cosa fare.            | [auto] WalletCardsTest.`a wallet whose sync failed says stale…` + UcCacheTrackerTest (wallet stale dopo una sync fallita) |
 | 65.4 | Ricevi              | 1. Clic su "Ricevi" nell'header.                        | Scheda Ricevi. Assente sui wallet a lista di indirizzi.         | [auto] WalletCardsTest.`the workspace shows the cards…` |
 | 65.5 | Mappa delle monete  | 1. Scheda UTXO.                                         | Un blocco per UTXO, i più grandi prima; legenda confermato / in attesa. | [auto] screenshot `wallet-dark.png` |
 | 65.6 | Tasto Wallet        | 1. Blocca e sblocca. 2. Tasto Wallet nella barra.       | Si apre il primo wallet tracciato; senza wallet, la Home.       | [auto] UcNavigationSecurityTest.`SEC-145…` |
@@ -2586,8 +2586,8 @@ Gli screenshot della revisione grafica finiscono in `apps/desktop/build/screensh
 | 66.2 | vs HODL           | 1. Investimento con lotti che hanno il cambio BTC del giorno. | Percentuale; "—" se manca il cambio su un lotto.                         | [auto] PortfolioClassViewTest.`class panel numbers…` |
 | 66.3 | Pagina voce       | 1. Clic su una voce del pannello. 2. Clic su "Portafoglio".   | 1: pagina della voce con il percorso. 2: torna al pannello.              | [auto] PortfolioClassViewTest.`the first class with items is open…` |
 | 66.4 | Chiudi pannello   | 1. × sul pannello. 2. Clic su una card.                       | 1: le card occupano tutta la larghezza. 2: il pannello torna.            | [auto] PortfolioClassViewTest.`the first class with items is open…` |
-| 66.5 | Registra          | 1. "Registra acquisto" con più titoli.                        | Chiede quale titolo, poi apre il lotto nuovo; con un solo titolo lo apre subito. | [ ] |
-| 66.6 | Aggiungi          | 1. I quattro pulsanti tratteggiati.                           | Si apre il modulo giusto; "+ Wallet (xpub)" apre l'aggiunta wallet.      | [ ] |
+| 66.5 | Registra          | 1. "Registra acquisto" con più titoli.                        | Chiede quale titolo, poi apre il lotto nuovo; con un solo titolo lo apre subito. | [auto] PortfolioClassViewTest.`record buy asks which holding when there are several…` |
+| 66.6 | Aggiungi          | 1. I quattro pulsanti tratteggiati.                           | Si apre il modulo giusto; "+ Wallet (xpub)" apre l'aggiunta wallet.      | [auto] PortfolioClassViewTest.`the dashed add buttons open the investment, asset, debt and wallet forms` |
 | 66.7 | Finestra stretta  | 1. Restringi sotto 1100 px.                                   | Il pannello va sotto le card.                                            | [ ] |
 | 66.8 | Tema chiaro       | 1. Tema chiaro.                                               | Leggibile.                                                               | [auto] screenshot `portfolio-light-liabilities.png` |
 
@@ -2602,7 +2602,7 @@ Gli screenshot della revisione grafica finiscono in `apps/desktop/build/screensh
 |------|---------------------|--------------------------------------------------------------|---------------------------------------------------------------|------|
 | 67.1 | Sezioni             | 1. Home → Budget → Report. 2. ← due volte.                   | Report → Budget → Home; poi il pulsante è grigio.              | [auto] UcNavigationSecurityTest.`rail Back returns to the section visited before` |
 | 67.2 | Pagina interna      | 1. Portafoglio, clic su una voce. 2. ←.                      | Torna al pannello della classe, resta in Portafoglio.          | [auto] UcNavigationSecurityTest.`rail Back closes an in-screen page first` |
-| 67.3 | Wallet              | 1. Da Home apri un wallet. 2. ←.                             | Torna alla Home.                                              | [ ] |
+| 67.3 | Wallet              | 1. Da Home apri un wallet. 2. ←.                             | Torna alla Home.                                              | [auto] UcNavigationSecurityTest.`rail Back from a wallet opened on the home returns to the home` |
 
 ## 68. Categoria senza domande, regola come opzione (2026-10-25)
 
@@ -2617,8 +2617,8 @@ Gli screenshot della revisione grafica finiscono in `apps/desktop/build/screensh
 |------|----------------------|---------------------------------------------------------------|------------------------------------------------------------------|------|
 | 68.1 | Spesa singola        | 1. Transazioni, clic su una categoria. 2. Scrivi e Salva.     | Nessuna domanda dopo; la categoria compare subito.               | [auto] UcRegistryWiringTrackerTest.`TRK-034 a single category save asks nothing…` |
 | 68.2 | Con regola           | 1. Spunta "Crea anche una regola". 2. Wallet. 3. Salva.       | Regola in cima all'elenco; le transazioni abbinate senza categoria ricevono la categoria. | [auto] UcRegistryWiringTrackerTest.`TRK-034 TRK-072 the category editor can also create a rule…` |
-| 68.3 | Importo esatto       | 1. Spunta la regola, scegli "Importo esatto".                 | L'anteprima conta solo le transazioni con lo stesso importo e direzione. | [ ] |
-| 68.4 | Sync lenta           | 1. Durante una sync lunga cambia una categoria.               | La categoria compare subito, senza aspettare la fine della sync. | [ ] |
+| 68.3 | Importo esatto       | 1. Spunta la regola, scegli "Importo esatto".                 | L'anteprima conta solo le transazioni con lo stesso importo e direzione. | [auto] RuleSuggestionsTest.`amount preview only counts the exact amount` + `amount preview ignores events in the other direction` |
+| 68.4 | Sync lenta           | 1. Durante una sync lunga cambia una categoria.               | La categoria compare subito, senza aspettare la fine della sync. | [auto] UcRegistryWiringTrackerTest.`TRK-034 a category saved during a slow sync shows before the sync ends` |
 
 ## 69. Categorie precaricate, nuove categorie e colori (2026-10-25)
 
@@ -2637,8 +2637,8 @@ Gli screenshot della revisione grafica finiscono in `apps/desktop/build/screensh
 | 69.1 | Colori diversi       | 1. Cambia una transazione da Cibo a Trasporti.                | Il pallino e la barra cambiano colore (verde → blu).             | [auto] UcCardsTrackerTest.`category colours…` |
 | 69.2 | Menu                 | 1. Apri la finestra, ▾.                                       | Tutte le categorie con il colore; scrivendo si filtra.           | [auto] UcCardsTrackerTest.`TRK-033 the category menu filters…` |
 | 69.3 | Nuova categoria      | 1. Scrivi "Palestra". 2. "+ Nuova categoria". 3. Un colore. 4. Salva. | Compare nel menu la volta dopo, col colore scelto, anche nella barra. | [auto] UcCardsTrackerTest.`TRK-033 a new category keeps the colour…` |
-| 69.4 | Cambia colore        | 1. Categoria esistente, scegli un altro colore, Salva.        | Tutte le transazioni di quella categoria cambiano colore.        | [ ] |
-| 69.5 | Riavvio              | 1. Chiudi e riapri l'app.                                     | Categorie aggiunte e colori restano.                              | [ ] |
+| 69.4 | Cambia colore        | 1. Categoria esistente, scegli un altro colore, Salva.        | Tutte le transazioni di quella categoria cambiano colore.        | [auto] UcCardsTrackerTest.`TRK-033 a new colour for an existing category recolours every transaction of it` |
+| 69.5 | Riavvio              | 1. Chiudi e riapri l'app.                                     | Categorie aggiunte e colori restano.                              | [auto] UcCardsTrackerTest.`TRK-033 added categories and their colours survive a restart` |
 | 69.6 | Tema chiaro          | 1. Tema chiaro.                                               | Colori leggibili.                                                 | [auto] screenshot `category-picker-light.png` |
 
 ## 70. Sync incrementale e server di riserva (2026-10-25)
@@ -2669,9 +2669,9 @@ Gli screenshot della revisione grafica finiscono in `apps/desktop/build/screensh
 | #    | Test                 | Passi                                                         | Atteso                                                           | Pass |
 |------|----------------------|---------------------------------------------------------------|------------------------------------------------------------------|------|
 | 71.1 | Mese di calendario   | —                                                             | Contano solo le spese dal 1° del mese; budget mensile pieno.     | [auto] BudgetCardsTest.`budgets follow the calendar month` |
-| 71.2 | Inizio mese          | 1. Il 1° del mese apri Budget.                                | Speso riparte da zero; "mancano 30/31 giorni".                   | [ ] |
+| 71.2 | Inizio mese          | 1. Il 1° del mese apri Budget.                                | Speso riparte da zero; "mancano 30/31 giorni".                   | [auto] BudgetCardsTest.`budgets follow the calendar month` |
 | 71.3 | Equivalente settimanale | 1. Imposta un budget di 120.000.                           | Sotto: "Circa 27.692 sat a settimana".                           | [auto] BudgetCardsTest (calcolo) |
-| 71.4 | Altre sezioni        | 1. Passa a Report.                                            | Il selettore del periodo torna e vale lì.                        | [ ] |
+| 71.4 | Altre sezioni        | 1. Passa a Report.                                            | Il selettore del periodo torna e vale lì.                        | [auto] BudgetCardsTest.`budget and transactions share one month, the period selector only shows outside budget` |
 
 ## 72. Scelta del mese nei budget (2026-10-25)
 
@@ -2684,7 +2684,7 @@ Gli screenshot della revisione grafica finiscono in `apps/desktop/build/screensh
 |------|----------------------|---------------------------------------------------------------|------------------------------------------------------------------|------|
 | 72.1 | Mese precedente      | 1. ‹ .                                                        | Speso e card di settembre; "Settembre 2026 · concluso".          | [auto] BudgetCardsTest.`budgets follow the calendar month` |
 | 72.2 | Limite               | 1. Sul mese in corso prova ›.                                 | Freccia disattivata.                                              | [auto] BudgetCardsTest.`the month selector goes back…` |
-| 72.3 | Torna a oggi         | 1. Vai indietro di 3 mesi. 2. "Questo mese".                  | Torna al mese in corso.                                          | [ ] |
+| 72.3 | Torna a oggi         | 1. Vai indietro di 3 mesi. 2. "Questo mese".                  | Torna al mese in corso.                                          | [auto] BudgetCardsTest.`budget and transactions share one month…` ("Questo mese") |
 
 ## 73. Bollette a importo fisso o variabile (2026-10-25)
 
@@ -2734,7 +2734,7 @@ Gli screenshot della revisione grafica finiscono in `apps/desktop/build/screensh
 | 74.7 | Candidati            | —                                                             | Categoria della bolletta prima, poi senza categoria; altre categorie mai "probabile". | [auto] ManualTxnTest.`bill candidates put…` |
 | 74.8 | Collega              | 1. "Segna pagata". 2. Scegli la transazione.                  | Bolletta pagata con quell'importo; transazione nella categoria della bolletta. | [auto] ManualTxnTest.`the pay dialog links…` + [ ] verifica in app |
 | 74.9 | Fuori dai wallet     | 1. "Segna pagata". 2. "Pagata fuori dai wallet…". 3. 120 €.   | Movimento in Contanti, bolletta pagata e collegata.              | [auto] UcCacheTrackerTest + [ ] verifica in app |
-| 74.10 | Prezzo mancante     | 1. Offline, movimento in € su una data passata non in cache.  | "Prezzo BTC di quel giorno non disponibile": salva solo in sat.  | [ ] |
+| 74.10 | Prezzo mancante     | 1. Offline, movimento in € su una data passata non in cache.  | "Prezzo BTC di quel giorno non disponibile": salva solo in sat.  | [auto] ManualTxnTest.`without a price for that day a euro amount cannot be saved…` + `offline, a past day missing from the cache has no price` |
 
 ## 75. Canale di pagamento e saldi che si muovono (2026-10-26)
 
@@ -2760,7 +2760,7 @@ Gli screenshot della revisione grafica finiscono in `apps/desktop/build/screensh
 | 75.5 | + Conto              | 1. "+ Conto". 2. Conto corrente, CHF, 1.200. 3. Crea.         | Il conto nasce in Portafoglio ed è già scelto.                   | [auto] ManualTxnTest.`plus account creates…` + [ ] verifica in app |
 | 75.6 | Altro                | 1. "Pagato con: Altro".                                       | Riga "Altro" tra le attività; nessun saldo toccato.              | [auto] uc_tracker_tests (wallet id `c…`) |
 | 75.7 | Filtro canale        | 1. Transazioni → "Wallet". 2. "Carta di credito".             | Solo i wallet; poi solo la carta.                                | [auto] ManualTxnTest.`the channel filter…` |
-| 75.8 | Patrimonio           | 1. Uscita 100 € dal conto. 2. Home.                           | Il patrimonio netto scende di 100 € in sat.                      | [ ] |
+| 75.8 | Patrimonio           | 1. Uscita 100 € dal conto. 2. Home.                           | Il patrimonio netto scende di 100 € in sat.                      | [auto] PortfolioScenarioTest.`spending 100 euro from a bank account lowers net worth by 100 euro in sat` |
 
 ## 76. Transazioni per mese, mese condiviso col Budget (2026-10-26)
 
@@ -2773,8 +2773,8 @@ Gli screenshot della revisione grafica finiscono in `apps/desktop/build/screensh
 | #    | Test                 | Passi                                                         | Atteso                                                           | Pass |
 |------|----------------------|---------------------------------------------------------------|------------------------------------------------------------------|------|
 | 76.1 | Chip Mese            | 1. Transazioni → Mese. 2. ‹. 3. 3M.                           | Mese corrente, poi il precedente; 3M torna al periodo.           | [auto] BudgetCardsTest.`transactions can go by calendar month` |
-| 76.2 | Dal Budget           | 1. Budget → ‹ Settembre. 2. Cibo → Vedi transazioni.          | Transazioni, vista Mese su Settembre, filtro Cibo.               | [ ] |
-| 76.3 | Ritorno              | 1. In Transazioni passa a Agosto. 2. Torna al Budget.         | Il Budget mostra Agosto.                                         | [ ] |
+| 76.2 | Dal Budget           | 1. Budget → ‹ Settembre. 2. Cibo → Vedi transazioni.          | Transazioni, vista Mese su Settembre, filtro Cibo.               | [auto] BudgetCardsTest.`budget and transactions share one month…` |
+| 76.3 | Ritorno              | 1. In Transazioni passa a Agosto. 2. Torna al Budget.         | Il Budget mostra Agosto.                                         | [auto] BudgetCardsTest.`budget and transactions share one month…` |
 
 
 ## 77. Modalità test (2026-10-26)
@@ -2796,15 +2796,15 @@ Gli screenshot della revisione grafica finiscono in `apps/desktop/build/screensh
 | #    | Test                  | Passi                                                         | Atteso                                                           | Pass |
 |------|-----------------------|---------------------------------------------------------------|------------------------------------------------------------------|------|
 | 77.1 | Entrare               | 1. Impostazioni → Modalità test → Entra.                      | Home dei dati di test, fascia in alto; nessuna richiesta di PIN. | [auto] TestModeTest.`entering builds the test profile…` + [ ] verifica in app |
-| 77.2 | Dati reali chiusi     | 1. In modalità test guarda wallet, budget, portafoglio.       | Solo dati di test; "Cancella dati" non c'è.                      | [ ] |
+| 77.2 | Dati reali chiusi     | 1. In modalità test guarda wallet, budget, portafoglio.       | Solo dati di test; "Cancella dati" non c'è.                      | [auto] TestModeTest.`entering builds the test profile apart from the real one…` + TestModeSectionTest.`in test mode Settings offers no data wipe, outside it does` |
 | 77.3 | Offline               | 1. Stacca la rete. 2. Entra, apri un wallet, Home, Report.    | Saldi, transazioni, cambi e grafici presenti; nessun errore di sync. | [auto] TestModeTest (refresh con sync) + [ ] |
 | 77.4 | Uscire                | 1. Fascia → Esci.                                             | Schermata del PIN reale; moduli e categorie reali come prima.    | [auto] TestModeTest.`leaving puts the real settings back…` |
 | 77.5 | Esporta e importa     | 1. Aggiungi un movimento. 2. Esporta. 3. Su un altro PC (o dopo "Carica i dati del progetto") Importa. | Il movimento c'è, con la data spostata di quanti giorni sono passati. | [auto] TestModeTest.`a transaction added by one person…` |
 | 77.6 | Mantieni le date      | 1. Importa con "Mantieni le date del file".                   | Le date sono quelle del file.                                    | [auto] stesso test |
 | 77.7 | Stato iniziale        | 1. Segna come stato iniziale. 2. Aggiungi un movimento. 3. Torna allo stato iniziale. | Il movimento sparisce; la data dello stato iniziale è mostrata. | [auto] TestModeTest + TestModeSectionTest |
 | 77.8 | Database reale        | 1. Importa un file che non è di test (o un file qualsiasi).   | Rifiutato con il motivo; i dati di test restano.                 | [auto] TestModeTest.`a real registry or a broken file…` |
-| 77.9 | Benvenuto             | 1. Installazione nuova → "Prova con dati di esempio".         | Modalità test senza creare un PIN; uscendo si torna al benvenuto. | [ ] |
-| 77.10 | Avvio diretto        | 1. `BHODL_DEMO=1 ./gradlew :apps:desktop:run`.                | L'app parte già in modalità test.                                | [ ] |
+| 77.9 | Benvenuto             | 1. Installazione nuova → "Prova con dati di esempio".         | Modalità test senza creare un PIN; uscendo si torna al benvenuto. | [auto] TestModeTest.`trying test mode on a fresh install needs no PIN and leaving it goes back to Welcome` |
+| 77.10 | Avvio diretto        | 1. `BHODL_DEMO=1 ./gradlew :apps:desktop:run`.                | L'app parte già in modalità test.                                | [auto] TestModeTest.`BHODL_DEMO starts the app in test mode, empty or 0 does not` |
 
 ## 78. Categorie predefinite nella lingua dell'app (2026-10-26)
 
@@ -2822,4 +2822,21 @@ Gli screenshot della revisione grafica finiscono in `apps/desktop/build/screensh
 | 78.1 | Cambio lingua         | 1. Dati con "Cibo" e "Transport". 2. Passa a English, poi a Italiano. | In inglese "Food" e "Transport", in italiano "Cibo" e "Trasporti", su ogni sezione. | [auto] LanguageAuditTest |
 | 78.2 | Grafia conservata     | 1. App in inglese, dati con "Cibo". 2. Categoria di una transazione → "Food". | Salvato "Cibo": il budget Cibo la conta.                     | [auto] CategoryNamesTest |
 | 78.3 | Categorie proprie     | 1. Categoria "Affitto ricevuto". 2. Cambia lingua.            | Resta "Affitto ricevuto".                                        | [auto] CategoryNamesTest |
-| 78.4 | Ricerca               | 1. App in inglese, Transazioni, cerca "cibo" e "food".        | Entrambe trovano le transazioni "Cibo".                          | [ ] |
+| 78.4 | Ricerca               | 1. App in inglese, Transazioni, cerca "cibo" e "food".        | Entrambe trovano le transazioni "Cibo".                          | [auto] CategoryNamesTest.`a search finds a classic category by its name in either language` |
+
+## 80. Test automatici al posto delle prove a mano (2026-10-26)
+
+> Le righe ancora da provare a mano sono state confrontate con i test
+> esistenti e coperte dove possibile: da 85 righe manuali a 30. Ogni riga
+> coperta ora dice quale test la verifica (`[auto] …`). Inventario
+> aggiornato in `docs/use-cases.md` §G. Due correzioni nate dai test: il
+> colore scelto per "Cibo" vale anche per le transazioni salvate come
+> "Food"; nella Home un orologio sostituibile rende verificabile la riga
+> "Revisione del mese" in qualsiasi giorno.
+
+| #    | Test                  | Passi                                                         | Atteso                                                           | Pass |
+|------|-----------------------|---------------------------------------------------------------|------------------------------------------------------------------|------|
+| 80.1 | Suite JVM             | 1. `./gradlew :shared:jvmTest :apps:desktop:jvmTest`.         | Tutto verde, compresi i nuovi test delle sezioni §59–§78.        | [auto] CI `jvm-test` |
+| 80.2 | Righe manuali         | 1. Cerca `[ ]` nel test-book.                                 | Restano solo rete/wallet veri, file esterni, alcuni percorsi tra schermate, copertura (elenco in use-cases §G). | [auto] questo documento |
+| 80.3 | Colore categoria      | 1. Dati con "Food". 2. App in italiano, colore nuovo per "Cibo". | Anche le righe "Food" cambiano colore.                         | [auto] UcCardsTrackerTest.`TRK-033 a new colour for an existing category…` |
+
