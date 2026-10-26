@@ -293,7 +293,7 @@ internal fun TrackerHomeSection(
                 nwHistory = nwHistoryReconstructed,
             )
             val lastReviewDismissed by SettingsStore.lastMonthlyReviewDismissedUnix
-            val nowUnix = System.currentTimeMillis() / 1000L
+            val nowUnix = homeNowUnix()
             val periodEvents = remember(trackedEvents, globalPeriod) { filterByPeriod(trackedEvents, globalPeriod, nowUnix) }
             val todos = remember(trackedEvents, bills, recurringCandidates, manualAssets, lastReviewDismissed, periodEvents, hasLoadedOnce) {
                 homeTodos(

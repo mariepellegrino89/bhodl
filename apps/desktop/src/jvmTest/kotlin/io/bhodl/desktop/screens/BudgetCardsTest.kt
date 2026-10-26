@@ -13,6 +13,8 @@ import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.waitUntilDoesNotExist
 import androidx.compose.ui.test.runDesktopComposeUiTest
 import androidx.compose.ui.test.waitUntilAtLeastOneExists
 import io.bhodl.desktop.data.TrackerCache
@@ -73,6 +75,9 @@ class BudgetCardsTest {
         assertEquals(listOf("2026-10-01", "2026-10-24"), eventsThisMonth(events, today, zone).map { it.txidOrPaymentId })
         assertEquals(7, daysLeftInMonth(today), "25 to 31 October, today included")
         assertEquals(1, daysLeftInMonth(LocalDate.of(2026, 10, 31)))
+        // On the 1st the month starts over: all of it left, nothing from the month before.
+        assertEquals(31, daysLeftInMonth(LocalDate.of(2026, 10, 1)))
+        assertEquals(emptyList(), eventsThisMonth(events.take(1), LocalDate.of(2026, 10, 1), zone))
         // A monthly budget counts in full against the month (no proration).
         assertEquals(400_000UL, prorateBudget(400_000UL, "monthly", DAYS_PER_MONTH))
         assertEquals(27_692L, weeklyFromMonthly(120_000L), "52 weeks / 12 months")
@@ -157,6 +162,45 @@ class BudgetCardsTest {
     private fun SemanticsNodeInteractionsProvider.shot(name: String) {
         val dir = File(System.getProperty("bhodl.screenshots", "build/screenshots")).apply { mkdirs() }
         ImageIO.write(onRoot().captureToImage().toAwtImage(), "png", File(dir, "$name.png"))
+    }
+
+    @Test
+    fun `budget and transactions share one month, the period selector only shows outside budget`() = runDesktopComposeUiTest(width = 1440, height = 1250) {
+        seed()
+        val thisMonth = java.time.YearMonth.now()
+        TrackerUiState.month.value = thisMonth
+        var section by androidx.compose.runtime.mutableStateOf(TrackerSection.BUDGET)
+        setContent { BhodlTheme { TrackingScreen(section = section, onSectionChange = { section = it }) } }
+        waitUntilAtLeastOneExists(hasTestTag(BudgetMonthTags.PREV), timeoutMillis = 5_000)
+        onNodeWithTag("${TrackingTags.PERIOD_PREFIX}${TrackingPeriod.D90.name}").assertDoesNotExist()
+        onNodeWithTag(BudgetMonthTags.THIS_MONTH).assertDoesNotExist()
+
+        // ‹ September → "View transactions" on a category: Transactions, by month, that category.
+        onNodeWithTag(BudgetMonthTags.PREV).performClick()
+        waitUntilAtLeastOneExists(hasTestTag(BudgetCardsTags.viewTransactions("Ristoranti")), timeoutMillis = 5_000)
+        onNodeWithTag(BudgetCardsTags.viewTransactions("Ristoranti")).performScrollTo().performClick()
+        waitUntilAtLeastOneExists(hasTestTag(TrackingTags.PERIOD_MONTH), timeoutMillis = 5_000)
+        assertEquals(TrackerSection.TRANSACTIONS, section)
+        assertTrue(TrackerUiState.txByMonth.value)
+        assertEquals("Ristoranti", TrackerUiState.categoryFilter.value)
+        assertEquals(thisMonth.minusMonths(1), TrackerUiState.month.value)
+
+        // A month picked in Transactions is the month Budget opens on.
+        onNodeWithTag(BudgetMonthTags.PREV).performClick()
+        waitForIdle()
+        section = TrackerSection.BUDGET
+        waitUntilAtLeastOneExists(hasTestTag(BudgetMonthTags.THIS_MONTH), timeoutMillis = 5_000)
+        assertEquals(thisMonth.minusMonths(2), TrackerUiState.month.value)
+
+        // "This month" goes straight back to the current month.
+        onNodeWithTag(BudgetMonthTags.THIS_MONTH).performClick()
+        waitUntilDoesNotExist(hasTestTag(BudgetMonthTags.THIS_MONTH), timeoutMillis = 3_000)
+        assertEquals(thisMonth, TrackerUiState.month.value)
+
+        // Reports get the period selector back.
+        section = TrackerSection.REPORTS
+        waitUntilAtLeastOneExists(hasTestTag("${TrackingTags.PERIOD_PREFIX}${TrackingPeriod.D90.name}"), timeoutMillis = 5_000)
+        onNodeWithTag(TrackingTags.PERIOD_MONTH).assertDoesNotExist()
     }
 
     @Test

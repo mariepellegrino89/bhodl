@@ -93,6 +93,7 @@ internal object BudgetCardsTags {
     fun category(name: String): String = BudgetTags.editChip(name)
     const val BILLS: String = "budget.bills"
     fun bill(id: Long): String = "budget.bill.$id"
+    fun viewTransactions(category: String): String = "budget.view-tx.$category"
 }
 
 /** Totals of the expense budgets of the period. */
@@ -350,7 +351,11 @@ private fun CategoryCard(
                 color = BhodlTheme.colors.textTertiary,
             )
         }
-        TextButton(onClick = { onViewTransactions(r.category) }, contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
+        TextButton(
+            onClick = { onViewTransactions(r.category) },
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
+            modifier = Modifier.testTag(BudgetCardsTags.viewTransactions(r.category)),
+        ) {
             Text(stringResource(Res.string.bgc_view_tx), style = BhodlTheme.typography.labelMedium)
         }
     }
@@ -471,6 +476,7 @@ internal object BudgetMonthTags {
     const val PREV: String = "budget-month.prev"
     const val NEXT: String = "budget-month.next"
     const val LABEL: String = "budget-month.label"
+    const val THIS_MONTH: String = "budget-month.this-month"
 }
 
 /** Budget redesign 2026-10 — "‹ October 2026 ›": earlier months, never past the current one. */
@@ -502,7 +508,7 @@ internal fun BudgetMonthSelector(
             Text("›", style = BhodlTheme.typography.titleMedium, color = if (month < current) BhodlTheme.colors.textPrimary else BhodlTheme.colors.textTertiary)
         }
         if (month != current) {
-            androidx.compose.material3.TextButton(onClick = { onChange(current) }) {
+            androidx.compose.material3.TextButton(onClick = { onChange(current) }, modifier = Modifier.testTag(BudgetMonthTags.THIS_MONTH)) {
                 Text(stringResource(Res.string.bgm_this_month), color = BhodlTheme.colors.brandPrimary)
             }
         }

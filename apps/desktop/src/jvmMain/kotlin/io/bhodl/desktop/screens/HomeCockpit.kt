@@ -90,6 +90,9 @@ internal const val HOME_BILL_WINDOW_DAYS: Long = 7
 /** A manual asset value older than this is flagged. */
 internal const val HOME_STALE_ASSET_DAYS: Long = 180
 
+/** The Home's clock, replaceable in tests (the monthly review depends on the day). */
+internal var homeNowUnix: () -> Long = { System.currentTimeMillis() / 1000L }
+
 /**
  * The "to do" list, most urgent first, at most [limit] rows:
  *  - the monthly review, while its banner would show;
