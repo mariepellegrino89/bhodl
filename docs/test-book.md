@@ -2762,3 +2762,17 @@ Gli screenshot della revisione grafica finiscono in `apps/desktop/build/screensh
 | 75.7 | Filtro canale        | 1. Transazioni → "Wallet". 2. "Carta di credito".             | Solo i wallet; poi solo la carta.                                | [auto] ManualTxnTest.`the channel filter…` |
 | 75.8 | Patrimonio           | 1. Uscita 100 € dal conto. 2. Home.                           | Il patrimonio netto scende di 100 € in sat.                      | [ ] |
 
+## 76. Transazioni per mese, mese condiviso col Budget (2026-10-26)
+
+> In Transazioni, accanto a 7g / 1M / 3M / 1A / Tutto, c'è "Mese": mostra il
+> selettore "‹ Settembre 2026 ›" e la lista del solo mese di calendario; un chip di
+> periodo torna al periodo normale. Il mese è lo stesso del Budget: "Vedi
+> transazioni" su una categoria del Budget apre le Transazioni in vista Mese sul mese
+> scelto nel Budget, filtrate su quella categoria.
+
+| #    | Test                 | Passi                                                         | Atteso                                                           | Pass |
+|------|----------------------|---------------------------------------------------------------|------------------------------------------------------------------|------|
+| 76.1 | Chip Mese            | 1. Transazioni → Mese. 2. ‹. 3. 3M.                           | Mese corrente, poi il precedente; 3M torna al periodo.           | [auto] BudgetCardsTest.`transactions can go by calendar month` |
+| 76.2 | Dal Budget           | 1. Budget → ‹ Settembre. 2. Cibo → Vedi transazioni.          | Transazioni, vista Mese su Settembre, filtro Cibo.               | [ ] |
+| 76.3 | Ritorno              | 1. In Transazioni passa a Agosto. 2. Torna al Budget.         | Il Budget mostra Agosto.                                         | [ ] |
+

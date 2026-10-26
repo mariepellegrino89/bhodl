@@ -240,6 +240,8 @@ public fun TrackingScreen(
     }
     var period by TrackerUiState.period
     var timeRangeFilter by TrackerUiState.timeRangeFilter
+    var month by TrackerUiState.month
+    var txByMonth by TrackerUiState.txByMonth
     // Saved-view inline-name dialog state. The view LIST itself
     // comes from TrackerCache.views (Phase 7.2.3).
     var showSaveDialog by remember { mutableStateOf(false) }
@@ -352,9 +354,13 @@ public fun TrackingScreen(
     // Transactions redesign 2026-10 — the ledger follows the global
     // period like every other section; a drill-down range replaces it.
     var txSearch by remember { mutableStateOf("") }
-    val txPeriodEvents = remember(events, period, timeRangeFilter) {
-        if (timeRangeFilter != null) filterLedger(events, null, timeRangeFilter)
-        else filterByPeriod(events, period, System.currentTimeMillis() / 1000L)
+    val txPeriodEvents = remember(events, period, timeRangeFilter, txByMonth, month) {
+        when {
+            timeRangeFilter != null -> filterLedger(events, null, timeRangeFilter)
+            // Month view (picked here, or arriving from a budget).
+            txByMonth -> eventsInMonth(events, month)
+            else -> filterByPeriod(events, period, System.currentTimeMillis() / 1000L)
+        }
     }
     val walletLabels = walletLabelById
     val filteredEvents = remember(txPeriodEvents, categoryFilter, txSearch, walletLabels, channelFilter) {
@@ -570,9 +576,15 @@ public fun TrackingScreen(
             // filters (category AND time range) instead.
             // Budget redesign 2026-10 — the Budget section is monthly.
             if (section != TrackerSection.BUDGET) {
+                // Transactions also go by calendar month.
+                val monthView = section == TrackerSection.TRANSACTIONS
                 PeriodSelector(
                     selected = period,
-                    onSelect = { period = it },
+                    onSelect = { period = it; txByMonth = false },
+                    month = month.takeIf { monthView },
+                    monthSelected = monthView && txByMonth,
+                    onMonthMode = { txByMonth = true; timeRangeFilter = null },
+                    onMonthChange = { month = it },
                 )
             }
 
@@ -749,6 +761,13 @@ public fun TrackingScreen(
                         // "Food in the last 90 days" is expressible.
                         onCategoryDrillDown = { category ->
                             categoryFilter = category
+                            onSectionChange(TrackerSection.TRANSACTIONS)
+                        },
+                        // From a budget: that category in the budget's month.
+                        onBudgetDrillDown = { category ->
+                            categoryFilter = category
+                            timeRangeFilter = null
+                            txByMonth = true
                             onSectionChange(TrackerSection.TRANSACTIONS)
                         },
                         onBucketDrillDown = { range ->
@@ -1994,6 +2013,8 @@ public fun TrackingScreen(
 public object TrackingTags {
     public const val REFRESH: String = "tracking.refresh"
     public const val EXPORT_CSV: String = "tracking.export-csv"
+    /** Period selector — the calendar-month chip (Transactions). */
+    public const val PERIOD_MONTH: String = "tracking.period-month"
     /** Phase 3.4 — chip on each PaymentEventRow. */
     public const val CATEGORY_CHIP: String = "tracking.category-chip"
     /** Inline category editor dialog (text field). */

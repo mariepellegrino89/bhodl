@@ -142,6 +142,8 @@ internal fun TrackingDashboardTab(
      *  bucket); the host switches to the History tab and applies
      *  it as the active filter. */
     onCategoryDrillDown: (String) -> Unit = {},
+    /** "View transactions" from a budget: the category in the budget's month. */
+    onBudgetDrillDown: (String) -> Unit = onCategoryDrillDown,
     /** Phase 3.6 — invoked when the user clicks a bar bucket chip.
      *  Receives the inclusive (startUnix, endUnix) range; the host
      *  switches to the History tab and applies it as a time-range
@@ -345,7 +347,7 @@ internal fun TrackingDashboardTab(
         val budgetMonth = mode == TrackingTabMode.BUDGET
         val budgetToday = todayLocal()
         val currentMonth = java.time.YearMonth.from(budgetToday)
-        var selectedMonth by remember { mutableStateOf(currentMonth) }
+        var selectedMonth by TrackerUiState.month
         val isCurrentMonth = selectedMonth == currentMonth
         val budgetEvents = remember(budgetMonth, inPeriod, events, selectedMonth) {
             if (budgetMonth) eventsInMonth(events, selectedMonth) else inPeriod
@@ -436,7 +438,7 @@ internal fun TrackingDashboardTab(
                     rows = expenseRows,
                     moves = expenseMoves,
                     onEditBudget = onEditBudget,
-                    onViewTransactions = onCategoryDrillDown,
+                    onViewTransactions = onBudgetDrillDown,
                 )
             }
             BillsCalendarStrip(

@@ -5,4 +5,5 @@
     <string name="bgm_weekly_hint">Circa %1$s a settimana</string>
     <string name="bgm_month_closed">%1$s · concluso</string>
     <string name="bgm_this_month">Questo mese</string>
+    <string name="trk_period_month">Mese</string>
 </resources>

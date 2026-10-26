@@ -5,4 +5,5 @@
     <string name="bgm_weekly_hint">About %1$s a week</string>
     <string name="bgm_month_closed">%1$s · closed</string>
     <string name="bgm_this_month">This month</string>
+    <string name="trk_period_month">Month</string>
 </resources>

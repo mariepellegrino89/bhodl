@@ -1,4 +1,5 @@
 package io.bhodl.desktop.screens
+import io.bhodl.shared.resources.trk_period_month
 import io.bhodl.desktop.domain.RecurringCandidate
 import io.bhodl.desktop.domain.dayOfMonth
 
@@ -431,6 +432,12 @@ internal fun SkeletonRow() {
 internal fun PeriodSelector(
     selected: TrackingPeriod,
     onSelect: (TrackingPeriod) -> Unit,
+    /** When set, a "Month" chip too (Transactions); the month it shows. */
+    month: java.time.YearMonth? = null,
+    /** The month chip is the active one (the period chips are not). */
+    monthSelected: Boolean = false,
+    onMonthMode: () -> Unit = {},
+    onMonthChange: (java.time.YearMonth) -> Unit = {},
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -438,7 +445,7 @@ internal fun PeriodSelector(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         TrackingPeriod.entries.forEach { p ->
-            val isSel = p == selected
+            val isSel = p == selected && !monthSelected
             val bg = if (isSel) BhodlTheme.colors.brandPrimary
             else BhodlTheme.colors.surface
             val fg = if (isSel) BhodlTheme.colors.brandOnPrimary
@@ -458,6 +465,23 @@ internal fun PeriodSelector(
                     style = BhodlTheme.typography.labelMedium,
                     color = fg,
                 )
+            }
+        }
+        if (month != null) {
+            Text(
+                text = stringResource(Res.string.trk_period_month),
+                style = BhodlTheme.typography.labelMedium,
+                color = if (monthSelected) BhodlTheme.colors.brandOnPrimary else BhodlTheme.colors.textPrimary,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(if (monthSelected) BhodlTheme.colors.brandPrimary else BhodlTheme.colors.surface)
+                    .border(1.dp, BhodlTheme.colors.outline, RoundedCornerShape(20.dp))
+                    .clickable { onMonthMode() }
+                    .padding(horizontal = 14.dp, vertical = 6.dp)
+                    .testTag(TrackingTags.PERIOD_MONTH),
+            )
+            if (monthSelected) {
+                BudgetMonthSelector(month = month, current = java.time.YearMonth.now(), onChange = onMonthChange)
             }
         }
     }

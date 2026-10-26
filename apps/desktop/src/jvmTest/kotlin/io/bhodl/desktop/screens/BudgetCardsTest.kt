@@ -32,6 +32,7 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 /**
  * Budget redesign 2026-10 (proposal C) — summary maths, the bills
@@ -157,4 +158,34 @@ class BudgetCardsTest {
         val dir = File(System.getProperty("bhodl.screenshots", "build/screenshots")).apply { mkdirs() }
         ImageIO.write(onRoot().captureToImage().toAwtImage(), "png", File(dir, "$name.png"))
     }
+
+    @Test
+    fun `transactions can go by calendar month`() = runDesktopComposeUiTest {
+        var monthMode by androidx.compose.runtime.mutableStateOf(false)
+        var month by androidx.compose.runtime.mutableStateOf(java.time.YearMonth.now())
+        var period: TrackingPeriod? = null
+        setContent {
+            BhodlTheme {
+                PeriodSelector(
+                    selected = TrackingPeriod.D30,
+                    onSelect = { period = it; monthMode = false },
+                    month = month,
+                    monthSelected = monthMode,
+                    onMonthMode = { monthMode = true },
+                    onMonthChange = { month = it },
+                )
+            }
+        }
+        assertTrue(onAllNodes(androidx.compose.ui.test.hasTestTag(BudgetMonthTags.PREV)).fetchSemanticsNodes().isEmpty())
+        onNodeWithTag(TrackingTags.PERIOD_MONTH).performClick()
+        waitForIdle()
+        assertTrue(monthMode)
+        onNodeWithTag(BudgetMonthTags.PREV).performClick()
+        waitForIdle()
+        assertEquals(java.time.YearMonth.now().minusMonths(1), month)
+        onNodeWithTag("${TrackingTags.PERIOD_PREFIX}${TrackingPeriod.D90.name}").performClick()
+        assertEquals(TrackingPeriod.D90, period)
+        assertTrue(!monthMode, "a period chip leaves the month view")
+    }
 }
+
