@@ -2,6 +2,7 @@ package io.bhodl.desktop.screens
 
 import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.SemanticsNodeInteractionsProvider
 import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsSelected
@@ -86,6 +87,18 @@ class WalletCardsTest {
         onNodeWithTag(WalletCardsTags.card("w2")).assertIsNotSelected().performClick()
         assertEquals("w2", opened)
         onNodeWithTag(WalletCardsTags.ADD).assertExists()
+    }
+
+    @Test
+    fun `a wallet whose sync failed says stale and its question mark says what to do`() = runDesktopComposeUiTest(width = 1200, height = 400) {
+        seed()
+        setContent { BhodlTheme { WalletCardsStrip(currentId = "w1", onOpenWallet = {}, onAdd = {}) } }
+        fun inCard(id: String, m: androidx.compose.ui.test.SemanticsMatcher) =
+            onAllNodes(m and androidx.compose.ui.test.hasAnyAncestor(hasTestTag(WalletCardsTags.card(id))), useUnmergedTree = true)
+        inCard("w2", androidx.compose.ui.test.hasText("stale")).assertCountEquals(1)
+        inCard("w2", hasTestTag(io.bhodl.desktop.ui.HELP_TIP_TAG) and androidx.compose.ui.test.hasContentDescription("press Sync", substring = true))
+            .assertCountEquals(1)
+        inCard("w1", hasTestTag(io.bhodl.desktop.ui.HELP_TIP_TAG)).assertCountEquals(0)
     }
 
     @Test

@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.SemanticsNodeInteractionsProvider
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.hasText
@@ -90,6 +92,31 @@ class GoalsCardsTest {
         waitForIdle()
         assertEquals(0, onAllNodesWithTag(GoalTags.card(1)).fetchSemanticsNodes().size)
         assertEquals(1, onAllNodesWithTag(GoalTags.card(3)).fetchSemanticsNodes().size)
+    }
+
+    @Test
+    fun `an allocation goal shows its share of net worth and flags a drift of 5 pp or more`() = runDesktopComposeUiTest(width = 1440, height = 900) {
+        val allocation = listOf(
+            goal(6, "Bitcoin al 20%", 0UL, 0UL, pct = 20u).copy(bucketKind = "bitcoin_cash"),
+            goal(7, "Bitcoin al 28%", 0UL, 0UL, pct = 28u).copy(bucketKind = "bitcoin_cash"),
+        )
+        setContent {
+            BhodlTheme {
+                SavingsGoalsCard(
+                    goals = allocation, bitcoinAssetSat = 30_000_000UL, totalNetWorthSat = 100_000_000UL, watchBalances = emptyMap(),
+                    investments = emptyList(), wallets = emptyList(), manualAssets = emptyList(), fiatToSat = { null },
+                    onAdd = {}, onEdit = {},
+                )
+            }
+        }
+        fun inCard(id: Long, m: androidx.compose.ui.test.SemanticsMatcher) =
+            onAllNodes(m and androidx.compose.ui.test.hasAnyAncestor(hasTestTag(GoalTags.card(id))), useUnmergedTree = true)
+        // 30% held: +10 pp over a 20% target is flagged, +2 pp over 28% is not.
+        inCard(6, hasTestTag(GoalTags.DRIFT_CHIP)).assertCountEquals(1)
+        inCard(6, androidx.compose.ui.test.hasText("DRIFT +10 pp")).assertCountEquals(1)
+        inCard(7, hasTestTag(GoalTags.DRIFT_CHIP)).assertCountEquals(0)
+        inCard(6, androidx.compose.ui.test.hasText("Share of net worth", substring = true, ignoreCase = true)).assertCountEquals(1)
+        inCard(6, androidx.compose.ui.test.hasText("target 20% NW")).assertCountEquals(1)
     }
 
     @Test
