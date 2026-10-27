@@ -2824,6 +2824,33 @@ Gli screenshot della revisione grafica finiscono in `apps/desktop/build/screensh
 | 78.3 | Categorie proprie     | 1. Categoria "Affitto ricevuto". 2. Cambia lingua.            | Resta "Affitto ricevuto".                                        | [auto] CategoryNamesTest |
 | 78.4 | Ricerca               | 1. App in inglese, Transazioni, cerca "cibo" e "food".        | Entrambe trovano le transazioni "Cibo".                          | [auto] CategoryNamesTest.`a search finds a classic category by its name in either language` |
 
+## 79. Screenshot di riferimento (2026-10-26)
+
+> I test `render …` delle schermate (Home, Transazioni, Obiettivi, Budget,
+> Impostazioni, Report, Wallet, Portafoglio, scelta categoria; tema scuro e chiaro,
+> più Home e Portafoglio in italiano e Obiettivi / Impostazioni / Portafoglio a
+> 900 px) non sono più solo da guardare: la CI (`jvm-test`, Linux) li confronta
+> con i PNG in `apps/desktop/src/jvmTest/screenshots/` (Roborazzi) e fallisce se
+> un'immagine cambia oltre la tolleranza (distanza colore 0,007 per pixel, al più
+> lo 0,01 % dei pixel). L'orologio dell'app è fermo al 25 ottobre 2026 12:00 UTC,
+> così date e nomi dei mesi non cambiano col giorno. I caratteri si disegnano in
+> modo diverso su Windows, macOS e Linux: i riferimenti sono solo render Linux,
+> registrati dal workflow "Screenshot references" (Actions, a mano; carica i PNG
+> come artefatto, non fa commit). In locale `jvmTest` scrive i render in
+> `apps/desktop/build/screenshots/` e non fallisce mai per i pixel. Le righe
+> `[auto] screenshot …` delle sezioni precedenti ora sono anche verificate dalla CI.
+
+| #    | Test                  | Passi                                                         | Atteso                                                           | Pass |
+|------|-----------------------|---------------------------------------------------------------|------------------------------------------------------------------|------|
+| 79.1 | Prima registrazione   | 1. Actions → Screenshot references → Run workflow. 2. Scarica `screenshot-references` e scompatta in `apps/desktop/src/jvmTest/screenshots/`. 3. Guarda le immagini e fai il commit. | Un PNG per render (30); le immagini sono quelle attese, in scuro, chiaro, italiano e 900 px. | [ ] |
+| 79.2 | Riferimento mancante  | 1. Aggiungi un render nuovo senza PNG. 2. CI.                 | `jvm-test` verde; nel log "Screenshot …: no reference, recorded …". | [auto] ScreenshotCheck + [ ] verifica sulla CI |
+| 79.3 | Regressione visiva    | 1. Cambia un colore del tema. 2. CI.                          | `jvm-test` rosso; artefatto `screenshot-diffs` con `<nome>_compare.png` (riferimento, differenza, nuovo) e `<nome>_actual.png`. | [ ] |
+| 79.4 | Cambio voluto         | 1. Dopo 79.3 rilancia "Screenshot references" sul branch. 2. Commit dei nuovi PNG. | `jvm-test` di nuovo verde.                                       | [ ] |
+| 79.5 | Windows non fallisce  | 1. Su Windows `./gradlew :apps:desktop:jvmTest`.              | Test verdi; i render in `apps/desktop/build/screenshots/`.       | [auto] tutti i test `render …` |
+| 79.6 | Windows non registra  | 1. Su Windows `./gradlew :apps:desktop:recordRoborazziJvm`.   | Nessun PNG in `src/jvmTest/screenshots/`; nel log "not recorded, references are Linux renders". | [auto] ScreenshotCheck |
+| 79.7 | Italiano              | 1. Guarda `home-it-dark.png` e `portfolio-it-investments.png`. | Testi e separatori italiani (copre in parte §58.9).              | [auto] screenshot `home-it-dark.png`, `portfolio-it-investments.png` |
+| 79.8 | Finestra a 900 px     | 1. Guarda `goals-narrow-dark.png`, `settings-narrow-dark.png`, `portfolio-narrow-*.png`. | Card su meno colonne, niente testi tagliati (copre in parte §58.8, §61.5, §63.3, §66.7). | [auto] screenshot `goals-narrow-dark.png`, `settings-narrow-dark.png`, `portfolio-narrow-bitcoin.png`, `portfolio-narrow-investments.png` |
+
 ## 80. Test automatici al posto delle prove a mano (2026-10-26)
 
 > Le righe ancora da provare a mano sono state confrontate con i test
@@ -2831,7 +2858,7 @@ Gli screenshot della revisione grafica finiscono in `apps/desktop/build/screensh
 > coperta ora dice quale test la verifica (`[auto] …`). Inventario
 > aggiornato in `docs/use-cases.md` §G. Due correzioni nate dai test: il
 > colore scelto per "Cibo" vale anche per le transazioni salvate come
-> "Food"; nella Home un orologio sostituibile rende verificabile la riga
+> "Food"; nella Home l'orologio dell'app (`AppClock`) rende verificabile la riga
 > "Revisione del mese" in qualsiasi giorno.
 
 | #    | Test                  | Passi                                                         | Atteso                                                           | Pass |

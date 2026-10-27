@@ -1,4 +1,5 @@
 package io.bhodl.desktop.data
+import io.bhodl.desktop.AppClock
 import io.bhodl.desktop.ui.userMessage
 import io.bhodl.desktop.domain.applyRules
 import io.bhodl.desktop.domain.detectRecurring
@@ -784,7 +785,7 @@ public object TrackerCache {
                         .toSet()
                     val recurring = detectRecurring(
                         events = merged,
-                        nowUnix = System.currentTimeMillis() / 1000L,
+                        nowUnix = AppClock.nowUnix(),
                         dismissedKeys = dismissedKeys,
                     )
 
@@ -1120,7 +1121,7 @@ public object TrackerCache {
         views: List<SavedViewFfi> = emptyList(),
         perWalletTxs: Map<String, List<TransactionRecord>> = emptyMap(),
         staleWalletIds: Set<String> = emptySet(),
-        lastSyncUnix: Long? = System.currentTimeMillis() / 1000L,
+        lastSyncUnix: Long? = AppClock.nowUnix(),
         lastError: String? = null,
         eventLegs: List<PaymentEvent> = emptyList(),
         refreshing: Boolean = false,

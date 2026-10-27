@@ -5,16 +5,12 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.assertCountEquals
-import androidx.compose.ui.test.SemanticsNodeInteractionsProvider
-import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
-import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.runDesktopComposeUiTest
 import androidx.compose.ui.test.waitUntilAtLeastOneExists
@@ -22,8 +18,6 @@ import androidx.compose.ui.unit.dp
 import io.bhodl.desktop.settings.SettingsStore
 import io.bhodl.ffi.TrackingSavingsGoalFfi
 import io.bhodl.ui.theme.BhodlTheme
-import java.io.File
-import javax.imageio.ImageIO
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -36,10 +30,11 @@ import kotlin.test.assertEquals
 @OptIn(ExperimentalTestApi::class)
 class GoalsCardsTest {
 
-    @BeforeTest fun setUp() = SettingsStore.reset()
-    @AfterTest fun tearDown() = SettingsStore.reset()
+    @BeforeTest fun setUp() { SettingsStore.reset(); ScreenshotCheck.pinClock() }
+    @AfterTest fun tearDown() { ScreenshotCheck.releaseClock(); SettingsStore.reset() }
 
-    private val now = System.currentTimeMillis() / 1000L
+    // Fixed "now" (ScreenshotCheck): the deadline countdowns render the same every day.
+    private val now = ScreenshotCheck.NOW_UNIX
 
     private fun goal(
         id: Long,
@@ -128,12 +123,18 @@ class GoalsCardsTest {
                 }
             }
             waitForIdle()
-            shot(name)
+            screenshot(name)
         }
     }
 
-    private fun SemanticsNodeInteractionsProvider.shot(name: String) {
-        val dir = File(System.getProperty("bhodl.screenshots", "build/screenshots")).apply { mkdirs() }
-        ImageIO.write(onRoot().captureToImage().toAwtImage(), "png", File(dir, "$name.png"))
+    @Test
+    fun `render the goals in a narrow window`() = runDesktopComposeUiTest(width = 900, height = 1100) {
+        setContent {
+            BhodlTheme(useDarkTheme = true) {
+                Box(Modifier.fillMaxSize().background(BhodlTheme.colors.background).padding(24.dp)) { Card() }
+            }
+        }
+        waitForIdle()
+        screenshot("goals-narrow-dark")
     }
 }

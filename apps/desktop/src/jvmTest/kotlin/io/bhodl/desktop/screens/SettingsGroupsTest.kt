@@ -1,19 +1,14 @@
 package io.bhodl.desktop.screens
 
-import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.test.ExperimentalTestApi
-import androidx.compose.ui.test.SemanticsNodeInteractionsProvider
-import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onNodeWithTag
-import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.runDesktopComposeUiTest
 import androidx.compose.ui.test.waitUntilAtLeastOneExists
 import io.bhodl.desktop.settings.SettingsStore
 import io.bhodl.ui.theme.BhodlTheme
 import java.io.File
-import javax.imageio.ImageIO
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -25,8 +20,8 @@ class SettingsGroupsTest {
 
     private lateinit var tmp: File
 
-    @BeforeTest fun setUp() { SettingsStore.reset(); tmp = kotlin.io.path.createTempDirectory("bhodl-settings-groups-").toFile() }
-    @AfterTest fun tearDown() { SettingsStore.reset(); tmp.deleteRecursively() }
+    @BeforeTest fun setUp() { SettingsStore.reset(); ScreenshotCheck.pinClock(); tmp = kotlin.io.path.createTempDirectory("bhodl-settings-groups-").toFile() }
+    @AfterTest fun tearDown() { ScreenshotCheck.releaseClock(); SettingsStore.reset(); tmp.deleteRecursively() }
 
     @Test
     fun `every group has a card and the index scrolls to it`() = runDesktopComposeUiTest(width = 1440, height = 900) {
@@ -47,12 +42,15 @@ class SettingsGroupsTest {
             setContent { BhodlTheme(useDarkTheme = dark) { SettingsScreen(onBack = {}, onOpenSecurityHub = {}, dataDir = tmp) } }
             waitUntilAtLeastOneExists(hasTestTag(SettingsTags.groupCard(SettingsGroup.APPEARANCE)))
             waitForIdle()
-            shot(name)
+            screenshot(name)
         }
     }
 
-    private fun SemanticsNodeInteractionsProvider.shot(name: String) {
-        val dir = File(System.getProperty("bhodl.screenshots", "build/screenshots")).apply { mkdirs() }
-        ImageIO.write(onRoot().captureToImage().toAwtImage(), "png", File(dir, "$name.png"))
+    @Test
+    fun `render settings in a narrow window`() = runDesktopComposeUiTest(width = 900, height = 1000) {
+        setContent { BhodlTheme(useDarkTheme = true) { SettingsScreen(onBack = {}, onOpenSecurityHub = {}, dataDir = tmp) } }
+        waitUntilAtLeastOneExists(hasTestTag(SettingsTags.groupCard(SettingsGroup.APPEARANCE)))
+        waitForIdle()
+        screenshot("settings-narrow-dark")
     }
 }

@@ -25,6 +25,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import io.bhodl.desktop.AppClock
 import io.bhodl.desktop.domain.externalInflowSat
 import io.bhodl.desktop.domain.externalOutflowSat
 import io.bhodl.desktop.ui.HelpTip
@@ -90,9 +91,6 @@ internal const val HOME_BILL_WINDOW_DAYS: Long = 7
 /** A manual asset value older than this is flagged. */
 internal const val HOME_STALE_ASSET_DAYS: Long = 180
 
-/** The Home's clock, replaceable in tests (the monthly review depends on the day). */
-internal var homeNowUnix: () -> Long = { System.currentTimeMillis() / 1000L }
-
 /**
  * The "to do" list, most urgent first, at most [limit] rows:
  *  - the monthly review, while its banner would show;
@@ -135,7 +133,7 @@ internal fun homeTodos(
 }
 
 /** Today at midnight UTC, in unix seconds (test seam friendly). */
-internal fun todayUnixUtc(): Long = LocalDate.now(ZoneOffset.UTC).toEpochDay() * 86_400L
+internal fun todayUnixUtc(): Long = AppClock.today(ZoneOffset.UTC).toEpochDay() * 86_400L
 
 @Composable
 private fun RailTitle(text: String, help: String) {

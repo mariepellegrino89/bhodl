@@ -1,4 +1,5 @@
 package io.bhodl.desktop.screens
+import io.bhodl.desktop.AppClock
 import io.bhodl.shared.resources.trk_period_month
 import io.bhodl.desktop.domain.RecurringCandidate
 import io.bhodl.desktop.domain.dayOfMonth
@@ -351,7 +352,7 @@ internal fun BucketDrillRow(
     ) {
         bars.forEachIndexed { i, b ->
             val end = if (i == bars.lastIndex) {
-                System.currentTimeMillis() / 1000L
+                AppClock.nowUnix()
             } else {
                 bars[i + 1].bucketStartUnix - 1L
             }
@@ -481,7 +482,7 @@ internal fun PeriodSelector(
                     .testTag(TrackingTags.PERIOD_MONTH),
             )
             if (monthSelected) {
-                BudgetMonthSelector(month = month, current = java.time.YearMonth.now(), onChange = onMonthChange)
+                BudgetMonthSelector(month = month, current = AppClock.currentMonth(), onChange = onMonthChange)
             }
         }
     }

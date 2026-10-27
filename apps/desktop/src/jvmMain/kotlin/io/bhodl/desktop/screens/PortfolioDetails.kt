@@ -1,5 +1,6 @@
 package io.bhodl.desktop.screens
 
+import io.bhodl.desktop.AppClock
 import io.bhodl.ffi.TrackingInvestmentFfi
 import io.bhodl.ffi.TrackingInvestmentLotFfi
 import io.bhodl.ffi.TrackingLiabilityFfi
@@ -778,4 +779,4 @@ internal fun linkedDebtFiat(
 }
 
 /** Today in UTC, as the card builders expect it. */
-internal fun nowUnixUtc(): Long = java.time.Instant.now().atZone(ZoneOffset.UTC).toEpochSecond()
+internal fun nowUnixUtc(): Long = java.time.Instant.ofEpochMilli(AppClock.nowMillis()).atZone(ZoneOffset.UTC).toEpochSecond()

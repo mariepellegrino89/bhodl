@@ -36,7 +36,6 @@ class UcHomeTrackerTest {
 
     private val now = System.currentTimeMillis() / 1000L
     private val defaultDataDir = TrackerCache.dataDirProvider
-    private val defaultClock = homeNowUnix
 
     @BeforeTest
     fun setUp() {
@@ -47,7 +46,7 @@ class UcHomeTrackerTest {
 
     @AfterTest
     fun tearDown() {
-        homeNowUnix = defaultClock
+        io.bhodl.desktop.AppClock.fixAt(null)
         TrackerCache.dataDirProvider = defaultDataDir
         RegistryStore.clear()
         SettingsStore.reset()
@@ -128,7 +127,7 @@ class UcHomeTrackerTest {
     fun `TRK-172 in the first days of the month the review row opens Reports and goes away`() = runDesktopComposeUiTest {
         // 2 October 2026, local noon: inside the review window whatever today is.
         val second = java.time.LocalDate.of(2026, 10, 2).atTime(12, 0).atZone(java.time.ZoneId.systemDefault()).toEpochSecond()
-        homeNowUnix = { second }
+        io.bhodl.desktop.AppClock.fixAt(second * 1000L)
         TrackerCache.seedForTest(lastSyncUnix = second, events = listOf(spending(second - 86_400L)))
         var reports = 0
         setContent { BhodlTheme { TrackerHomeSection(onOpenWallet = {}, onAddWatch = {}, onOpenReports = { reports++ }) } }
@@ -142,7 +141,7 @@ class UcHomeTrackerTest {
     @Test
     fun `TRK-173 after the third day there is no review row`() = runDesktopComposeUiTest {
         val tenth = java.time.LocalDate.of(2026, 10, 10).atTime(12, 0).atZone(java.time.ZoneId.systemDefault()).toEpochSecond()
-        homeNowUnix = { tenth }
+        io.bhodl.desktop.AppClock.fixAt(tenth * 1000L)
         TrackerCache.seedForTest(lastSyncUnix = tenth, events = listOf(spending(tenth - 86_400L)))
         setContent(home())
         waitUntilAtLeastOneExists(hasTestTag(HomeCockpitTags.TODO), timeoutMillis = 5_000)

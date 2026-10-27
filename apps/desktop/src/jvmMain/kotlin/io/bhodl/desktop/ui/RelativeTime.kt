@@ -1,6 +1,7 @@
 package io.bhodl.desktop.ui
 
 import kotlin.math.absoluteValue
+import io.bhodl.desktop.AppClock
 import io.bhodl.shared.resources.Res
 import io.bhodl.shared.resources.wview_time_days_ago
 import io.bhodl.shared.resources.wview_time_hours_ago
@@ -24,7 +25,7 @@ import org.jetbrains.compose.resources.getString
  *  - otherwise          → "Nd ago"
  *
  * `nowSec` is exposed as a parameter so tests can pin the clock and
- * the production callsites still get System.currentTimeMillis()/1000
+ * the production callsites still get the real clock ([io.bhodl.desktop.AppClock])
  * by default.
  *
  * Future timestamps (negative deltas) render as "just now" rather than
@@ -35,7 +36,7 @@ import org.jetbrains.compose.resources.getString
  */
 public fun relativeTimeAgo(
     timestampSec: Long,
-    nowSec: Long = System.currentTimeMillis() / 1000L,
+    nowSec: Long = AppClock.nowUnix(),
 ): String {
     val deltaSec = (nowSec - timestampSec).coerceAtLeast(0L)
     return when {
@@ -57,7 +58,7 @@ public fun relativeTimeAgo(
  */
 public fun minutesAgo(
     timestampSec: Long,
-    nowSec: Long = System.currentTimeMillis() / 1000L,
+    nowSec: Long = AppClock.nowUnix(),
 ): Long {
     val deltaSec = (nowSec - timestampSec).coerceAtLeast(0L)
     return deltaSec / 60L
@@ -75,7 +76,7 @@ public const val STALE_THRESHOLD_MINUTES: Long = 10L
 /** True when [timestampSec] is older than [STALE_THRESHOLD_MINUTES]. */
 public fun isStale(
     timestampSec: Long?,
-    nowSec: Long = System.currentTimeMillis() / 1000L,
+    nowSec: Long = AppClock.nowUnix(),
     thresholdMinutes: Long = STALE_THRESHOLD_MINUTES,
 ): Boolean {
     if (timestampSec == null) return false

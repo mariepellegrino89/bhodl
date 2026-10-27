@@ -1,4 +1,5 @@
 package io.bhodl.desktop.screens
+import io.bhodl.desktop.AppClock
 import io.bhodl.shared.resources.common_uncategorised
 import io.bhodl.desktop.data.ChannelFilter
 import io.bhodl.desktop.data.filterByChannel
@@ -360,7 +361,7 @@ public fun TrackingScreen(
             timeRangeFilter != null -> filterLedger(events, null, timeRangeFilter)
             // Month view (picked here, or arriving from a budget).
             txByMonth -> eventsInMonth(events, month)
-            else -> filterByPeriod(events, period, System.currentTimeMillis() / 1000L)
+            else -> filterByPeriod(events, period, AppClock.nowUnix())
         }
     }
     val walletLabels = walletLabelById
@@ -633,7 +634,7 @@ public fun TrackingScreen(
                                     withContext(Dispatchers.IO) {
                                         registry.markBillPaid(
                                             b.id,
-                                            if (paid) System.currentTimeMillis() / 1000L else null,
+                                            if (paid) AppClock.nowUnix() else null,
                                         )
                                     }
                                 }.onFailure { e ->
@@ -648,7 +649,7 @@ public fun TrackingScreen(
                             scope.launch {
                                 runCatching {
                                     withContext(Dispatchers.IO) {
-                                        registry.markBillPaidAmount(b.id, System.currentTimeMillis() / 1000L, sat)
+                                        registry.markBillPaidAmount(b.id, AppClock.nowUnix(), sat)
                                     }
                                 }.onFailure { e ->
                                     lastError = e.message ?: getString(Res.string.trk_err_mark_bill)
@@ -858,12 +859,12 @@ public fun TrackingScreen(
                             events = filterByPeriod(
                                 includedEvents,
                                 period,
-                                System.currentTimeMillis() / 1000L,
+                                AppClock.nowUnix(),
                             ),
                             groupedWallets = includedGroupedWallets,
                             periodLabel = period.label,
                             previousEvents = period.days?.let { days ->
-                                val now = System.currentTimeMillis() / 1000L
+                                val now = AppClock.nowUnix()
                                 val span = days.toLong() * 86_400L
                                 includedEvents.filter { e ->
                                     val ts = e.timestampUnix?.toLong() ?: return@filter false
@@ -1586,7 +1587,7 @@ public fun TrackingScreen(
                         withContext(Dispatchers.IO) {
                             registry.markBillPaidBy(
                                 bill.id,
-                                ev.timestampUnix?.toLong() ?: (System.currentTimeMillis() / 1000L),
+                                ev.timestampUnix?.toLong() ?: AppClock.nowUnix(),
                                 ev.amountSat,
                                 billPaidRef(ev),
                             )
@@ -1620,7 +1621,7 @@ public fun TrackingScreen(
                 val registry = RegistryStore.current() ?: return@BillPayDialog
                 scope.launch {
                     runCatching {
-                        withContext(Dispatchers.IO) { registry.markBillPaid(bill.id, System.currentTimeMillis() / 1000L) }
+                        withContext(Dispatchers.IO) { registry.markBillPaid(bill.id, AppClock.nowUnix()) }
                     }.onFailure { e ->
                         lastError = e.message ?: getString(Res.string.trk_err_mark_bill)
                     }
@@ -1639,7 +1640,7 @@ public fun TrackingScreen(
                 val registry = RegistryStore.current() ?: return@BillPaidAmountDialog
                 scope.launch {
                     runCatching {
-                        withContext(Dispatchers.IO) { registry.markBillPaidAmount(bill.id, System.currentTimeMillis() / 1000L, sat) }
+                        withContext(Dispatchers.IO) { registry.markBillPaidAmount(bill.id, AppClock.nowUnix(), sat) }
                     }.onFailure { e ->
                         lastError = e.message ?: getString(Res.string.trk_err_mark_bill)
                     }

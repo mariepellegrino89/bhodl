@@ -1,0 +1,59 @@
+name: Screenshot references
+
+# Records the desktop screen renders on the same runner image that the
+# CI `jvm-test` job verifies them on (fonts rasterise differently per
+# OS, so references are Linux renders only) and uploads the PNGs as an
+# artifact. It never pushes: download `screenshot-references`, unzip it
+# into apps/desktop/src/jvmTest/screenshots/, review and commit.
+# See CONTRIBUTING.md › Screenshot tests.
+on:
+  workflow_dispatch:
+
+# Read-only: the references leave this job only as an artifact.
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+# Third-party actions pinned to the same SHAs as ci.yml (bump together).
+jobs:
+  record:
+    name: record screenshot references
+    runs-on: ubuntu-latest
+    env:
+      # Same rationale as ci.yml jvm-test: no Android wiring needed.
+      ANDROID_HOME: ""
+      ANDROID_SDK_ROOT: ""
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install pinned Rust toolchain (rust-toolchain.toml)
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Cache Gradle
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle.kts', 'gradle/libs.versions.toml', 'gradle/verification-metadata.xml') }}
+          restore-keys: gradle-${{ runner.os }}-
+      - name: Record references
+        # Start from an empty folder so a renamed or removed render does
+        # not leave its old reference in the artifact. `jvmTest --rerun`
+        # keeps a cached test result from skipping the capture.
+        run: |
+          rm -f apps/desktop/src/jvmTest/screenshots/*.png
+          xvfb-run --auto-servernum ./gradlew :apps:desktop:recordRoborazziJvm :apps:desktop:jvmTest --rerun --stacktrace
+      - name: Upload references
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: screenshot-references
+          path: apps/desktop/src/jvmTest/screenshots/*.png
+          if-no-files-found: error

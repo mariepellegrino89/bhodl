@@ -2,6 +2,7 @@ package io.bhodl.desktop.screens
 
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.ui.graphics.compositeOver
+import io.bhodl.desktop.AppClock
 import io.bhodl.shared.resources.pfb_title
 import io.bhodl.shared.resources.pfb_net
 import io.bhodl.shared.resources.pfb_meta_wallets
@@ -438,7 +439,7 @@ private fun rememberClassHistory(
             loaded = emptyList()
             return@LaunchedEffect
         }
-        val now = System.currentTimeMillis() / 1000L
+        val now = AppClock.nowUnix()
         val days = (period.days ?: 365).toLong()
         loaded = NetWorthHistoryClient.netWorthHistory(
             fromUnix = now - days * 86_400L,
