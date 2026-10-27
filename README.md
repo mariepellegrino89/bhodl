@@ -96,6 +96,11 @@ later builds are incremental.
 - The vendored OpenSSL build creates deeply nested paths. If it fails with path-length
   errors (for example in a deep checkout or a git worktree), point Cargo at a short target
   directory, e.g. `export CARGO_TARGET_DIR=/c/t`.
+- Smart App Control blocks the build. It refuses to run the build scripts Cargo compiles
+  on your machine (`os error 4551`, events 3033/3077 in the CodeIntegrity log), and those
+  cannot be signed in advance. The Gradle build checks for it and stops with a message.
+  Either turn it off in Windows Security > App & browser control (on some Windows 11
+  versions it cannot be turned back on without a reset) or build inside WSL2.
 
 ### Tests and checks
 
