@@ -132,8 +132,12 @@ class HomeCockpitTest {
             ev("o4", PaymentDirection.OUTGOING, 900_000UL, 40, "Casa"),
         )
         TrackerCache.seedForTest(
-            lastSyncUnix = now,
-            totalAssetSat = 1_260_654UL,
+            wallets = listOf(
+                io.bhodl.ffi.WalletRecordFfi("w1", "Daily spending", io.bhodl.ffi.WalletKindFfi.WATCH_ADDRESSES, "[\"tb1qaaa\"]", "signet", 1),
+                io.bhodl.ffi.WalletRecordFfi("w2", "Savings", io.bhodl.ffi.WalletKindFfi.WATCH_ADDRESSES, "[\"tb1qbbb\"]", "signet", 2),
+            ),
+            watchBalances = mapOf("w1" to 1_260_654UL, "w2" to 48_500_000UL),
+            totalAssetSat = 49_760_654UL,
             events = events,
             bills = listOf(bill(1, "Luce", TODAY.plusDays(3).dayOfMonth)),
         )
