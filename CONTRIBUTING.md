@@ -155,6 +155,10 @@ Tolerance: per-pixel colour distance 0.007 and at most 0.01 % of the pixels
 artifact; it never pushes. Download it, unzip into `apps/desktop/src/jvmTest/screenshots/`,
 look at the images and commit them with the change. Never commit PNGs rendered on Windows or
 macOS. A local Docker run is not offered on purpose: a reference must match the runner's fonts.
+The *Screenshot references* workflow can only be started once it is on `main`; until then (or
+for a branch that is not a PR to `main`) start CI by hand (`gh workflow run CI --ref <branch>`)
+and take the `screen-renders` artifact it uploads on every run — the same renders, from the
+same runner.
 
 **Reviewing a failure**: the `jvm-test` job uploads `screenshot-diffs`. For each changed
 render it holds `<name>_compare.png` (reference, diff and new render side by side),
