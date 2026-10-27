@@ -97,16 +97,69 @@ tasks.named<ch.ubique.uniffi.plugin.tasks.InstallBindgenTask>("installBindgen") 
     val workspaceDir = rootProject.layout.projectDirectory.asFile
     val targetDir = rootProject.layout.buildDirectory.dir("bindgen-target").get().asFile
     doLast {
-        providers.exec {
+        // providers.exec captures stdout/stderr instead of streaming them, so
+        // on failure surface cargo's stderr; otherwise only "exit value 101"
+        // reaches the console and the cause (e.g. a blocked build script) is lost.
+        val install = providers.exec {
             workingDir = workspaceDir
+            isIgnoreExitValue = true
             commandLine(
                 "cargo", "install", "--locked", "--force",
                 "--path", "crates/uniffi-bindgen-kmp",
                 "--root", bindgenPath.get().asFile.path,
                 "--target-dir", targetDir.path,
             )
-        }.result.get().assertNormalExitValue()
+        }
+        val exitValue = install.result.get().exitValue
+        if (exitValue != 0) {
+            throw GradleException(
+                "cargo install of the bindgen failed (exit value $exitValue):\n" +
+                    install.standardError.asText.get().trimEnd(),
+            )
+        }
     }
+}
+
+// ----------------------------------------------------------------------------
+// Windows Smart App Control preflight
+// ----------------------------------------------------------------------------
+// Smart App Control blocks the unsigned build-script executables Cargo
+// compiles on the spot (os error 4551), so a build from source cannot finish
+// while it is on. Fail before the first cargo task with a clear message
+// instead of minutes later with an opaque exit value. Registry value:
+// 0 = off, 1 = on, 2 = evaluation (does not block). Skip the check with
+// -Pbhodl.skipSmartAppControlCheck=true.
+if (RustHost.Platform.Windows.isCurrent) {
+    val skipSacCheck = providers.gradleProperty("bhodl.skipSmartAppControlCheck")
+        .map { it.toBoolean() }.orElse(false)
+    val checkSmartAppControl = tasks.register("checkSmartAppControl") {
+        group = "verification"
+        description = "Fails early if Windows Smart App Control would block Cargo build scripts."
+        onlyIf { !skipSacCheck.get() }
+        val query = providers.exec {
+            isIgnoreExitValue = true
+            commandLine(
+                "reg", "query",
+                "HKLM\\SYSTEM\\CurrentControlSet\\Control\\CI\\Policy",
+                "/v", "VerifiedAndReputablePolicyState",
+            )
+        }.standardOutput.asText
+        doLast {
+            val state = Regex("""VerifiedAndReputablePolicyState\s+REG_DWORD\s+0x([0-9a-fA-F]+)""")
+                .find(query.get())?.groupValues?.get(1)?.toInt(16)
+            if (state == 1) {
+                throw GradleException(
+                    "Windows Smart App Control is on: it blocks the build scripts Cargo compiles " +
+                        "(os error 4551), so BHODL cannot be built from source on this machine. " +
+                        "Turn it off (Windows Security > App & browser control) or build in WSL2. " +
+                        "See README, Windows notes.",
+                )
+            }
+        }
+    }
+    tasks.matching {
+        it.name == "installBindgen" || it.name == "buildLibraryForBindings" || it.name.startsWith("cargoBuild")
+    }.configureEach { dependsOn(checkSmartAppControl) }
 }
 
 // The CargoExtension is a sibling extension created by the same plugin. It is
