@@ -602,7 +602,8 @@ private fun FiatCurrencyChip(
         Text(
             text = when (currency) {
                 FiatCurrency.NONE -> stringResource(Res.string.set_fiat_off)
-                else -> "${currency.symbol} ${currency.code}"
+                // CHF has no symbol of its own: "CHF", not "CHF CHF".
+                else -> if (currency.symbol == currency.code) currency.code else "${currency.symbol} ${currency.code}"
             },
             style = BhodlTheme.typography.labelMedium,
             color = BhodlTheme.colors.textPrimary,

@@ -15,7 +15,7 @@
     <string name="hmc_todo_action_open">Open</string>
     <string name="hmc_todo_action_view">View</string>
     <string name="hmc_todo_action_confirm">Confirm</string>
-    <string name="hmc_todo_action_categorize">Categorize</string>
+    <string name="hmc_todo_action_categorize">Categorise</string>
     <string name="hmc_todo_action_update">Update</string>
     <string name="hmc_kpi_income">INCOME</string>
     <string name="hmc_kpi_expenses">EXPENSES</string>

@@ -9,7 +9,7 @@
     <string name="txc_where_help">Outgoing payments of the period by category; the five largest are named, the rest is grouped.</string>
     <string name="txc_where_empty">No outgoing payments in the period.</string>
     <string name="txc_other">Other</string>
-    <string name="txc_uncategorized">Uncategorized</string>
+    <string name="txc_uncategorized">Uncategorised</string>
     <string name="txc_search">Search category, wallet, txid or amount</string>
     <string name="txc_today">Today</string>
     <string name="txc_yesterday">Yesterday</string>
