@@ -2,6 +2,7 @@ package io.bhodl.desktop.screens
 
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.ui.graphics.compositeOver
+import io.bhodl.desktop.AppClock
 import io.bhodl.shared.resources.pfb_title
 import io.bhodl.shared.resources.pfb_net
 import io.bhodl.shared.resources.pfb_meta_wallets
@@ -164,6 +165,7 @@ import io.bhodl.shared.resources.pfc_class_manual
 import io.bhodl.shared.resources.pfc_details_edit
 import io.bhodl.shared.resources.pfc_details_empty
 import io.bhodl.shared.resources.pfc_details_hint
+import io.bhodl.shared.resources.pfc_plan_hint
 import io.bhodl.shared.resources.pfc_details_none
 import io.bhodl.shared.resources.pfc_details_save
 import io.bhodl.shared.resources.pfc_details_title
@@ -438,7 +440,7 @@ private fun rememberClassHistory(
             loaded = emptyList()
             return@LaunchedEffect
         }
-        val now = System.currentTimeMillis() / 1000L
+        val now = AppClock.nowUnix()
         val days = (period.days ?: 365).toLong()
         loaded = NetWorthHistoryClient.netWorthHistory(
             fromUnix = now - days * 86_400L,
@@ -1169,6 +1171,7 @@ private fun ItemDetail(
     modifier: Modifier,
 ) {
     val rowDetails = details.forRow(row.section, row.recordId)
+    val loanSchedules by io.bhodl.desktop.data.TrackerCache.loanSchedules
     val assetName: (String) -> String? = { id -> manualAssets.firstOrNull { it.id.toString() == id }?.name }
     var subtitle: String? = null
     var onEdit: (() -> Unit)? = null
@@ -1205,7 +1208,7 @@ private fun ItemDetail(
             val l = liabilities.first { it.id == row.recordId }
             subtitle = l.displayLabel
             onEdit = { onEditLiability(l) }
-            liabilityCardModel(l, rowDetails, nowUnix, fiatCode, assetName)
+            liabilityCardModel(l, rowDetails, nowUnix, fiatCode, loanSchedules[l.id], assetName)
         }
     }
     val cls = model.category.cls
@@ -1494,6 +1497,13 @@ internal fun PortfolioDetailsDialog(
                     style = BhodlTheme.typography.labelMedium,
                     color = BhodlTheme.colors.textSecondary,
                 )
+                if (request.category == DetailCategory.MORTGAGE || request.category == DetailCategory.LOAN) {
+                    Text(
+                        stringResource(Res.string.pfc_plan_hint),
+                        style = BhodlTheme.typography.labelMedium,
+                        color = BhodlTheme.colors.textTertiary,
+                    )
+                }
                 request.category.fields.forEach { f ->
                     val label = stringResource(f.label)
                     val tag = Modifier.testTag(PortfolioCardsTags.detailsField(f.key))
@@ -1534,7 +1544,7 @@ internal fun PortfolioDetailsDialog(
         },
         confirmButton = {
             TextButton(
-                onClick = { onSave(detailsToJson(request.category, values)) },
+                onClick = { onSave(detailsToJson(request.category, values, io.bhodl.desktop.data.LoanPlans.defaultCurrency())) },
                 modifier = Modifier.testTag(PortfolioCardsTags.DETAILS_SAVE),
             ) { Text(stringResource(Res.string.pfc_details_save)) }
         },

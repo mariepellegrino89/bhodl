@@ -210,7 +210,7 @@
     <string name="trp_rec_conf_low">LOW</string>
     <string name="trp_rules_title">AUTO-CATEGORIZATION</string>
     <string name="trp_rules_reapply">↻ Reapply</string>
-    <string name="trp_rules_empty">No rules yet. Add one to auto-categorize matching transactions.</string>
+    <string name="trp_rules_empty">No rules yet. Add one to auto-categorise matching transactions.</string>
     <string name="trp_rule_condition">%1$s %2$s “%3$s”</string>
     <string name="trp_rule_on">ON</string>
     <string name="trp_rule_off">OFF</string>

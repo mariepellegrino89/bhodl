@@ -37,6 +37,10 @@ koalaplot = "0.9.0"
 # qrose — pure-Kotlin Compose Multiplatform QR-code renderer. MIT.
 # No native deps; works on JVM desktop, Android, iOS, JS, Wasm.
 qrose = "1.0.1"
+# Roborazzi — screenshot capture + golden comparison for the Compose
+# Desktop renders (jvmTest). 1.76.0 (2026-09-29) is built against CMP
+# 1.10.3 / kotlin-stdlib 2.0.21, so it adds no Compose or Kotlin bump.
+roborazzi = "1.76.0"
 
 [libraries]
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
@@ -63,6 +67,9 @@ koalaplot-core = { module = "io.github.koalaplot:koalaplot-core", version.ref = 
 # qrose QR-code renderer (receive-address screen).
 qrose = { module = "io.github.alexzhirkevich:qrose", version.ref = "qrose" }
 
+# Roborazzi screenshot comparison (desktop jvmTest only).
+roborazzi-compose-desktop = { module = "io.github.takahirom.roborazzi:roborazzi-compose-desktop", version.ref = "roborazzi" }
+
 [plugins]
 kotlin-multiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
@@ -73,3 +80,4 @@ compose-compiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "
 uniffi = { id = "ch.ubique.uniffi.plugin", version.ref = "uniffi-plugin" }
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
 kover = { id = "org.jetbrains.kotlinx.kover", version.ref = "kover" }
+roborazzi = { id = "io.github.takahirom.roborazzi", version.ref = "roborazzi" }

@@ -1,5 +1,6 @@
 package io.bhodl.desktop.screens
 
+import io.bhodl.desktop.AppClock
 import io.bhodl.shared.resources.mtx_filter_all
 import io.bhodl.shared.resources.mtx_filter_wallets
 import io.bhodl.desktop.data.ManualAccountKind
@@ -13,6 +14,17 @@ import io.bhodl.shared.resources.mtx_new_account_balance
 import io.bhodl.shared.resources.mtx_new_account_create
 import io.bhodl.shared.resources.mtx_account_hint
 import io.bhodl.shared.resources.mtx_card_hint
+import io.bhodl.shared.resources.mtx_debt_currency
+import io.bhodl.shared.resources.mtx_debt_extra_payment
+import io.bhodl.shared.resources.mtx_debt_extra_term
+import io.bhodl.shared.resources.mtx_debt_hint_extra_payment
+import io.bhodl.shared.resources.mtx_debt_hint_extra_term
+import io.bhodl.shared.resources.mtx_debt_hint_installment
+import io.bhodl.shared.resources.mtx_debt_hint_plain
+import io.bhodl.shared.resources.mtx_debt_installment
+import io.bhodl.shared.resources.mtx_debt_none
+import io.bhodl.shared.resources.mtx_pays_debt
+import io.bhodl.desktop.data.LoanPlans
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -88,6 +100,21 @@ internal data class ManualTxnDraft(
     val accountRef: String?,
     val category: String?,
     val note: String?,
+    /** Schema v10 — the debt this entry pays, with [debtPayment]. */
+    val debtId: Long? = null,
+    /** One of the [LoanPlans] payment kinds. */
+    val debtPayment: String? = null,
+)
+
+/**
+ * Schema v10 — a debt an entry can pay. [planCurrency] is set for a
+ * mortgage / loan with an amortization plan: the payment counts in it.
+ */
+internal data class DebtOption(
+    val id: Long,
+    val label: String,
+    val planned: Boolean,
+    val planCurrency: String? = null,
 )
 
 /** Defaults for a new entry (a bill paid outside the wallets prefills these). */
@@ -110,6 +137,10 @@ internal object ManualTxnTags {
     const val DELETE: String = "manual-txn.delete"
     fun currency(code: String): String = "manual-txn.currency.$code"
     fun account(index: Int): String = "manual-txn.account.$index"
+    const val DEBT_NONE: String = "manual-txn.debt.none"
+    fun debt(id: Long): String = "manual-txn.debt.$id"
+    fun debtKind(kind: String): String = "manual-txn.debt-kind.$kind"
+    const val DEBT_HINT: String = "manual-txn.debt-hint"
     const val BALANCE_HINT: String = "manual-txn.balance-hint"
     const val WALLETS_NOTE: String = "manual-txn.wallets-note"
     const val ADD_ACCOUNT: String = "manual-txn.add-account"
@@ -140,13 +171,15 @@ internal fun ManualTxnDialog(
     preset: ManualTxnPreset = ManualTxnPreset(),
     title: String? = null,
     /** Day zero for a new entry (test seam). */
-    nowUnix: Long = System.currentTimeMillis() / 1000L,
+    nowUnix: Long = AppClock.nowUnix(),
     /** BTC rate on a day for a currency (test seam). */
     rateOn: suspend (dateUnix: Long, currency: String) -> Double? = { d, c -> btcRateOn(d, c) },
     /** The wallets, shown (not selectable) among the channels: their spending arrives by itself. */
     walletLabels: List<String> = emptyList(),
     /** "+ Account": creates a manual cash account (name, currency, balance) and returns it. */
     onAddAccount: (suspend (name: String, currency: String, balance: Double) -> ManualAccount?)? = null,
+    /** Schema v10 — the debts spending can pay (installment, extra repayment, card balance). */
+    debts: List<DebtOption> = emptyList(),
 ) {
     val key = editing?.id
     val dashboard = SettingsStore.fiatCurrency.value
@@ -159,7 +192,19 @@ internal fun ManualTxnDialog(
     val account = allAccounts.firstOrNull { it.ref == accountRef } ?: allAccounts.first()
     // An account's balance moves in its own currency: the entry is typed in it.
     val accountCurrency = account.currency?.trim()?.uppercase()?.takeIf { account.kind == ManualAccountKind.ACCOUNT }
-    val currencies = if (accountCurrency != null) listOf(accountCurrency) else fiatCodes + SAT_UNIT
+    var debtId by remember(key) { mutableStateOf(editing?.liabilityId) }
+    var debtPayment by remember(key) { mutableStateOf(editing?.liabilityPayment ?: LoanPlans.INSTALLMENT) }
+    // A card cannot pay itself; only spending pays a debt.
+    val debtChoices = debts.filter { "liability:${it.id}" != account.ref }
+    val debt = debtChoices.firstOrNull { it.id == debtId }?.takeIf { direction == ManualTxns.DIRECTION_OUT }
+    // A planned debt counts the payment in its own currency.
+    val planCurrency = debt?.planCurrency?.trim()?.uppercase()
+    val currencies = when {
+        accountCurrency != null -> listOf(accountCurrency)
+        planCurrency != null -> listOf(planCurrency)
+        else -> fiatCodes + SAT_UNIT
+    }
+    val currencyClash = planCurrency != null && accountCurrency != null && planCurrency != accountCurrency
     var currency by remember(key) {
         mutableStateOf(
             editing?.let { it.currency ?: SAT_UNIT }
@@ -197,7 +242,7 @@ internal fun ManualTxnDialog(
         inSat -> typed.toLong().toULong()
         else -> fiatToSatAtRate(typed, rate)
     }?.takeIf { it > 0UL }
-    val canSave = amountSat != null
+    val canSave = amountSat != null && !currencyClash
 
     SlideOverPanel(
         onDismissRequest = onDismiss,
@@ -290,6 +335,25 @@ internal fun ManualTxnDialog(
                     )
                     else -> {}
                 }
+                if (direction == ManualTxns.DIRECTION_OUT && (debtChoices.isNotEmpty() || debt != null)) {
+                    DebtPicker(
+                        debts = debtChoices,
+                        selected = debt,
+                        // Like the channel, the debt is part of the entry: fixed once saved.
+                        enabled = editing == null,
+                        payment = debtPayment,
+                        onPick = { picked ->
+                            debtId = picked?.id
+                            val ccy = picked?.planCurrency?.trim()?.uppercase()
+                            if (ccy != null && ccy != currency && accountCurrency == null) {
+                                currency = ccy
+                                amountText = ""
+                            }
+                        },
+                        onPayment = { debtPayment = it },
+                        currencyClash = currencyClash,
+                    )
+                }
                 DatePickerField(
                     label = stringResource(Res.string.mtx_date),
                     epochSeconds = dateUnix,
@@ -326,6 +390,8 @@ internal fun ManualTxnDialog(
                             accountRef = account.ref,
                             category = category.trim().ifBlank { null },
                             note = note.trim().ifBlank { null },
+                            debtId = debt?.id,
+                            debtPayment = debt?.let { if (it.planned) debtPayment else LoanPlans.INSTALLMENT },
                         ),
                     )
                 },
@@ -386,6 +452,55 @@ private fun ChannelPicker(
             if (onAddAccount(name, ccy, balance) != null) adding = false
         })
     }
+}
+
+/**
+ * Schema v10 — "Pays a debt": none or one of [debts]; for a planned
+ * mortgage / loan also how (installment, extra repayment shortening the
+ * term or lowering the installment), with what that does to the plan.
+ */
+@Composable
+private fun DebtPicker(
+    debts: List<DebtOption>,
+    selected: DebtOption?,
+    enabled: Boolean,
+    payment: String,
+    onPick: (DebtOption?) -> Unit,
+    onPayment: (String) -> Unit,
+    currencyClash: Boolean,
+) {
+    Text(stringResource(Res.string.mtx_pays_debt), style = BhodlTheme.typography.labelMedium, color = BhodlTheme.colors.textSecondary)
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        ChoicePill(stringResource(Res.string.mtx_debt_none), selected == null, ManualTxnTags.DEBT_NONE, enabled = enabled) { onPick(null) }
+        (debts + listOfNotNull(selected?.takeIf { s -> debts.none { it.id == s.id } })).forEach { d ->
+            ChoicePill(d.label, d.id == selected?.id, ManualTxnTags.debt(d.id), enabled = enabled) { onPick(d) }
+        }
+    }
+    if (selected == null) return
+    if (selected.planned) {
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf(
+                LoanPlans.INSTALLMENT to Res.string.mtx_debt_installment,
+                LoanPlans.EXTRA_SHORTEN_TERM to Res.string.mtx_debt_extra_term,
+                LoanPlans.EXTRA_LOWER_PAYMENT to Res.string.mtx_debt_extra_payment,
+            ).forEach { (kind, label) ->
+                ChoicePill(stringResource(label), payment == kind, ManualTxnTags.debtKind(kind)) { onPayment(kind) }
+            }
+        }
+    }
+    val hint = when {
+        currencyClash -> stringResource(Res.string.mtx_debt_currency, selected.label, selected.planCurrency.orEmpty())
+        !selected.planned -> stringResource(Res.string.mtx_debt_hint_plain, selected.label)
+        payment == LoanPlans.EXTRA_SHORTEN_TERM -> stringResource(Res.string.mtx_debt_hint_extra_term, selected.label)
+        payment == LoanPlans.EXTRA_LOWER_PAYMENT -> stringResource(Res.string.mtx_debt_hint_extra_payment, selected.label)
+        else -> stringResource(Res.string.mtx_debt_hint_installment, selected.label)
+    }
+    Text(
+        hint,
+        style = BhodlTheme.typography.labelMedium,
+        color = if (currencyClash) BhodlTheme.colors.financialNegative else BhodlTheme.colors.textTertiary,
+        modifier = Modifier.testTag(ManualTxnTags.DEBT_HINT),
+    )
 }
 
 /** Inline "+ Account": a manual cash account with its current balance. */

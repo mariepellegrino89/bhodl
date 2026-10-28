@@ -25,6 +25,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import io.bhodl.desktop.AppClock
 import io.bhodl.desktop.domain.externalInflowSat
 import io.bhodl.desktop.domain.externalOutflowSat
 import io.bhodl.desktop.ui.HelpTip
@@ -132,7 +133,7 @@ internal fun homeTodos(
 }
 
 /** Today at midnight UTC, in unix seconds (test seam friendly). */
-internal fun todayUnixUtc(): Long = LocalDate.now(ZoneOffset.UTC).toEpochDay() * 86_400L
+internal fun todayUnixUtc(): Long = AppClock.today(ZoneOffset.UTC).toEpochDay() * 86_400L
 
 @Composable
 private fun RailTitle(text: String, help: String) {

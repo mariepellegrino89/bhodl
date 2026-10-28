@@ -127,7 +127,12 @@ jobs:
         # Compose resources read the screen resolution when strings are
         # resolved outside composition, which throws HeadlessException on
         # a runner without a display: run the tests on a virtual one.
-        run: xvfb-run --auto-servernum ./gradlew :shared:jvmTest :apps:desktop:jvmTest --stacktrace
+        #
+        # verifyRoborazziJvm runs the whole desktop jvmTest and also compares
+        # the screen renders with apps/desktop/src/jvmTest/screenshots/
+        # (recorded on this runner image by screenshots.yml). A render
+        # without a reference is logged, not failed.
+        run: xvfb-run --auto-servernum ./gradlew :shared:jvmTest :apps:desktop:verifyRoborazziJvm --stacktrace
       - name: Upload test report on failure
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -136,6 +141,25 @@ jobs:
           path: |
             shared/build/reports/tests/
             apps/desktop/build/reports/tests/
+      - name: Upload screenshot diffs on failure
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: screenshot-diffs
+          path: |
+            apps/desktop/build/outputs/roborazzi/
+            apps/desktop/build/reports/roborazzi/
+            apps/desktop/build/screenshots/
+          if-no-files-found: ignore
+      - name: Upload screen renders
+        # Every run: the renders of this runner image, to look at in a PR
+        # and to adopt as references (same pixels the verify compares).
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: screen-renders
+          path: apps/desktop/build/screenshots/*.png
+          if-no-files-found: ignore
 
   integration-test:
     name: integration-test (regtest + electrs)

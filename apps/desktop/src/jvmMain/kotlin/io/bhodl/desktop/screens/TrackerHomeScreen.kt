@@ -15,6 +15,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import io.bhodl.desktop.AppClock
 import io.bhodl.shared.resources.Res
 import io.bhodl.shared.resources.tracker_add_wallet
 import io.bhodl.shared.resources.tracker_refresh_balances
@@ -163,7 +164,7 @@ internal fun TrackerHomeSection(
         computeFinanceKpis(
             events = trackedEvents,
             totalAssetSat = netWorth.assetsSat,
-            nowUnix = System.currentTimeMillis() / 1000L,
+            nowUnix = AppClock.nowUnix(),
             investments = investments,
             lotsByInvestment = investmentLots,
             manualAssets = manualAssets,
@@ -179,7 +180,7 @@ internal fun TrackerHomeSection(
             bills = bills,
             recurring = recurringCandidates,
             startBalanceSat = walletSat,
-            nowUnix = System.currentTimeMillis() / 1000L,
+            nowUnix = AppClock.nowUnix(),
         )
     }
 
@@ -253,7 +254,7 @@ internal fun TrackerHomeSection(
             nwHistoryReconstructed = emptyList()
             return@LaunchedEffect
         }
-        val nowUnix = System.currentTimeMillis() / 1000L
+        val nowUnix = AppClock.nowUnix()
         val fromUnix = nowUnix - period.days.toLong() * 86_400L
         // Excluded wallets stay out of the history like they stay out of the hero.
         val eventLite = netWorthHistoryEvents(events, excludedWalletIds)
@@ -293,7 +294,7 @@ internal fun TrackerHomeSection(
                 nwHistory = nwHistoryReconstructed,
             )
             val lastReviewDismissed by SettingsStore.lastMonthlyReviewDismissedUnix
-            val nowUnix = System.currentTimeMillis() / 1000L
+            val nowUnix = AppClock.nowUnix()
             val periodEvents = remember(trackedEvents, globalPeriod) { filterByPeriod(trackedEvents, globalPeriod, nowUnix) }
             val todos = remember(trackedEvents, bills, recurringCandidates, manualAssets, lastReviewDismissed, periodEvents, hasLoadedOnce) {
                 homeTodos(

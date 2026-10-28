@@ -1,4 +1,5 @@
 package io.bhodl.desktop.screens
+import io.bhodl.desktop.AppClock
 import io.bhodl.shared.resources.common_uncategorised
 import io.bhodl.desktop.data.ChannelFilter
 import io.bhodl.desktop.data.filterByChannel
@@ -173,6 +174,7 @@ public fun TrackingScreen(
     val bills by TrackerCache.bills
     val goals by TrackerCache.goals
     val liabilities by TrackerCache.liabilities
+    val loanSchedules by TrackerCache.loanSchedules
     val investments by TrackerCache.investments
     // Phase 7.8 — lots grouped by parent investment id.
     val investmentLotsByInvestmentId by TrackerCache.investmentLotsByInvestmentId
@@ -360,7 +362,7 @@ public fun TrackingScreen(
             timeRangeFilter != null -> filterLedger(events, null, timeRangeFilter)
             // Month view (picked here, or arriving from a budget).
             txByMonth -> eventsInMonth(events, month)
-            else -> filterByPeriod(events, period, System.currentTimeMillis() / 1000L)
+            else -> filterByPeriod(events, period, AppClock.nowUnix())
         }
     }
     val walletLabels = walletLabelById
@@ -633,7 +635,7 @@ public fun TrackingScreen(
                                     withContext(Dispatchers.IO) {
                                         registry.markBillPaid(
                                             b.id,
-                                            if (paid) System.currentTimeMillis() / 1000L else null,
+                                            if (paid) AppClock.nowUnix() else null,
                                         )
                                     }
                                 }.onFailure { e ->
@@ -648,7 +650,7 @@ public fun TrackingScreen(
                             scope.launch {
                                 runCatching {
                                     withContext(Dispatchers.IO) {
-                                        registry.markBillPaidAmount(b.id, System.currentTimeMillis() / 1000L, sat)
+                                        registry.markBillPaidAmount(b.id, AppClock.nowUnix(), sat)
                                     }
                                 }.onFailure { e ->
                                     lastError = e.message ?: getString(Res.string.trk_err_mark_bill)
@@ -858,12 +860,12 @@ public fun TrackingScreen(
                             events = filterByPeriod(
                                 includedEvents,
                                 period,
-                                System.currentTimeMillis() / 1000L,
+                                AppClock.nowUnix(),
                             ),
                             groupedWallets = includedGroupedWallets,
                             periodLabel = period.label,
                             previousEvents = period.days?.let { days ->
-                                val now = System.currentTimeMillis() / 1000L
+                                val now = AppClock.nowUnix()
                                 val span = days.toLong() * 86_400L
                                 includedEvents.filter { e ->
                                     val ts = e.timestampUnix?.toLong() ?: return@filter false
@@ -1586,7 +1588,7 @@ public fun TrackingScreen(
                         withContext(Dispatchers.IO) {
                             registry.markBillPaidBy(
                                 bill.id,
-                                ev.timestampUnix?.toLong() ?: (System.currentTimeMillis() / 1000L),
+                                ev.timestampUnix?.toLong() ?: AppClock.nowUnix(),
                                 ev.amountSat,
                                 billPaidRef(ev),
                             )
@@ -1620,7 +1622,7 @@ public fun TrackingScreen(
                 val registry = RegistryStore.current() ?: return@BillPayDialog
                 scope.launch {
                     runCatching {
-                        withContext(Dispatchers.IO) { registry.markBillPaid(bill.id, System.currentTimeMillis() / 1000L) }
+                        withContext(Dispatchers.IO) { registry.markBillPaid(bill.id, AppClock.nowUnix()) }
                     }.onFailure { e ->
                         lastError = e.message ?: getString(Res.string.trk_err_mark_bill)
                     }
@@ -1639,7 +1641,7 @@ public fun TrackingScreen(
                 val registry = RegistryStore.current() ?: return@BillPaidAmountDialog
                 scope.launch {
                     runCatching {
-                        withContext(Dispatchers.IO) { registry.markBillPaidAmount(bill.id, System.currentTimeMillis() / 1000L, sat) }
+                        withContext(Dispatchers.IO) { registry.markBillPaidAmount(bill.id, AppClock.nowUnix(), sat) }
                     }.onFailure { e ->
                         lastError = e.message ?: getString(Res.string.trk_err_mark_bill)
                     }
@@ -1659,6 +1661,7 @@ public fun TrackingScreen(
             preset = state.preset,
             title = state.forBill?.let { stringResource(Res.string.bill_pay_title, it.name) },
             walletLabels = wallets.filter { it.id !in excludedWalletIds }.map { it.label },
+            debts = debtOptions(liabilities, loanSchedules),
             onAddAccount = { name, ccy, balance ->
                 RegistryStore.current()?.let { registry ->
                     runCatching {
@@ -2062,6 +2065,18 @@ public object TrackingTags {
     public const val ROOT: String = "tracking.root"
 }
 
+/**
+ * Schema v10 — the debts an off-wallet payment can go to: every
+ * liability, a planned mortgage / loan with its plan's currency.
+ */
+internal fun debtOptions(
+    liabilities: List<io.bhodl.ffi.TrackingLiabilityFfi>,
+    schedules: Map<Long, io.bhodl.ffi.LoanScheduleFfi>,
+): List<DebtOption> = liabilities.map { l ->
+    val plan = schedules[l.id]
+    DebtOption(l.id, l.name, planned = plan != null, planCurrency = plan?.currency)
+}
+
 /** Schema v8 — the off-wallet entry dialog: a new entry, an edit, or a bill paid outside the wallets. */
 internal data class ManualDialogState(
     val editing: io.bhodl.ffi.ManualTxnFfi? = null,
@@ -2079,11 +2094,13 @@ internal fun saveManualTxn(registry: io.bhodl.ffi.RegistryHandle, state: ManualD
     val id = if (editing != null) {
         registry.updateManualTxn(
             editing.id, draft.direction, draft.amountSat, draft.amountFiat, draft.currency, draft.occurredUnix, draft.note,
+            draft.debtPayment.takeIf { editing.liabilityId != null },
         )
         editing.id
     } else {
         registry.addManualTxn(
             draft.direction, draft.amountSat, draft.amountFiat, draft.currency, draft.occurredUnix, draft.accountRef, draft.note,
+            draft.debtId, draft.debtPayment.takeIf { draft.debtId != null },
         )
     }
     val walletId = io.bhodl.ffi.manualTxnWalletId(editing?.accountRef ?: draft.accountRef)

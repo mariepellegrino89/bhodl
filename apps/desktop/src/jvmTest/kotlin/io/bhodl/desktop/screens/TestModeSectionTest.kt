@@ -2,7 +2,9 @@ package io.bhodl.desktop.screens
 
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.waitUntilAtLeastOneExists
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.runDesktopComposeUiTest
 import io.bhodl.desktop.data.TestMode
@@ -74,7 +76,7 @@ class TestModeSectionTest {
             onNodeWithTag(TestModeTags.CONFIRM, useUnmergedTree = true).performClick()
             waitUntil(timeoutMillis = 30_000) { reloads == 1 }
 
-            RegistryStore.require().addManualTxn("out", 5_000uL, null, null, noon, null, "after mark")
+            RegistryStore.require().addManualTxn("out", 5_000uL, null, null, noon, null, "after mark", null, null)
             onNodeWithTag(TestModeTags.RESTORE_INITIAL).performClick()
             onNodeWithTag(TestModeTags.CONFIRM, useUnmergedTree = true).performClick()
             waitUntil(timeoutMillis = 30_000) { reloads == 2 }
@@ -106,6 +108,21 @@ class TestModeSectionTest {
             onNodeWithTag(TestModeTags.CONFIRM, useUnmergedTree = true).assertDoesNotExist()
         }
         assertEquals(before, RegistryStore.require().listDemoEvents().size)
+    }
+
+    @Test
+    fun `in test mode Settings offers no data wipe, outside it does`() {
+        runBlocking { TestMode.enter() }
+        runDesktopComposeUiTest(width = 1200, height = 1000) {
+            setContent { BhodlTheme { SettingsScreen(onBack = {}) } }
+            waitUntilAtLeastOneExists(hasTestTag(TestModeTags.EXPORT), timeoutMillis = 5_000)
+            onNodeWithTag(SettingsTags.WIPE).assertDoesNotExist()
+        }
+        TestMode.exit()
+        runDesktopComposeUiTest(width = 1200, height = 1000) {
+            setContent { BhodlTheme { SettingsScreen(onBack = {}) } }
+            waitUntilAtLeastOneExists(hasTestTag(SettingsTags.WIPE), timeoutMillis = 5_000)
+        }
     }
 
     @Test

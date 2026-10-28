@@ -134,6 +134,17 @@ class UcSettingsUiSecurityTest {
     }
 
     @Test
+    fun `SEC-092 the online prices switch is on by default and toggles`() = runDesktopComposeUiTest {
+        settings()
+        onNodeWithTag("settings.online-prices").performScrollTo().assertIsOn()
+        tap("settings.online-prices")
+        assertFalse(SettingsStore.onlinePrices.value)
+        onNodeWithTag("settings.online-prices").assertIsOff()
+        tap("settings.online-prices")
+        assertTrue(SettingsStore.onlinePrices.value)
+    }
+
+    @Test
     fun `SEC-093 each Bitcoin Lens fiat switch flips only its own surface`() = runDesktopComposeUiTest {
         settings()
         val switches = listOf(

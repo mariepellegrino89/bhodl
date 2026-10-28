@@ -135,8 +135,10 @@ internal val PRESET_CATEGORIES: List<PresetCategory> = listOf(
 internal fun categoryColorIndex(category: String?, custom: Map<String, Int>): Int? {
     val key = category?.trim()?.lowercase()?.takeIf { it.isNotEmpty() } ?: return null
     custom[key]?.let { return it }
-    PRESET_CATEGORIES.firstOrNull { key in it.aliases }?.let { return it.colorIndex }
-    return Math.floorMod(key.hashCode(), CategoryPalette.size - 1)
+    val preset = PRESET_CATEGORIES.firstOrNull { key in it.aliases } ?: return Math.floorMod(key.hashCode(), CategoryPalette.size - 1)
+    // A colour picked for "Cibo" also paints rows stored as "Food".
+    preset.names.firstNotNullOfOrNull { custom[it] }?.let { return it }
+    return preset.colorIndex
 }
 
 /** The colour of [category] on every surface; uncategorised is the "pending" amber. */

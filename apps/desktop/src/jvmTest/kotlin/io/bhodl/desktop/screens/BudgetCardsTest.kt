@@ -5,14 +5,12 @@ import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.test.ExperimentalTestApi
-import androidx.compose.ui.test.SemanticsNodeInteractionsProvider
-import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onNodeWithTag
-import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.waitUntilDoesNotExist
 import androidx.compose.ui.test.runDesktopComposeUiTest
 import androidx.compose.ui.test.waitUntilAtLeastOneExists
 import io.bhodl.desktop.data.TrackerCache
@@ -24,9 +22,7 @@ import io.bhodl.ffi.PaymentKind
 import io.bhodl.ffi.TrackingBillFfi
 import io.bhodl.ffi.TrackingBudgetFfi
 import io.bhodl.ui.theme.BhodlTheme
-import java.io.File
 import java.time.LocalDate
-import javax.imageio.ImageIO
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -42,7 +38,7 @@ import kotlin.test.assertTrue
 class BudgetCardsTest {
 
     @BeforeTest fun setUp() { SettingsStore.reset(); TrackerCache.reset(); TrackerUiState.clearFilters(); TrackerUiState.period.value = TrackingPeriod.D30 }
-    @AfterTest fun tearDown() { TrackerUiState.clearFilters(); TrackerCache.reset(); SettingsStore.reset() }
+    @AfterTest fun tearDown() { ScreenshotCheck.releaseClock(); TrackerUiState.clearFilters(); TrackerCache.reset(); SettingsStore.reset() }
 
     private fun row(cat: String, budget: ULong?, actual: ULong) = BudgetRow(cat, budget, actual, TrackingDirection.EXPENSE, budget)
 
@@ -73,6 +69,9 @@ class BudgetCardsTest {
         assertEquals(listOf("2026-10-01", "2026-10-24"), eventsThisMonth(events, today, zone).map { it.txidOrPaymentId })
         assertEquals(7, daysLeftInMonth(today), "25 to 31 October, today included")
         assertEquals(1, daysLeftInMonth(LocalDate.of(2026, 10, 31)))
+        // On the 1st the month starts over: all of it left, nothing from the month before.
+        assertEquals(31, daysLeftInMonth(LocalDate.of(2026, 10, 1)))
+        assertEquals(emptyList(), eventsThisMonth(events.take(1), LocalDate.of(2026, 10, 1), zone))
         // A monthly budget counts in full against the month (no proration).
         assertEquals(400_000UL, prorateBudget(400_000UL, "monthly", DAYS_PER_MONTH))
         assertEquals(27_692L, weeklyFromMonthly(120_000L), "52 weeks / 12 months")
@@ -123,7 +122,9 @@ class BudgetCardsTest {
         assertEquals(listOf(LocalDate.of(2026, 10, 28), LocalDate.of(2026, 11, 1), LocalDate.of(2026, 11, 20)), list.map { it.second })
     }
 
-    private val now = System.currentTimeMillis() / 1000L
+    // Fixed "now" (ScreenshotCheck): the render shows the same month and dates every day.
+    private val now = ScreenshotCheck.NOW_UNIX
+    private val today = PortfolioFixtures.TODAY
     private fun out(id: String, cat: String, sat: ULong, d: Long) =
         PaymentEvent("w1", id, PaymentKind.ON_CHAIN, PaymentDirection.OUTGOING, sat, null, (now - d * 86_400L).toULong(), null, cat, null)
 
@@ -137,12 +138,13 @@ class BudgetCardsTest {
             TrackingBudgetFfi("Spesa", 700_000UL, "monthly", 0), TrackingBudgetFfi("Ristoranti", 350_000UL, "monthly", 0),
             TrackingBudgetFfi("Trasporti", 300_000UL, "monthly", 0), TrackingBudgetFfi("Abbonamenti", 120_000UL, "monthly", 0),
         ),
-        bills = listOf(bill(1, "Luce", LocalDate.now().plusDays(3).dayOfMonth), bill(2, "Internet", LocalDate.now().plusDays(11).dayOfMonth)),
+        bills = listOf(bill(1, "Luce", today.plusDays(3).dayOfMonth), bill(2, "Internet", today.plusDays(11).dayOfMonth)),
         categories = listOf("Abbonamenti", "Regali", "Ristoranti", "Spesa", "Stipendio", "Trasporti"),
     )
 
     @Test
     fun `category cards drill into transactions and render dark and light`() = runDesktopComposeUiTest(width = 1440, height = 1250) {
+        ScreenshotCheck.pinClock()
         seed()
         for ((dark, name) in listOf(true to "budget-dark", false to "budget-light")) {
             setContent { BhodlTheme(useDarkTheme = dark) { TrackingScreen(section = TrackerSection.BUDGET) } }
@@ -150,13 +152,47 @@ class BudgetCardsTest {
             waitUntilAtLeastOneExists(hasTestTag(BudgetCardsTags.category("Ristoranti")))
             onNodeWithTag(BudgetCardsTags.BILLS).assertExists()
             waitForIdle()
-            shot(name)
+            screenshot(name)
         }
     }
 
-    private fun SemanticsNodeInteractionsProvider.shot(name: String) {
-        val dir = File(System.getProperty("bhodl.screenshots", "build/screenshots")).apply { mkdirs() }
-        ImageIO.write(onRoot().captureToImage().toAwtImage(), "png", File(dir, "$name.png"))
+    @Test
+    fun `budget and transactions share one month, the period selector only shows outside budget`() = runDesktopComposeUiTest(width = 1440, height = 1250) {
+        seed()
+        val thisMonth = io.bhodl.desktop.AppClock.currentMonth()
+        TrackerUiState.month.value = thisMonth
+        var section by androidx.compose.runtime.mutableStateOf(TrackerSection.BUDGET)
+        setContent { BhodlTheme { TrackingScreen(section = section, onSectionChange = { section = it }) } }
+        waitUntilAtLeastOneExists(hasTestTag(BudgetMonthTags.PREV), timeoutMillis = 5_000)
+        onNodeWithTag("${TrackingTags.PERIOD_PREFIX}${TrackingPeriod.D90.name}").assertDoesNotExist()
+        onNodeWithTag(BudgetMonthTags.THIS_MONTH).assertDoesNotExist()
+
+        // ‹ September → "View transactions" on a category: Transactions, by month, that category.
+        onNodeWithTag(BudgetMonthTags.PREV).performClick()
+        waitUntilAtLeastOneExists(hasTestTag(BudgetCardsTags.viewTransactions("Ristoranti")), timeoutMillis = 5_000)
+        onNodeWithTag(BudgetCardsTags.viewTransactions("Ristoranti")).performScrollTo().performClick()
+        waitUntilAtLeastOneExists(hasTestTag(TrackingTags.PERIOD_MONTH), timeoutMillis = 5_000)
+        assertEquals(TrackerSection.TRANSACTIONS, section)
+        assertTrue(TrackerUiState.txByMonth.value)
+        assertEquals("Ristoranti", TrackerUiState.categoryFilter.value)
+        assertEquals(thisMonth.minusMonths(1), TrackerUiState.month.value)
+
+        // A month picked in Transactions is the month Budget opens on.
+        onNodeWithTag(BudgetMonthTags.PREV).performClick()
+        waitForIdle()
+        section = TrackerSection.BUDGET
+        waitUntilAtLeastOneExists(hasTestTag(BudgetMonthTags.THIS_MONTH), timeoutMillis = 5_000)
+        assertEquals(thisMonth.minusMonths(2), TrackerUiState.month.value)
+
+        // "This month" goes straight back to the current month.
+        onNodeWithTag(BudgetMonthTags.THIS_MONTH).performClick()
+        waitUntilDoesNotExist(hasTestTag(BudgetMonthTags.THIS_MONTH), timeoutMillis = 3_000)
+        assertEquals(thisMonth, TrackerUiState.month.value)
+
+        // Reports get the period selector back.
+        section = TrackerSection.REPORTS
+        waitUntilAtLeastOneExists(hasTestTag("${TrackingTags.PERIOD_PREFIX}${TrackingPeriod.D90.name}"), timeoutMillis = 5_000)
+        onNodeWithTag(TrackingTags.PERIOD_MONTH).assertDoesNotExist()
     }
 
     @Test

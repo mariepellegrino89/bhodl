@@ -559,10 +559,14 @@ pub fn open_registry_in_memory(conn: Connection) -> Result<Registry, OnchainErro
 /// - v9: test-mode profiles —: `profile_meta` (key/value facts, among
 ///   them the test-mode flag) and `demo_events` (the wallet transactions
 ///   of a test profile). No backfill.
+/// - v10: `tracking_manual_txns.liability_id` / `liability_payment` — a
+///   manual entry that pays a debt (an installment or an extra
+///   repayment of a mortgage, a credit-card balance…) from its channel.
+///   Null for every existing row; no backfill.
 ///
 /// Not downgrade-compatible: an older build refuses a registry stamped
 /// with a higher version (see the L9 gate in `ensure_schema`).
-pub const SCHEMA_VERSION: i64 = 9;
+pub const SCHEMA_VERSION: i64 = 10;
 
 mod demo;
 pub use demo::DemoEvent;
@@ -595,6 +599,13 @@ CREATE TABLE IF NOT EXISTS tracking_manual_txns (\
 const ALTER_BILLS_LINK_SQL: [&str; 2] = [
     "ALTER TABLE tracking_bills ADD COLUMN category TEXT",
     "ALTER TABLE tracking_bills ADD COLUMN paid_ref TEXT",
+];
+
+/// v10 — the debt a manual entry pays (`tracking_liabilities.id`) and
+/// how: one of [`crate::loan_schedule::VALID_LOAN_PAYMENT_KINDS`].
+const ALTER_MANUAL_TXNS_LIABILITY_SQL: [&str; 2] = [
+    "ALTER TABLE tracking_manual_txns ADD COLUMN liability_id INTEGER",
+    "ALTER TABLE tracking_manual_txns ADD COLUMN liability_payment TEXT",
 ];
 
 /// v8 — allowed values for `tracking_manual_txns.direction`.
@@ -764,6 +775,11 @@ fn ensure_schema(conn: &Connection) -> Result<(), OnchainError> {
         ] {
             tx.execute(stmt, [])
                 .map_err(|e| OnchainError::Storage(e.to_string()))?;
+        }
+    }
+    if current_version < 10 {
+        for stmt in ALTER_MANUAL_TXNS_LIABILITY_SQL {
+            add_column_idempotent(&tx, stmt)?;
         }
     }
 
@@ -2220,16 +2236,48 @@ impl Registry {
         account_ref: Option<&str>,
         note: Option<&str>,
     ) -> Result<i64, OnchainError> {
+        self.add_manual_txn_paying(
+            direction,
+            amount_sat,
+            amount_fiat,
+            currency,
+            occurred_unix,
+            account_ref,
+            note,
+            None,
+        )
+    }
+
+    /// [`Self::add_manual_txn`], optionally paying a debt (v10): the
+    /// money leaves `account_ref` and goes to `debt`. Spending only. The
+    /// debt's stored balance drops by `amount_sat`; a mortgage or loan
+    /// with a plan follows its plan instead (see [`crate::loan_schedule`]),
+    /// and then the entry must be in the plan's currency.
+    #[allow(clippy::too_many_arguments)]
+    pub fn add_manual_txn_paying(
+        &self,
+        direction: &str,
+        amount_sat: u64,
+        amount_fiat: Option<f64>,
+        currency: Option<&str>,
+        occurred_unix: i64,
+        account_ref: Option<&str>,
+        note: Option<&str>,
+        debt: Option<DebtPayment<'_>>,
+    ) -> Result<i64, OnchainError> {
         validate_manual_txn(direction, amount_sat, amount_fiat, currency)?;
         let tx = self
             .conn
             .unchecked_transaction()
             .map_err(|e| OnchainError::Storage(e.to_string()))?;
+        if let Some(d) = debt {
+            validate_debt_payment(&tx, d, direction, currency, account_ref)?;
+        }
         tx.execute(
             "INSERT INTO tracking_manual_txns \
                     (direction, amount_sat, amount_fiat, currency, occurred_unix, \
-                     account_ref, note, created_at_unix) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                     account_ref, note, created_at_unix, liability_id, liability_payment) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             rusqlite::params![
                 direction,
                 sat_to_i64("amount_sat", amount_sat)?,
@@ -2239,6 +2287,8 @@ impl Registry {
                 account_ref,
                 note.map(str::trim).filter(|n| !n.is_empty()),
                 now_unix(),
+                debt.map(|d| d.liability_id),
+                debt.map(|d| d.kind),
             ],
         )
         .map_err(|e| OnchainError::Storage(e.to_string()))?;
@@ -2249,6 +2299,7 @@ impl Registry {
             amount_sat,
             amount_fiat,
             currency,
+            liability_id: debt.map(|d| d.liability_id),
         };
         move_account_balance(&tx, &entry, true)?;
         tx.commit()
@@ -2271,6 +2322,33 @@ impl Registry {
         occurred_unix: i64,
         note: Option<&str>,
     ) -> Result<bool, OnchainError> {
+        self.update_manual_txn_paying(
+            id,
+            direction,
+            amount_sat,
+            amount_fiat,
+            currency,
+            occurred_unix,
+            note,
+            None,
+        )
+    }
+
+    /// [`Self::update_manual_txn`]; `debt_kind` changes how the entry
+    /// pays its debt (installment / extra repayment), `None` keeps it.
+    /// The debt itself stays, like the account.
+    #[allow(clippy::too_many_arguments)]
+    pub fn update_manual_txn_paying(
+        &self,
+        id: i64,
+        direction: &str,
+        amount_sat: u64,
+        amount_fiat: Option<f64>,
+        currency: Option<&str>,
+        occurred_unix: i64,
+        note: Option<&str>,
+        debt_kind: Option<&str>,
+    ) -> Result<bool, OnchainError> {
         validate_manual_txn(direction, amount_sat, amount_fiat, currency)?;
         let tx = self
             .conn
@@ -2279,6 +2357,16 @@ impl Registry {
         let Some(old) = read_manual_txn(&tx, id)? else {
             return Ok(false);
         };
+        let kind = debt_kind
+            .or(old.liability_payment.as_deref())
+            .map(str::to_owned);
+        if let Some(liability_id) = old.liability_id {
+            let d = DebtPayment {
+                liability_id,
+                kind: kind.as_deref().unwrap_or(""),
+            };
+            validate_debt_payment(&tx, d, direction, currency, old.account_ref.as_deref())?;
+        }
         move_account_balance(&tx, &old.effect(), false)?;
         let new = AccountEffect {
             account_ref: old.account_ref.as_deref(),
@@ -2286,13 +2374,15 @@ impl Registry {
             amount_sat,
             amount_fiat,
             currency,
+            liability_id: old.liability_id,
         };
         move_account_balance(&tx, &new, true)?;
         let n = tx
             .execute(
                 "UPDATE tracking_manual_txns SET direction = ?1, amount_sat = ?2, \
-                    amount_fiat = ?3, currency = ?4, occurred_unix = ?5, note = ?6 \
-                 WHERE id = ?7",
+                    amount_fiat = ?3, currency = ?4, occurred_unix = ?5, note = ?6, \
+                    liability_payment = ?7 \
+                 WHERE id = ?8",
                 rusqlite::params![
                     direction,
                     sat_to_i64("amount_sat", amount_sat)?,
@@ -2300,6 +2390,7 @@ impl Registry {
                     currency.map(|c| c.trim().to_uppercase()),
                     occurred_unix,
                     note.map(str::trim).filter(|n| !n.is_empty()),
+                    kind.filter(|_| old.liability_id.is_some()),
                     id,
                 ],
             )
@@ -2348,7 +2439,7 @@ impl Registry {
             .conn
             .prepare(
                 "SELECT id, direction, amount_sat, amount_fiat, currency, occurred_unix, \
-                        account_ref, note, created_at_unix \
+                        account_ref, note, created_at_unix, liability_id, liability_payment \
                  FROM tracking_manual_txns ORDER BY occurred_unix DESC, id DESC",
             )
             .map_err(|e| OnchainError::Storage(e.to_string()))?;
@@ -2364,6 +2455,8 @@ impl Registry {
                     account_ref: row.get(6)?,
                     note: row.get(7)?,
                     created_at_unix: row.get(8)?,
+                    liability_id: row.get(9)?,
+                    liability_payment: row.get(10)?,
                 })
             })
             .map_err(|e| OnchainError::Storage(e.to_string()))?;
@@ -4319,6 +4412,18 @@ pub struct ManualTxn {
     pub account_ref: Option<String>,
     pub note: Option<String>,
     pub created_at_unix: i64,
+    /// v10 — the debt this entry pays, if any.
+    pub liability_id: Option<i64>,
+    /// v10 — how: one of [`crate::loan_schedule::VALID_LOAN_PAYMENT_KINDS`].
+    pub liability_payment: Option<String>,
+}
+
+/// v10 — the debt a manual entry pays and how
+/// (one of [`crate::loan_schedule::VALID_LOAN_PAYMENT_KINDS`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DebtPayment<'a> {
+    pub liability_id: i64,
+    pub kind: &'a str,
 }
 
 /// Phase 4.5 — one row of the `tracking_savings_goals` table.
@@ -4794,6 +4899,8 @@ struct AccountEffect<'a> {
     amount_sat: u64,
     amount_fiat: Option<f64>,
     currency: Option<&'a str>,
+    /// v10 — the debt the entry pays.
+    liability_id: Option<i64>,
 }
 
 impl ManualTxn {
@@ -4804,6 +4911,7 @@ impl ManualTxn {
             amount_sat: self.amount_sat,
             amount_fiat: self.amount_fiat,
             currency: self.currency.as_deref(),
+            liability_id: self.liability_id,
         }
     }
 }
@@ -4811,7 +4919,7 @@ impl ManualTxn {
 fn read_manual_txn(conn: &Connection, id: i64) -> Result<Option<ManualTxn>, OnchainError> {
     conn.query_row(
         "SELECT id, direction, amount_sat, amount_fiat, currency, occurred_unix, \
-                account_ref, note, created_at_unix \
+                account_ref, note, created_at_unix, liability_id, liability_payment \
          FROM tracking_manual_txns WHERE id = ?1",
         [id],
         |row| {
@@ -4825,6 +4933,8 @@ fn read_manual_txn(conn: &Connection, id: i64) -> Result<Option<ManualTxn>, Onch
                 account_ref: row.get(6)?,
                 note: row.get(7)?,
                 created_at_unix: row.get(8)?,
+                liability_id: row.get(9)?,
+                liability_payment: row.get(10)?,
             })
         },
     )
@@ -4844,6 +4954,16 @@ fn move_account_balance(
     e: &AccountEffect<'_>,
     apply: bool,
 ) -> Result<(), OnchainError> {
+    if let Some(debt) = e.liability_id {
+        // v10 — the payment lowers the debt (never below zero).
+        let amount = sat_to_i64("amount_sat", e.amount_sat)?;
+        let delta = if apply { -amount } else { amount };
+        conn.execute(
+            "UPDATE tracking_liabilities SET amount_sat = MAX(0, amount_sat + ?1) WHERE id = ?2",
+            rusqlite::params![delta, debt],
+        )
+        .map_err(|err| OnchainError::Storage(err.to_string()))?;
+    }
     let Some((kind, id)) = e.account_ref.and_then(|r| r.split_once(':')) else {
         return Ok(());
     };
@@ -4930,6 +5050,55 @@ fn validate_manual_txn(
         return Err(OnchainError::InvalidArgument(
             "amount_fiat and currency go together".into(),
         ));
+    }
+    Ok(())
+}
+
+/// v10 — a debt payment is spending, on an existing debt other than the
+/// channel itself, of a known kind; on a mortgage / loan whose plan names
+/// its currency, in that currency (the plan counts it in that currency).
+fn validate_debt_payment(
+    conn: &Connection,
+    d: DebtPayment<'_>,
+    direction: &str,
+    currency: Option<&str>,
+    account_ref: Option<&str>,
+) -> Result<(), OnchainError> {
+    let bad = |m: String| Err(OnchainError::InvalidArgument(m));
+    if direction != "out" {
+        return bad("a debt payment must be spending".into());
+    }
+    if !crate::loan_schedule::VALID_LOAN_PAYMENT_KINDS.contains(&d.kind) {
+        return bad(format!(
+            "debt payment kind must be one of {:?}, got {:?}",
+            crate::loan_schedule::VALID_LOAN_PAYMENT_KINDS,
+            d.kind
+        ));
+    }
+    if account_ref == Some(format!("liability:{}", d.liability_id).as_str()) {
+        return bad("a debt cannot pay itself".into());
+    }
+    let row: Option<(String, String)> = conn
+        .query_row(
+            "SELECT kind, details_json FROM tracking_liabilities WHERE id = ?1",
+            [d.liability_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()
+        .map_err(|e| OnchainError::Storage(e.to_string()))?;
+    let Some((kind, details)) = row else {
+        return bad(format!("unknown debt {}", d.liability_id));
+    };
+    if crate::loan_schedule::SCHEDULED_LIABILITY_KINDS.contains(&kind.as_str()) {
+        let plan_currency = crate::loan_schedule::terms_from_details(&details, "")
+            .map(|t| t.currency)
+            .filter(|c| !c.is_empty());
+        if let Some(plan) = plan_currency {
+            let same = currency.is_some_and(|c| c.trim().eq_ignore_ascii_case(&plan));
+            if !same {
+                return bad(format!("a payment on this debt must be in {plan}"));
+            }
+        }
     }
     Ok(())
 }

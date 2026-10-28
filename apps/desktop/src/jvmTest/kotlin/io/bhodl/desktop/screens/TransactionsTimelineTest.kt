@@ -1,14 +1,12 @@
 package io.bhodl.desktop.screens
 
-import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.test.ExperimentalTestApi
-import androidx.compose.ui.test.SemanticsNodeInteractionsProvider
-import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
-import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
@@ -23,9 +21,7 @@ import io.bhodl.ffi.PaymentKind
 import io.bhodl.ffi.WalletKindFfi
 import io.bhodl.ffi.WalletRecordFfi
 import io.bhodl.ui.theme.BhodlTheme
-import java.io.File
 import java.time.ZoneOffset
-import javax.imageio.ImageIO
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -38,7 +34,8 @@ import kotlin.test.assertEquals
 @OptIn(ExperimentalTestApi::class)
 class TransactionsTimelineTest {
 
-    private val now = System.currentTimeMillis() / 1000L
+    // Fixed "now" (ScreenshotCheck): the render shows the same dates every day.
+    private val now = ScreenshotCheck.NOW_UNIX
     private val day = 86_400L
 
     private fun ev(
@@ -50,8 +47,8 @@ class TransactionsTimelineTest {
         wallet: String = "w1",
     ) = PaymentEvent(wallet, id, PaymentKind.ON_CHAIN, dir, sat, null, ts?.toULong(), null, cat, null)
 
-    @BeforeTest fun setUp() { SettingsStore.reset(); TrackerCache.reset(); TrackerUiState.clearFilters(); TrackerUiState.period.value = TrackingPeriod.D30 }
-    @AfterTest fun tearDown() { TrackerUiState.clearFilters(); TrackerCache.reset(); SettingsStore.reset() }
+    @BeforeTest fun setUp() { SettingsStore.reset(); TrackerCache.reset(); TrackerUiState.clearFilters(); TrackerUiState.period.value = TrackingPeriod.D30; ScreenshotCheck.pinClock() }
+    @AfterTest fun tearDown() { ScreenshotCheck.releaseClock(); TrackerUiState.clearFilters(); TrackerCache.reset(); SettingsStore.reset() }
 
     @Test
     fun `days come newest first, pending first, each with its net`() {
@@ -145,18 +142,30 @@ class TransactionsTimelineTest {
     }
 
     @Test
+    fun `changing the period moves the summaries and the timeline together`() = runDesktopComposeUiTest {
+        val events = listOf(
+            ev("recent", PaymentDirection.OUTGOING, 1_000UL, now - 2 * day, "Spesa"),
+            ev("older", PaymentDirection.OUTGOING, 5_000UL, now - 60 * day, "Lisbon trip"),
+        )
+        seed(events)
+        setContent { BhodlTheme { TrackingScreen(section = TrackerSection.TRANSACTIONS) } }
+        val tripInSummary = hasText("Lisbon trip") and hasAnyAncestor(hasTestTag(TxTimelineTags.WHERE))
+        waitUntil(timeoutMillis = 3_000) { onAllNodesWithTag(TxTimelineTags.ROW).fetchSemanticsNodes().size == 1 }
+        onAllNodes(tripInSummary, useUnmergedTree = true).assertCountEquals(0)
+
+        TrackerUiState.period.value = TrackingPeriod.D90
+        waitUntil(timeoutMillis = 3_000) { onAllNodesWithTag(TxTimelineTags.ROW).fetchSemanticsNodes().size == 2 }
+        waitUntilAtLeastOneExists(tripInSummary, timeoutMillis = 3_000)
+    }
+
+    @Test
     fun `render the transactions for the visual review`() = runDesktopComposeUiTest(width = 1440, height = 1300) {
         seed()
         for ((dark, name) in listOf(true to "transactions-dark", false to "transactions-light")) {
             setContent { BhodlTheme(useDarkTheme = dark) { TrackingScreen(section = TrackerSection.TRANSACTIONS) } }
             waitUntilAtLeastOneExists(hasTestTag(TxTimelineTags.REVIEW), timeoutMillis = 5_000)
             waitForIdle()
-            shot(name)
+            screenshot(name)
         }
-    }
-
-    private fun SemanticsNodeInteractionsProvider.shot(name: String) {
-        val dir = File(System.getProperty("bhodl.screenshots", "build/screenshots")).apply { mkdirs() }
-        ImageIO.write(onRoot().captureToImage().toAwtImage(), "png", File(dir, "$name.png"))
     }
 }

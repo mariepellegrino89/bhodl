@@ -1,4 +1,5 @@
 package io.bhodl.desktop.screens
+import io.bhodl.desktop.AppClock
 import io.bhodl.shared.resources.bgm_month_closed
 import io.bhodl.shared.resources.bgm_month_left
 import io.bhodl.desktop.domain.RecurringCandidate
@@ -247,7 +248,7 @@ internal fun TrackingDashboardTab(
 ) {
     // Snapshot in seconds so the same `now` drives both the period
     // filter and the synthetic anchor inside `balanceSeries`.
-    val nowUnix = System.currentTimeMillis() / 1000L
+    val nowUnix = AppClock.nowUnix()
     val inPeriod = filterByPeriod(events, period, nowUnix)
     val kpis = computeKpis(inPeriod, currentBalanceSat)
     // Phase 3.11 — confirmed vs pending split derived from the full

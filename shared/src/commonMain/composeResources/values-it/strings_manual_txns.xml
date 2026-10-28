@@ -35,4 +35,14 @@
     <string name="mtx_card_hint">Il debito di %1$s si aggiorna con questo movimento.</string>
     <string name="mtx_filter_all">Tutti i canali</string>
     <string name="mtx_filter_wallets">Wallet</string>
+    <string name="mtx_pays_debt">Paga un debito</string>
+    <string name="mtx_debt_none">No</string>
+    <string name="mtx_debt_installment">Rata</string>
+    <string name="mtx_debt_extra_term">Estinzione · riduci durata</string>
+    <string name="mtx_debt_extra_payment">Estinzione · riduci rata</string>
+    <string name="mtx_debt_hint_installment">Prende il posto della rata prevista di quel mese nel piano di %1$s.</string>
+    <string name="mtx_debt_hint_extra_term">Riduce il debito di %1$s in questa data: la rata resta, il piano finisce prima.</string>
+    <string name="mtx_debt_hint_extra_payment">Riduce il debito di %1$s in questa data: la scadenza resta, la rata si abbassa.</string>
+    <string name="mtx_debt_hint_plain">Il debito di %1$s scende di questo importo.</string>
+    <string name="mtx_debt_currency">Il piano di %1$s è in %2$s: inserisci l'importo in %2$s.</string>
 </resources>

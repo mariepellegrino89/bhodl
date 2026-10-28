@@ -32,6 +32,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -81,6 +82,8 @@ internal object ReportsOverviewTags {
     const val DONUT: String = "reports.donut"
     const val BARS: String = "reports.bars"
     fun legend(category: String?): String = "reports.legend.${category ?: "none"}"
+    fun bar(category: String?): String = "reports.bar.${category ?: "none"}"
+    fun previousBar(category: String?): String = "reports.bar.previous.${category ?: "none"}"
 }
 
 /** Outflow of one category now and in the previous window. */
@@ -222,6 +225,7 @@ internal fun OutflowDonutCard(rows: List<CategoryCompare>, selected: String?, on
                             .clickable(role = Role.Button) { onSelect(if (on) null else r.category) }
                             .padding(horizontal = 6.dp)
                             .alpha(if (selected != null && !on) 0.55f else 1f)
+                            .semantics { this.selected = on }
                             .testTag(ReportsOverviewTags.legend(r.category)),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -247,14 +251,21 @@ internal fun PairedBarsCard(rows: List<CategoryCompare>, selected: String?, modi
         rows.forEach { r ->
             val color = categoryColor(r.category)
             val dim = selected != null && r.category != selected
-            Row(Modifier.fillMaxWidth().alpha(if (dim) 0.4f else 1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            val highlighted = selected != null && !dim
+            Row(
+                Modifier.fillMaxWidth().alpha(if (dim) 0.4f else 1f)
+                    .semantics { this.selected = highlighted }
+                    .testTag(ReportsOverviewTags.bar(r.category)),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
                 Text(r.category?.let { categoryDisplayName(it) } ?: none, style = BhodlTheme.typography.bodyMedium, color = BhodlTheme.colors.textPrimary, modifier = Modifier.width(120.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     BoxWithConstraints(Modifier.fillMaxWidth().height(10.dp)) {
                         Box(Modifier.width(maxWidth * (r.nowSat.toFloat() / max)).fillMaxHeight().clip(RoundedCornerShape(3.dp)).background(color))
                     }
                     r.prevSat?.let { p ->
-                        BoxWithConstraints(Modifier.fillMaxWidth().height(5.dp)) {
+                        BoxWithConstraints(Modifier.fillMaxWidth().height(5.dp).testTag(ReportsOverviewTags.previousBar(r.category))) {
                             Box(Modifier.width(maxWidth * (p.toFloat() / max)).fillMaxHeight().clip(RoundedCornerShape(3.dp)).background(BhodlTheme.colors.textTertiary))
                         }
                     }

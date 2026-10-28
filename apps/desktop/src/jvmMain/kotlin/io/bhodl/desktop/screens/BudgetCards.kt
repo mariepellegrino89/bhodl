@@ -1,5 +1,6 @@
 package io.bhodl.desktop.screens
 
+import io.bhodl.desktop.AppClock
 import io.bhodl.shared.resources.bill_variable_tag
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
@@ -93,6 +94,7 @@ internal object BudgetCardsTags {
     fun category(name: String): String = BudgetTags.editChip(name)
     const val BILLS: String = "budget.bills"
     fun bill(id: Long): String = "budget.bill.$id"
+    fun viewTransactions(category: String): String = "budget.view-tx.$category"
 }
 
 /** Totals of the expense budgets of the period. */
@@ -350,7 +352,11 @@ private fun CategoryCard(
                 color = BhodlTheme.colors.textTertiary,
             )
         }
-        TextButton(onClick = { onViewTransactions(r.category) }, contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
+        TextButton(
+            onClick = { onViewTransactions(r.category) },
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
+            modifier = Modifier.testTag(BudgetCardsTags.viewTransactions(r.category)),
+        ) {
             Text(stringResource(Res.string.bgc_view_tx), style = BhodlTheme.typography.labelMedium)
         }
     }
@@ -444,7 +450,7 @@ internal fun BillsCalendarStrip(
 }
 
 /** Today in the system zone (test seam friendly). */
-internal fun todayLocal(): LocalDate = LocalDate.now(ZoneId.systemDefault())
+internal fun todayLocal(): LocalDate = AppClock.today()
 
 /**
  * Budget redesign 2026-10 — budgets are monthly and follow the calendar
@@ -460,7 +466,7 @@ internal fun eventsThisMonth(events: List<PaymentEvent>, today: LocalDate, zone:
 internal fun eventsInMonth(events: List<PaymentEvent>, month: java.time.YearMonth, zone: ZoneId = ZoneId.systemDefault()): List<PaymentEvent> {
     val start = month.atDay(1).atStartOfDay(zone).toEpochSecond()
     val end = month.plusMonths(1).atDay(1).atStartOfDay(zone).toEpochSecond()
-    val current = month == java.time.YearMonth.now(zone)
+    val current = month == AppClock.currentMonth(zone)
     return events.filter { e ->
         val ts = e.timestampUnix?.toLong() ?: return@filter current
         ts in start until end
@@ -471,6 +477,7 @@ internal object BudgetMonthTags {
     const val PREV: String = "budget-month.prev"
     const val NEXT: String = "budget-month.next"
     const val LABEL: String = "budget-month.label"
+    const val THIS_MONTH: String = "budget-month.this-month"
 }
 
 /** Budget redesign 2026-10 — "‹ October 2026 ›": earlier months, never past the current one. */
@@ -502,7 +509,7 @@ internal fun BudgetMonthSelector(
             Text("›", style = BhodlTheme.typography.titleMedium, color = if (month < current) BhodlTheme.colors.textPrimary else BhodlTheme.colors.textTertiary)
         }
         if (month != current) {
-            androidx.compose.material3.TextButton(onClick = { onChange(current) }) {
+            androidx.compose.material3.TextButton(onClick = { onChange(current) }, modifier = Modifier.testTag(BudgetMonthTags.THIS_MONTH)) {
                 Text(stringResource(Res.string.bgm_this_month), color = BhodlTheme.colors.brandPrimary)
             }
         }

@@ -1,5 +1,6 @@
 package io.bhodl.desktop.screens
 
+import io.bhodl.desktop.AppClock
 import io.bhodl.desktop.ui.tableRowClickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -176,7 +177,7 @@ internal fun AssetPortfolioCard(
     // Period start (null for "All") and the BTC/<ccy> rate on that day
     // for every currency the sheet converts.
     val periodStartUnix: Long? = remember(period) {
-        period.days?.let { System.currentTimeMillis() / 1000L - it.toLong() * 86_400L }
+        period.days?.let { AppClock.nowUnix() - it.toLong() * 86_400L }
     }
     val currencies = remember(investments, manualAssets) {
         (investments.map { it.costBasisCurrency } + manualAssets.map { it.currency })
@@ -673,7 +674,7 @@ private fun UpdatedCell(unix: Long?, modifier: Modifier) {
     val text = if (unix == null) {
         "—"
     } else {
-        val days = ((System.currentTimeMillis() / 1000L - unix) / 86_400L).coerceAtLeast(0L)
+        val days = ((AppClock.nowUnix() - unix) / 86_400L).coerceAtLeast(0L)
         if (days == 0L) {
             stringResource(Res.string.tracker_sheet_updated_today)
         } else {

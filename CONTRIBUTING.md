@@ -128,6 +128,43 @@ profile opens with the project's test data and your real data stays closed.
   change it for everyone, export and replace that file in a pull request, saying what you
   changed. Two people changing it at once do not merge: the last file wins.
 
+### Screenshot tests
+
+The `render …` tests in `apps/desktop/src/jvmTest/kotlin/io/bhodl/desktop/screens/`
+(Home, Transactions, Goals, Budget, Settings, Reports, Wallet, Portfolio, category picker:
+dark and light, Italian, a 900 px window) call `screenshot("name")` from
+`ScreenshotCheck.kt`. They are compared with reference PNGs in
+`apps/desktop/src/jvmTest/screenshots/` by [Roborazzi](https://github.com/takahirom/roborazzi).
+The renders pin the app clock to 25 Oct 2026 12:00 UTC, so dates do not drift.
+
+Fonts render differently on Windows, macOS and Linux, so **references are Linux renders
+recorded on the CI runner**, and only CI compares them:
+
+| Command | Where | What it does |
+|---|---|---|
+| `./gradlew :apps:desktop:jvmTest` | anywhere | writes every render to `apps/desktop/build/screenshots/` to look at; never fails on pixels |
+| `./gradlew :apps:desktop:verifyRoborazziJvm` | CI (`jvm-test`) | fails when a render differs from its reference beyond the tolerance; a render without a reference is logged as `no reference, recorded` and does not fail. Off Linux it only writes diff images |
+| `./gradlew :apps:desktop:recordRoborazziJvm` | Linux only | rewrites the references; on Windows / macOS it records nothing |
+
+Tolerance: per-pixel colour distance 0.007 and at most 0.01 % of the pixels
+(`ScreenshotCheck.MAX_PIXEL_DISTANCE` / `CHANGE_THRESHOLD`).
+
+**Re-recording** after an intended UI change: run the *Screenshot references* workflow
+(Actions › Screenshot references › Run workflow, on your branch). It records on the same
+`ubuntu-latest` image that verifies and uploads the PNGs as the `screenshot-references`
+artifact; it never pushes. Download it, unzip into `apps/desktop/src/jvmTest/screenshots/`,
+look at the images and commit them with the change. Never commit PNGs rendered on Windows or
+macOS. A local Docker run is not offered on purpose: a reference must match the runner's fonts.
+The *Screenshot references* workflow can only be started once it is on `main`; until then (or
+for a branch that is not a PR to `main`) start CI by hand (`gh workflow run CI --ref <branch>`)
+and take the `screen-renders` artifact it uploads on every run — the same renders, from the
+same runner.
+
+**Reviewing a failure**: the `jvm-test` job uploads `screenshot-diffs`. For each changed
+render it holds `<name>_compare.png` (reference, diff and new render side by side),
+`<name>_actual.png` (the new render) and the HTML report under `reports/`. Intended change:
+re-record as above. Unintended: fix the code.
+
 Dependency bumps: Gradle verifies artifact checksums, so after changing a version run
 `./gradlew --write-verification-metadata sha256 :shared:jvmTest :apps:desktop:jvmTest` and commit
 the updated `gradle/verification-metadata.xml`. The `OSV scan` job then checks it for known

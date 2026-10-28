@@ -37,6 +37,15 @@ class AddressBookScreenTest {
     }
 
     @Test
+    fun `the back arrow at the top leaves the contacts`() = runDesktopComposeUiTest {
+        WalletStore.set(FakeWalletPort())
+        var back = 0
+        setContent { BhodlTheme { AddressBookScreen(onBack = { back++ }) } }
+        onNodeWithTag(io.bhodl.desktop.ui.BhodlBackArrowTags.ROOT).performClick()
+        assertEquals(1, back)
+    }
+
+    @Test
     fun `empty state then add then list then delete`() = runDesktopComposeUiTest {
         val fake = FakeWalletPort()
         WalletStore.set(fake)

@@ -22,6 +22,7 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
+import io.bhodl.desktop.AppClock
 import io.bhodl.shared.resources.Res
 import io.bhodl.shared.resources.common_cancel
 import io.bhodl.shared.resources.common_ok
@@ -85,7 +86,7 @@ public fun DatePickerField(
     if (showPicker) {
         val state = rememberDatePickerState(
             initialSelectedDateMillis = epochSeconds?.times(1000)
-                ?: LocalDate.now(ZoneOffset.UTC)
+                ?: AppClock.today(ZoneOffset.UTC)
                     .atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli(),
         )
         DatePickerDialog(

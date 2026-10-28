@@ -132,6 +132,7 @@ public fun SettingsScreen(
     val colorConvention by SettingsStore.colorConvention
     val fiatCurrency by SettingsStore.fiatCurrency
     val autoFetchInvestments by SettingsStore.autoFetchInvestmentPrices
+    val onlinePrices by SettingsStore.onlinePrices
     val privacyAutoHide by SettingsStore.privacyAutoHide
     val balancesHidden by SettingsStore.balancesHidden
     // UX review 2026-10 — Appearance: unified bitcoin unit, BIP177, density.
@@ -255,6 +256,10 @@ public fun SettingsScreen(
                         proxyUrl = torProxyUrl,
                         onEnabledChange = { SettingsStore.setTorEnabled(it) },
                         onProxyUrlChange = { SettingsStore.setTorProxyUrl(it) },
+                    )
+                    OnlinePricesSection(
+                        enabled = onlinePrices,
+                        onToggle = { SettingsStore.setOnlinePrices(it) },
                     )
                     InvestmentPriceFetchSection(
                         enabled = autoFetchInvestments,

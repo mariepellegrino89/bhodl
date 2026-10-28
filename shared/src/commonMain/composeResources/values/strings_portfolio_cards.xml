@@ -172,4 +172,9 @@
     <string name="pfc_k_months_left">Time left</string>
     <string name="pfc_k_utilization">Limit used</string>
     <string name="pfc_k_next_statement">Next statement</string>
+    <string name="pfc_f_original_amount_fiat">Original amount</string>
+    <string name="pfc_f_start_date">Disbursed on</string>
+    <string name="pfc_k_next_installment">Next installment</string>
+    <string name="pfc_k_payoff_date">Paid off (projected)</string>
+    <string name="pfc_plan_hint">With original amount, disbursement date, rate and monthly payment (or end date) the debt follows its amortization plan. Installments and extra repayments you enter in Transactions adjust it.</string>
 </resources>

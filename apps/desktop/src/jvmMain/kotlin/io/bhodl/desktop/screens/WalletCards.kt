@@ -31,6 +31,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import io.bhodl.desktop.AppClock
 import io.bhodl.desktop.data.TrackerCache
 import io.bhodl.desktop.ui.HelpTip
 import io.bhodl.desktop.ui.bhodlCard
@@ -97,7 +98,7 @@ internal fun WalletCardsStrip(
     onOpenWallet: (String) -> Unit,
     onAdd: () -> Unit,
     modifier: Modifier = Modifier,
-    nowUnix: Long = System.currentTimeMillis() / 1000L,
+    nowUnix: Long = AppClock.nowUnix(),
 ) {
     val wallets by TrackerCache.wallets
     val balances by TrackerCache.watchBalances

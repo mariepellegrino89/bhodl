@@ -102,7 +102,7 @@ class LanguageAuditTest {
         registry.addSavingsGoal("Gg", 10_000_000UL, 2_000_000UL, "#3FB950", null, null, null, "manual", null, "savings")
         registry.addLiability("Ll", 500_000UL, "credit-card", null)
         registry.addManualAsset("Aa", "cash", 1_000.0, "EUR", null, null, null, null, null)
-        registry.addManualTxn("out", 50_000UL, 30.0, "EUR", now - 86_400, null, "Nn")
+        registry.addManualTxn("out", 50_000UL, 30.0, "EUR", now - 86_400, null, "Nn", null, null)
         registry.addRule("Rr", "amount_out", "eq", "40000", "category", "Cibo", 0, true)
         runBlocking { TrackerCache.refresh(syncEsplora = false) }
     }

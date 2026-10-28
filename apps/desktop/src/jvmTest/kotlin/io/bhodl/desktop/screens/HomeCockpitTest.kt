@@ -7,12 +7,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.test.ExperimentalTestApi
-import androidx.compose.ui.test.SemanticsNodeInteractionsProvider
-import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.hasTestTag
-import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.runDesktopComposeUiTest
 import androidx.compose.ui.test.waitUntilAtLeastOneExists
 import androidx.compose.ui.unit.dp
@@ -28,8 +24,6 @@ import io.bhodl.ffi.PaymentEvent
 import io.bhodl.ffi.PaymentKind
 import io.bhodl.ffi.TrackingBillFfi
 import io.bhodl.ui.theme.BhodlTheme
-import java.io.File
-import javax.imageio.ImageIO
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -38,13 +32,14 @@ import kotlin.test.assertTrue
 
 /**
  * Home redesign 2026-10 (proposal A) — the "to do" list logic and a
- * dark / light render of the Home for the visual review.
+ * dark / light (and Italian) render of the Home, compared with its
+ * screenshot references (ScreenshotCheck).
  */
 @OptIn(ExperimentalTestApi::class)
 class HomeCockpitTest {
 
     @BeforeTest fun setUp() { SettingsStore.reset(); RegistryStore.clear(); TrackerCache.reset() }
-    @AfterTest fun tearDown() { TrackerCache.reset(); RegistryStore.clear(); SettingsStore.reset() }
+    @AfterTest fun tearDown() { ScreenshotCheck.releaseClock(); TrackerCache.reset(); RegistryStore.clear(); SettingsStore.reset() }
 
     private fun bill(id: Long, name: String, day: Int, paidDaysAgo: Long? = null) = TrackingBillFfi(
         id = id, name = name, amountSat = 100_000UL, dueDay = day.toUInt(),
@@ -105,7 +100,25 @@ class HomeCockpitTest {
 
     @Test
     fun `render the home for the visual review`() = runDesktopComposeUiTest(width = 1440, height = 1500) {
-        val now = System.currentTimeMillis() / 1000L
+        seedHome()
+        for ((dark, name) in listOf(true to "home-dark", false to "home-light")) {
+            renderHome(dark)
+            screenshot(name)
+        }
+    }
+
+    @Test
+    fun `render the home in Italian`() = runDesktopComposeUiTest(width = 1440, height = 1500) {
+        SettingsStore.setLocaleOverride("it")
+        seedHome()
+        renderHome(dark = true)
+        screenshot("home-it-dark")
+    }
+
+    /** A month of salary, spending and a bill due in 3 days, at the fixed screenshot "now". */
+    private fun seedHome() {
+        ScreenshotCheck.pinClock()
+        val now = ScreenshotCheck.NOW_UNIX
         fun ev(id: String, dir: PaymentDirection, sat: ULong, d: Long, cat: String?) = PaymentEvent(
             walletId = "w1", txidOrPaymentId = id, kind = PaymentKind.ON_CHAIN, direction = dir, amountSat = sat,
             feeSat = null, timestampUnix = (now - d * 86_400L).toULong(), blockHeight = null, category = cat, cryptoEventKind = null,
@@ -119,27 +132,26 @@ class HomeCockpitTest {
             ev("o4", PaymentDirection.OUTGOING, 900_000UL, 40, "Casa"),
         )
         TrackerCache.seedForTest(
-            lastSyncUnix = now,
-            totalAssetSat = 1_260_654UL,
+            wallets = listOf(
+                io.bhodl.ffi.WalletRecordFfi("w1", "Daily spending", io.bhodl.ffi.WalletKindFfi.WATCH_ADDRESSES, "[\"tb1qaaa\"]", "signet", 1),
+                io.bhodl.ffi.WalletRecordFfi("w2", "Savings", io.bhodl.ffi.WalletKindFfi.WATCH_ADDRESSES, "[\"tb1qbbb\"]", "signet", 2),
+            ),
+            watchBalances = mapOf("w1" to 1_260_654UL, "w2" to 48_500_000UL),
+            totalAssetSat = 49_760_654UL,
             events = events,
-            bills = listOf(bill(1, "Luce", java.time.LocalDate.now().plusDays(3).dayOfMonth)),
+            bills = listOf(bill(1, "Luce", TODAY.plusDays(3).dayOfMonth)),
         )
-        for ((dark, name) in listOf(true to "home-dark", false to "home-light")) {
-            setContent {
-                BhodlTheme(useDarkTheme = dark) {
-                    Box(Modifier.fillMaxSize().background(BhodlTheme.colors.background).verticalScroll(rememberScrollState()).padding(24.dp)) {
-                        TrackerHomeSection(onOpenWallet = {}, onAddWatch = {})
-                    }
-                }
-            }
-            waitUntilAtLeastOneExists(hasTestTag(HomeCockpitTags.TODO), timeoutMillis = 5_000)
-            waitForIdle()
-            shot(name)
-        }
     }
 
-    private fun SemanticsNodeInteractionsProvider.shot(name: String) {
-        val dir = File(System.getProperty("bhodl.screenshots", "build/screenshots")).apply { mkdirs() }
-        ImageIO.write(onRoot().captureToImage().toAwtImage(), "png", File(dir, "$name.png"))
+    private fun androidx.compose.ui.test.ComposeUiTest.renderHome(dark: Boolean) {
+        setContent {
+            BhodlTheme(useDarkTheme = dark) {
+                Box(Modifier.fillMaxSize().background(BhodlTheme.colors.background).verticalScroll(rememberScrollState()).padding(24.dp)) {
+                    TrackerHomeSection(onOpenWallet = {}, onAddWatch = {})
+                }
+            }
+        }
+        waitUntilAtLeastOneExists(hasTestTag(HomeCockpitTags.TODO), timeoutMillis = 5_000)
+        waitForIdle()
     }
 }
