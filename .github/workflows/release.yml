@@ -24,6 +24,9 @@ jobs:
   windows:
     name: windows installer
     runs-on: windows-latest
+    # A cold build takes about 20 minutes; a hung step fails the job instead
+    # of holding the runner for six hours.
+    timeout-minutes: 90
     env:
       # As in ci.yml: the desktop build does not need Android, and the
       # uniffi plugin's Android wiring breaks on the preinstalled SDK.
@@ -48,6 +51,17 @@ jobs:
             echo "::error::tag $GITHUB_REF_NAME does not match packageVersion $version"
             exit 1
           fi
+      # The Gradle build runs these two cargo steps too, but hides their
+      # output. Run them first so a failure or a hang shows where it is;
+      # Gradle then finds both up to date.
+      - name: Build the uniffi bindgen
+        shell: bash
+        run: >-
+          cargo install --locked --force --path crates/uniffi-bindgen-kmp
+          --root shared/build/bindgen-install --target-dir build/bindgen-target
+      - name: Build the Rust core
+        shell: bash
+        run: cargo build -p bhodl-uniffi
       - name: Build the MSI
         shell: bash
         # No build cache: a release is always built from a clean tree.
