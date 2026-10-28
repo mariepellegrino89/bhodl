@@ -28,6 +28,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import io.bhodl.desktop.AppClock
 import io.bhodl.desktop.prices.FiatCurrency
 import io.bhodl.desktop.prices.NetWorthHistoryClient.NwSnapshot
 import io.bhodl.desktop.prices.PriceCache
@@ -499,7 +500,7 @@ private fun FiatRefreshChip(fiatCurrency: FiatCurrency) {
     val lastError by PriceCache.lastError
     val scope = rememberCoroutineScope()
 
-    val nowSec = System.currentTimeMillis() / 1000L
+    val nowSec = AppClock.nowUnix()
     val ageLabel = lastFetchUnix?.let { relativeTimeAgo(it, nowSec) }
 
     val isStaleNow = isStale(lastFetchUnix, nowSec)

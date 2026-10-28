@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="rpo_kind_categories">Per categoria</string>
+    <string name="rpo_kind_categories_sub">dove vanno i sat</string>
+    <string name="rpo_kind_wallets">Per wallet</string>
+    <string name="rpo_kind_wallets_sub">saldo e flussi per wallet</string>
+    <string name="rpo_expenses">Uscite</string>
+    <string name="rpo_income">Entrate</string>
+    <string name="rpo_net">Netto</string>
+    <string name="rpo_saved">Risparmiato</string>
+    <string name="rpo_h_expenses">Uscite del periodo, esclusi i trasferimenti tra i tuoi wallet.</string>
+    <string name="rpo_h_income">Entrate del periodo, esclusi i trasferimenti tra i tuoi wallet.</string>
+    <string name="rpo_h_net">Entrate meno uscite.</string>
+    <string name="rpo_h_saved">Quota delle entrate che hai tenuto: netto / entrate.</string>
+    <string name="rpo_vs_previous">rispetto al periodo prima</string>
+    <string name="rpo_grew">Cresciuta di più</string>
+    <string name="rpo_dropped">Scesa di più</string>
+    <string name="rpo_top">Prima voce di spesa</string>
+    <string name="rpo_insight_none">—</string>
+    <string name="rpo_donut">Uscite per categoria</string>
+    <string name="rpo_donut_help">Ogni fetta è la quota di una categoria sulle uscite del periodo. Clic su una categoria per evidenziarla anche nelle barre.</string>
+    <string name="rpo_bars">Questo periodo e quello prima</string>
+    <string name="rpo_bars_help">Barra spessa: questo periodo. Barra sottile: la finestra della stessa durata appena prima. La percentuale è la variazione.</string>
+    <string name="rpo_total">totale</string>
+    <string name="rpo_current">Questo periodo</string>
+    <string name="rpo_previous">Periodo prima</string>
+    <string name="rpo_prev_value">%1$s nel periodo prima</string>
+</resources>

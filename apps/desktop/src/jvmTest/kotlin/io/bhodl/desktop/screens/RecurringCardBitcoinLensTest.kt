@@ -28,7 +28,7 @@ import kotlin.test.assertTrue
  * Phase 8.3.4 — render-tree assertions for the Bitcoin Lens migration
  * of [RecurringCard]. Covers:
  *  - candidate amount renders via `<Money>` Compact BTC primary
- *  - "+ Bill" and "Dismiss" actions remain wired (regression check)
+ *  - "Accept" and "Dismiss" actions remain wired (regression check)
  */
 @OptIn(ExperimentalTestApi::class)
 class RecurringCardBitcoinLensTest {
@@ -107,7 +107,7 @@ class RecurringCardBitcoinLensTest {
         onNodeWithTag(RecurringTags.dismissTag("spotify")).assertIsDisplayed()
 
         onNodeWithTag(RecurringTags.acceptTag("spotify")).performClick()
-        assertEquals(1, accepted, "+ Bill should fire onAccept once")
+        assertEquals(1, accepted, "Accept should fire onAccept once")
         onNodeWithTag(RecurringTags.dismissTag("spotify")).performClick()
         assertEquals(1, dismissed, "Dismiss should fire onDismiss once")
     }

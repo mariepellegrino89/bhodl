@@ -286,6 +286,7 @@ public object PriceFetcher {
     internal var httpGetOverride: ((String) -> String)? = null
 
     private fun httpGet(url: String): String {
+        if (!SettingsStore.onlinePrices.value) throw java.io.IOException("online prices are off")
         httpGetOverride?.let { return it(url) }
         if (SettingsStore.torEnabled.value) {
             val (proxyHost, proxyPort) = parseProxyHostPort(SettingsStore.torProxyUrl.value)

@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="hmc_composition">Composizione</string>
+    <string name="hmc_composition_help">Come si dividono le tue attività tra bitcoin, investimenti e asset manuali; i debiti sono indicati come quota delle attività.</string>
+    <string name="hmc_open_portfolio">Apri il Portafoglio →</string>
+    <string name="hmc_todo">Da fare</string>
+    <string name="hmc_todo_help">Cose che richiedono te: la revisione del mese, bollette in scadenza entro 7 giorni, ricorrenti da confermare, transazioni senza categoria, valori non aggiornati da 6 mesi.</string>
+    <string name="hmc_todo_none">Tutto in ordine.</string>
+    <string name="hmc_todo_review">La revisione del mese è pronta</string>
+    <string name="hmc_todo_bill_due">%1$s in scadenza tra %2$d giorni</string>
+    <string name="hmc_todo_bill_today">%1$s in scadenza oggi</string>
+    <string name="hmc_todo_recurring">Ricorrenti da confermare: %1$d</string>
+    <string name="hmc_todo_uncategorized">Transazioni senza categoria: %1$d</string>
+    <string name="hmc_todo_stale_asset">Valore di %1$s aggiornato %2$d mesi fa</string>
+    <string name="hmc_todo_action_open">Apri</string>
+    <string name="hmc_todo_action_view">Vedi</string>
+    <string name="hmc_todo_action_confirm">Conferma</string>
+    <string name="hmc_todo_action_categorize">Categorizza</string>
+    <string name="hmc_todo_action_update">Aggiorna</string>
+    <string name="hmc_kpi_income">ENTRATE</string>
+    <string name="hmc_kpi_expenses">USCITE</string>
+    <string name="hmc_kpi_tx_count">%1$d tx nel periodo</string>
+    <string name="hmc_h_income">Pagamenti in entrata nel periodo scelto, esclusi i trasferimenti tra i tuoi wallet.</string>
+    <string name="hmc_h_expenses">Pagamenti in uscita nel periodo scelto, esclusi i trasferimenti tra i tuoi wallet.</string>
+    <string name="hmc_h_savings">Quota delle entrate che hai tenuto negli ultimi 30 giorni: (entrate − uscite) / entrate.</string>
+    <string name="hmc_h_runway">Quanti mesi durerebbero le tue attività liquide alla spesa media mensile.</string>
+    <string name="hmc_h_fire">25 volte la spesa annua: la classica regola del 4% per l’indipendenza finanziaria.</string>
+    <string name="hmc_h_opp_cost">Quanto varrebbero oggi le tue attività non in bitcoin se fossero state bitcoin dall’acquisto, meno quanto valgono.</string>
+    <string name="hmc_h_burn">Spesa media mensile degli ultimi 90 giorni.</string>
+</resources>

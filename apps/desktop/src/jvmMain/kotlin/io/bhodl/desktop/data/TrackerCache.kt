@@ -1,4 +1,5 @@
 package io.bhodl.desktop.data
+import io.bhodl.desktop.AppClock
 import io.bhodl.desktop.ui.userMessage
 import io.bhodl.desktop.domain.applyRules
 import io.bhodl.desktop.domain.detectRecurring
@@ -25,6 +26,7 @@ import io.bhodl.shared.resources.trk_cache_err_registry_closed
 import io.bhodl.shared.resources.trk_cache_err_sync
 import io.bhodl.shared.resources.trk_cache_err_sync_unknown
 import io.bhodl.desktop.wizard.WalletPaths
+import io.bhodl.ffi.LoanScheduleFfi
 import io.bhodl.ffi.PaymentEvent
 import io.bhodl.ffi.SavedViewFfi
 import io.bhodl.ffi.TrackingBillFfi
@@ -70,7 +72,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  *  - Mutations bump [RegistryStore.dataVersion] → the cache observes
  *    that and re-pulls registry-local data (no network sync).
  *  - A background coroutine started by [start] runs every
- *    [BACKGROUND_REFRESH_INTERVAL_MS] (2 min) doing a full refresh
+ *    [backgroundRefreshIntervalMs] (10 min) doing an incremental refresh
  *    *with* Esplora sync, so balances stay reasonably fresh without
  *    blocking any UI thread.
  *
@@ -148,7 +150,12 @@ public object TrackerCache {
     public val goals: State<List<TrackingSavingsGoalFfi>> get() = _goals
 
     private val _liabilities = mutableStateOf<List<TrackingLiabilityFfi>>(emptyList())
+    /** A planned mortgage / loan carries the balance its plan leaves today ([withPlannedBalances]). */
     public val liabilities: State<List<TrackingLiabilityFfi>> get() = _liabilities
+
+    private val _loanSchedules = mutableStateOf<Map<Long, LoanScheduleFfi>>(emptyMap())
+    /** Schema v10 — the amortization plan of each planned debt, by liability id. */
+    public val loanSchedules: State<Map<Long, LoanScheduleFfi>> get() = _loanSchedules
 
     private val _investments = mutableStateOf<List<TrackingInvestmentFfi>>(emptyList())
     public val investments: State<List<TrackingInvestmentFfi>> get() = _investments
@@ -192,6 +199,11 @@ public object TrackerCache {
      */
     private val _manualAssets = mutableStateOf<List<TrackingManualAssetFfi>>(emptyList())
     public val manualAssets: State<List<TrackingManualAssetFfi>> get() = _manualAssets
+
+    /** Registry v6 — kind-specific details of investments, manual assets
+     *  and liabilities (Portfolio detail cards). */
+    private val _portfolioDetails = mutableStateOf(io.bhodl.desktop.screens.PortfolioDetails())
+    internal val portfolioDetails: State<io.bhodl.desktop.screens.PortfolioDetails> get() = _portfolioDetails
 
     private val _manualAssetsSat = mutableStateOf<ULong>(0UL)
     public val manualAssetsSat: State<ULong> get() = _manualAssetsSat
@@ -269,7 +281,9 @@ public object TrackerCache {
      * public endpoint): even with 5 watch wallets a full refresh
      * issues ~10 HTTP requests, well below the budget.
      */
-    public var backgroundRefreshIntervalMs: Long = 2 * 60 * 1000L
+    // Redesign 2026-10 — 10 min (was 2): public Esplora servers cap
+    // unauthenticated use (blockstream.info: 700 requests / hour / IP).
+    public var backgroundRefreshIntervalMs: Long = 10 * 60 * 1000L
 
     private val refreshMutex = Mutex()
     private val scope = MainScope()
@@ -295,7 +309,9 @@ public object TrackerCache {
                 // call would just fail with "registry not open" and
                 // spam lastError on every tick.
                 if (RegistryStore.current() != null) {
-                    runCatching { refresh(syncEsplora = true) }
+                    // Incremental: a few requests per wallet instead of a
+                    // full stop-gap scan (first sync of each wallet stays full).
+                    runCatching { refresh(syncEsplora = true, fullScan = false) }
                 }
             }
         }
@@ -326,6 +342,7 @@ public object TrackerCache {
      * frame before the first refresh.
      */
     public fun reset() {
+        fullyScanned.clear()
         // Atomic wipe — same rationale as the refresh publish: a logout
         // clearing 28 states one-by-one could otherwise flash a
         // partially-cleared snapshot for a frame.
@@ -344,6 +361,8 @@ public object TrackerCache {
             _bills.value = emptyList()
             _goals.value = emptyList()
             _liabilities.value = emptyList()
+            _loanSchedules.value = emptyMap()
+            _portfolioDetails.value = io.bhodl.desktop.screens.PortfolioDetails()
             _investments.value = emptyList()
             _investmentLotsByInvestmentId.value = emptyMap()
             _investmentSellsByInvestmentId.value = emptyMap()
@@ -526,7 +545,42 @@ public object TrackerCache {
      * throw — a single failing Esplora endpoint shouldn't poison the
      * cache.
      */
-    public suspend fun refresh(syncEsplora: Boolean = true) {
+    /**
+     * Show a category written to the registry at once, before the next
+     * refresh (which can wait behind a slow network sync). Every wallet
+     * row of the transaction gets it, like the registry-only refresh would.
+     */
+    public fun patchEventCategory(txidOrPaymentId: String, category: String?) {
+        fun List<PaymentEvent>.patched() = map { if (it.txidOrPaymentId == txidOrPaymentId) it.copy(category = category) else it }
+        androidx.compose.runtime.snapshots.Snapshot.withMutableSnapshot {
+            _events.value = _events.value.patched()
+            _eventLegs.value = _eventLegs.value.patched()
+        }
+    }
+
+    /** Tests: hold the refresh lock until [release], like a slow network sync does. */
+    internal suspend fun holdRefreshForTest(release: kotlinx.coroutines.CompletableDeferred<Unit>) {
+        refreshMutex.withLock { release.await() }
+    }
+
+    /** Diagnostics on stderr, only when the app runs with `BHODL_DEBUG=1`. */
+    private fun debugLog(message: String) {
+        if (System.getenv("BHODL_DEBUG") == "1") System.err.println("[bhodl] $message")
+    }
+
+    /** Wallets fully scanned in this session: later background passes sync them incrementally. */
+    private val fullyScanned = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
+    /**
+     * [fullScan] false (the background ticker) syncs each wallet already
+     * fully scanned in this session incrementally — its revealed scripts
+     * plus a short lookahead — instead of a full stop-gap scan.
+     */
+    public suspend fun refresh(syncEsplora: Boolean = true, fullScan: Boolean = true) {
+        // Test mode: the test profile's wallets never sync.
+        val testMode = TestMode.isActive()
+        @Suppress("NAME_SHADOWING")
+        val syncEsplora = syncEsplora && !testMode
         refreshMutex.withLock {
             val registry = RegistryStore.current() ?: run {
                 _lastError.value = localizedText(Res.string.trk_cache_err_registry_closed)
@@ -563,12 +617,37 @@ public object TrackerCache {
                                             IllegalStateException("unknown network '${row.network}'"),
                                         )
                                     } else {
-                                        runCatching {
-                                            handle.syncWithEsplora(EsploraEndpoint.current(network), proxy)
+                                        val wantFull = fullScan || row.id !in fullyScanned
+                                        fun syncAgainst(url: String, full: Boolean): Result<Unit> = runCatching {
+                                            if (full) {
+                                                handle.syncWithEsplora(url, proxy)
+                                            } else {
+                                                handle.syncWithEsploraIncremental(url, proxy)
+                                            }
                                         }
+                                        var attempt = syncAgainst(EsploraEndpoint.current(network), wantFull)
+                                        // The built-in signet server failed: try the other public one.
+                                        val fallback = EsploraEndpoint.fallback(network)
+                                        if (attempt.isFailure && fallback != null) {
+                                            debugLog("sync of '${row.label}' failed on the default server, trying $fallback")
+                                            attempt = syncAgainst(fallback, wantFull)
+                                        }
+                                        if (attempt.isSuccess && wantFull) fullyScanned += row.id
+                                        // Last resort: a full scan failed everywhere — at least the
+                                        // incremental one (the wallet keeps the addresses it already
+                                        // knows from earlier sessions). Not marked as fully scanned:
+                                        // the next full pass tries again.
+                                        if (attempt.isFailure && wantFull) {
+                                            val last = fallback ?: EsploraEndpoint.current(network)
+                                            debugLog("full scan of '${row.label}' failed, trying an incremental sync on $last")
+                                            val incremental = syncAgainst(last, full = false)
+                                            if (incremental.isSuccess) attempt = incremental
+                                        }
+                                        attempt
                                     }
                                     result.exceptionOrNull()?.let { e ->
                                         syncFailures++
+                                        debugLog("sync of '${row.label}' (${row.network}) failed: ${e::class.simpleName}: ${e.message}")
                                         if (syncFailure == null) syncFailure = e.userMessage(localizedText(Res.string.trk_cache_err_sync_unknown))
                                     }
                                     result.isSuccess
@@ -585,9 +664,21 @@ public object TrackerCache {
                                 runCatching { handle.destroy() }
                             }
                         }
+                        opened.exceptionOrNull()?.let { e ->
+                            debugLog("opening '${row.label}' (${row.network}) failed: ${e::class.simpleName}: ${e.message}")
+                        }
                         if (opened.isFailure || opened.getOrDefault(false).not()) {
                             stale += row.id
                         }
+                    }
+                    // Test mode: balances and transactions are the test profile's.
+                    if (testMode) {
+                        val figures = demoWalletFigures(runCatching { registry.listDemoEvents() }.getOrDefault(emptyList()))
+                        for (row in list) {
+                            perRow[row.id] = figures[row.id]?.balanceSat ?: 0uL
+                            perRowTxs[row.id] = figures[row.id]?.transactions.orEmpty()
+                        }
+                        stale.clear()
                     }
                     // A registry-only refresh doesn't sync, so it can't
                     // clear "stale": keep the previous verdict for wallets
@@ -600,7 +691,7 @@ public object TrackerCache {
                     }
                     // Only a real network sync stamps lastSyncUnix (no
                     // watch wallets at all counts as trivially synced).
-                    val networkSynced = syncEsplora && (anySyncOk || !anySyncAttempted)
+                    val networkSynced = testMode || (syncEsplora && (anySyncOk || !anySyncAttempted))
 
                     // Collapse registry rows that track the same account
                     // (e.g. a WatchHd mirror + a WatchXpub of the same
@@ -609,8 +700,11 @@ public object TrackerCache {
                     val canonical = canonicalWalletIds(list) { w ->
                         runCatching { io.bhodl.ffi.extractAccountXpub(w.descriptorPub) }.getOrNull()
                     }
+                    // Schema v8 — income and spending outside the wallets
+                    // join the stream on their own synthetic wallet ids.
                     val watchEvents = runCatching { watchEventsSource(registry) }
-                        .getOrDefault(emptyList())
+                        .getOrDefault(emptyList()) +
+                        runCatching { manualEventsSource(registry) }.getOrDefault(emptyList())
                     // Pre-dedup-by-txid stream (one event per wallet leg),
                     // aliases removed. send_to_self detection needs the
                     // per-wallet legs of each txid.
@@ -698,11 +792,18 @@ public object TrackerCache {
                         .toSet()
                     val recurring = detectRecurring(
                         events = merged,
-                        nowUnix = System.currentTimeMillis() / 1000L,
+                        nowUnix = AppClock.nowUnix(),
                         dismissedKeys = dismissedKeys,
                     )
 
-                    val bitcoinAsset = registry.aggregateWatchBalanceSat(io.bhodl.desktop.wizard.WalletStore.network())
+                    val bitcoinAsset = if (testMode) {
+                        // Test mode: the same per-network sum, of the test balances.
+                        val network = io.bhodl.desktop.wizard.WalletStore.network()
+                        list.filter { EsploraEndpoint.networkOf(it.network) == network }
+                            .fold(0uL) { acc, w -> acc + (perRow[w.id] ?: 0uL) }
+                    } else {
+                        registry.aggregateWatchBalanceSat(io.bhodl.desktop.wizard.WalletStore.network())
+                    }
                     // Phase 7.3 — aggregate investments and probe
                     // PriceCache once. Both `pricingAvailable=false ⇒
                     // investmentsAsset=0` and `pricingAvailable=true ⇒
@@ -776,6 +877,9 @@ public object TrackerCache {
                             rateFor = io.bhodl.desktop.prices.PriceCache::rateFor,
                         )
                     }
+                    val loanSchedules = runCatching {
+                        registry.loanSchedules(LoanPlans.defaultCurrency(), AppClock.nowUnix())
+                    }.getOrDefault(emptyList()).associateBy { it.liabilityId }
                     Snapshot(
                         wallets = list,
                         watchBalances = perRow,
@@ -799,8 +903,13 @@ public object TrackerCache {
                             .getOrDefault(emptyList()),
                         goals = runCatching { registry.listSavingsGoals() }
                             .getOrDefault(emptyList()),
-                        liabilities = runCatching { registry.listLiabilities() }
-                            .getOrDefault(emptyList()),
+                        liabilities = withPlannedBalances(
+                            runCatching { registry.listLiabilities() }.getOrDefault(emptyList()),
+                            loanSchedules,
+                            io.bhodl.desktop.prices.PriceCache::rateFor,
+                        ),
+                        loanSchedules = loanSchedules,
+                        portfolioDetails = loadPortfolioDetails(registry),
                         investments = investmentsList,
                         investmentLotsByInvestmentId = healed.lotsByInvestmentId,
                         investmentSellsByInvestmentId = healed.sellsByInvestmentId,
@@ -844,6 +953,8 @@ public object TrackerCache {
                         _bills.value = snap.bills
                         _goals.value = snap.goals
                         _liabilities.value = snap.liabilities
+                        _loanSchedules.value = snap.loanSchedules
+                        _portfolioDetails.value = snap.portfolioDetails
                         _investments.value = snap.investments
                         _investmentLotsByInvestmentId.value = snap.investmentLotsByInvestmentId
                         _investmentSellsByInvestmentId.value = snap.investmentSellsByInvestmentId
@@ -874,6 +985,9 @@ public object TrackerCache {
                 },
                 onFailure = { e ->
                     if (RegistryStore.current() !== registry) return@fold
+                    // A cancelled pass (its caller's scope went away, e.g. the
+                    // screen that started it closed) is not an error to show.
+                    if (e is kotlinx.coroutines.CancellationException) return@fold
                     _lastError.value = e.userMessage(localizedText(Res.string.trk_cache_err_refresh))
                     lastErrorIsSync = false
                 },
@@ -888,6 +1002,10 @@ public object TrackerCache {
     /** Source of the per-wallet event legs. Test seam (production: the FFI). */
     internal var watchEventsSource: (io.bhodl.ffi.RegistryHandle) -> List<PaymentEvent> =
         { it.listWatchEvents() }
+
+    /** Source of the manual (off-wallet) transactions, schema v8. Test seam. */
+    internal var manualEventsSource: (io.bhodl.ffi.RegistryHandle) -> List<PaymentEvent> =
+        { ManualTxns.events(it) }
 
     /**
      * Data dir holding the one-time cleanup marker. Test seam.
@@ -959,6 +1077,8 @@ public object TrackerCache {
         val bills: List<TrackingBillFfi>,
         val goals: List<TrackingSavingsGoalFfi>,
         val liabilities: List<TrackingLiabilityFfi>,
+        val loanSchedules: Map<Long, LoanScheduleFfi> = emptyMap(),
+        val portfolioDetails: io.bhodl.desktop.screens.PortfolioDetails = io.bhodl.desktop.screens.PortfolioDetails(),
         val investments: List<TrackingInvestmentFfi>,
         val investmentLotsByInvestmentId: Map<Long, List<TrackingInvestmentLotFfi>>,
         val investmentSellsByInvestmentId: Map<Long, List<TrackingInvestmentSellFfi>>,
@@ -972,6 +1092,20 @@ public object TrackerCache {
         val eventLegs: List<PaymentEvent> = emptyList(),
         val costBasisInputs: Map<String, io.bhodl.ffi.EventCostBasisFfi> = emptyMap(),
     )
+
+    /** Registry v6 — the three `details_json` tables, parsed. A failing
+     *  table reads as empty (the cards then show no details). */
+    private fun loadPortfolioDetails(registry: io.bhodl.ffi.RegistryHandle): io.bhodl.desktop.screens.PortfolioDetails {
+        fun load(table: String): Map<Long, Map<String, String>> =
+            runCatching { registry.listPortfolioDetails(table) }
+                .getOrDefault(emptyList())
+                .associate { it.id to io.bhodl.desktop.screens.parseDetailsJson(it.detailsJson) }
+        return io.bhodl.desktop.screens.PortfolioDetails(
+            investments = load("investment"),
+            manualAssets = load("manual_asset"),
+            liabilities = load("liability"),
+        )
+    }
 
     /** Test-only seam: prime the cache so a Compose UI test can render
      *  TrackerHome / TrackingScreen without a real registry. */
@@ -987,6 +1121,8 @@ public object TrackerCache {
         investmentsAssetSat: ULong = 0UL,
         investmentsPricingAvailable: Boolean = false,
         liabilities: List<TrackingLiabilityFfi> = emptyList(),
+        loanSchedules: Map<Long, LoanScheduleFfi> = emptyMap(),
+        portfolioDetails: io.bhodl.desktop.screens.PortfolioDetails = io.bhodl.desktop.screens.PortfolioDetails(),
         investments: List<TrackingInvestmentFfi> = emptyList(),
         investmentLotsByInvestmentId: Map<Long, List<TrackingInvestmentLotFfi>> = emptyMap(),
         investmentSellsByInvestmentId: Map<Long, List<TrackingInvestmentSellFfi>> = emptyMap(),
@@ -1002,7 +1138,7 @@ public object TrackerCache {
         views: List<SavedViewFfi> = emptyList(),
         perWalletTxs: Map<String, List<TransactionRecord>> = emptyMap(),
         staleWalletIds: Set<String> = emptySet(),
-        lastSyncUnix: Long? = System.currentTimeMillis() / 1000L,
+        lastSyncUnix: Long? = AppClock.nowUnix(),
         lastError: String? = null,
         eventLegs: List<PaymentEvent> = emptyList(),
         refreshing: Boolean = false,
@@ -1018,6 +1154,8 @@ public object TrackerCache {
         _investmentsPricingAvailable.value = investmentsPricingAvailable
         _totalAssetSat.value = bitcoinAssetSat + investmentsAssetSat + manualAssetsSat
         _liabilities.value = liabilities
+        _loanSchedules.value = loanSchedules
+        _portfolioDetails.value = portfolioDetails
         _investments.value = investments
         _investmentLotsByInvestmentId.value = investmentLotsByInvestmentId
         _investmentSellsByInvestmentId.value = investmentSellsByInvestmentId

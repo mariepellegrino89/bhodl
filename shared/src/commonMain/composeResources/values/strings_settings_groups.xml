@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stg_general">General</string>
+    <string name="stg_general_sub">language, fiat currency</string>
+    <string name="stg_appearance_sub">theme, unit, density, colours</string>
+    <string name="stg_network">Network and privacy</string>
+    <string name="stg_network_sub">network, Esplora, Tor, prices, hidden amounts</string>
+    <string name="stg_lens">Bitcoin Lens</string>
+    <string name="stg_lens_sub">where fiat may appear</string>
+    <string name="stg_tracker">Tracker</string>
+    <string name="stg_tracker_sub">modules</string>
+    <string name="stg_security">Security</string>
+    <string name="stg_security_sub">PIN, recovery code, auto-lock</string>
+    <string name="stg_data">Data</string>
+    <string name="stg_data_sub">wallet settings, factory reset</string>
+</resources>

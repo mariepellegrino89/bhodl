@@ -40,6 +40,8 @@
     <string name="set_lens_footer">Outside these surfaces, all amounts display in BTC/sat.</string>
 
     <!-- System › Investment prices -->
+    <string name="set_online_prices_title">Online prices</string>
+    <string name="set_online_prices_hint">BTC price and its history from CoinGecko, mempool.space, blockchain.info and Frankfurter (only dates and currencies are sent, never addresses or amounts). Off, no price request leaves the device: fiat values use the rates already saved, or show no rate.</string>
     <string name="set_invfetch_title">Auto-fetch investment prices</string>
     <string name="set_invfetch_hint">Yahoo Finance (no API key). Every investment ticker is refreshed every 5 min. Routed through Tor when it is on in its section.</string>
     <string name="set_recompute_hint">Recompute the BTC cost basis of every lot from its purchase date (historical rate). Uses the network.</string>

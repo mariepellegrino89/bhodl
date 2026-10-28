@@ -1,5 +1,11 @@
 package io.bhodl.desktop
 
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.material3.Text
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.runDesktopComposeUiTest
@@ -39,6 +45,7 @@ class UcNavigationSecurityTest {
     fun setUp() {
         dir = kotlin.io.path.createTempDirectory("bhodl-uc-nav-").toFile()
         SettingsStore.reset()
+        io.bhodl.desktop.ui.BackNavigation.reset()
     }
 
     @AfterTest
@@ -60,6 +67,7 @@ class UcNavigationSecurityTest {
                 composable<Route.Settings> { Text("settings") }
                 composable<Route.Dashboard> { Text("dashboard") }
                 composable<Route.SecurityHub> { Text("hub") }
+                composable<Route.OpenWallet> { Text("open") }
             }
         }
         waitForIdle()
@@ -73,6 +81,7 @@ class UcNavigationSecurityTest {
         destination.hasRoute<Route.Welcome>() -> "welcome"
         destination.hasRoute<Route.DevicePinUnlock>() -> "unlock"
         destination.hasRoute<Route.SecurityHub>() -> "hub"
+        destination.hasRoute<Route.OpenWallet>() -> "open:" + toRoute<Route.OpenWallet>().walletId
         else -> destination.route.orEmpty()
     }
 
@@ -99,14 +108,114 @@ class UcNavigationSecurityTest {
     }
 
     @Test
-    fun `SEC-145 Wallet without an open wallet goes to the tracker HOME`() = runDesktopComposeUiTest {
+    fun `SEC-145 Wallet with no wallet open and none tracked goes to the tracker HOME`() = runDesktopComposeUiTest {
         val nc = host(Route.Tracking(section = TrackerSection.BUDGET.wire))
-        runOnIdle { nc.handleRailTab(Tab.Wallet, current = Tab.Budget, walletOpen = false) }
+        runOnIdle { nc.handleRailTab(Tab.Wallet, current = Tab.Budget, walletOpen = false, firstWalletId = null) }
         waitForIdle()
         runOnIdle {
             assertEquals("tracking:home", nc.currentBackStackEntry!!.describe())
             assertNull(nc.previousBackStackEntry)
         }
+    }
+
+    @Test
+    fun `rail Back returns to the section visited before`() = runDesktopComposeUiTest {
+        lateinit var nc: NavHostController
+        setContent {
+            nc = rememberNavController()
+            io.bhodl.ui.theme.BhodlTheme {
+                NavHost(nc, startDestination = Route.Tracking()) {
+                    composable<Route.Tracking> { entry ->
+                        val section = TrackerSection.fromWire(entry.toRoute<Route.Tracking>().section)
+                        io.bhodl.desktop.ui.TwoTabShell(
+                            selected = Tab.fromSection(section),
+                            onTabSelected = { nc.handleRailTab(it, current = Tab.fromSection(section)) },
+                            onBack = nc.railBack(Tab.fromSection(section)),
+                        ) { Text("section " + section.wire) }
+                    }
+                }
+            }
+        }
+        waitForIdle()
+        val back = io.bhodl.desktop.ui.TwoTabShellTags.BACK
+        // Navigation must run on the UI thread: press through the click action there.
+        fun press(tag: String) {
+            runOnIdle { onNodeWithTag(tag).fetchSemanticsNode().config[androidx.compose.ui.semantics.SemanticsActions.OnClick].action!!.invoke() }
+            waitForIdle()
+        }
+        onNodeWithTag(back).assertIsNotEnabled()
+        press(io.bhodl.desktop.ui.TwoTabShellTags.TAB_TRANSACTIONS)
+        press(io.bhodl.desktop.ui.TwoTabShellTags.TAB_WALLET)
+        runOnIdle { assertEquals("tracking:home", nc.currentBackStackEntry!!.describe(), "no wallet: Wallet stays on HOME") }
+        onNodeWithTag(back).assertIsEnabled()
+        press(back)
+        runOnIdle { assertEquals("tracking:transactions", nc.currentBackStackEntry!!.describe()) }
+        press(back)
+        runOnIdle { assertEquals("tracking:home", nc.currentBackStackEntry!!.describe()) }
+        onNodeWithTag(back).assertIsNotEnabled()
+    }
+
+    @Test
+    fun `rail Back from a wallet opened on the home returns to the home`() = runDesktopComposeUiTest {
+        lateinit var nc: NavHostController
+        setContent {
+            nc = rememberNavController()
+            io.bhodl.ui.theme.BhodlTheme {
+                NavHost(nc, startDestination = Route.Tracking()) {
+                    composable<Route.Tracking> { entry ->
+                        val section = TrackerSection.fromWire(entry.toRoute<Route.Tracking>().section)
+                        io.bhodl.desktop.ui.TwoTabShell(
+                            selected = Tab.fromSection(section),
+                            onTabSelected = {},
+                            onBack = nc.railBack(Tab.fromSection(section)),
+                        ) { Text("section " + section.wire) }
+                    }
+                    // As in App: the open step hands over to the workspace and leaves the stack.
+                    composable<Route.OpenWallet> {
+                        androidx.compose.runtime.LaunchedEffect(Unit) {
+                            nc.navigate(Route.Dashboard) { popUpTo<Route.OpenWallet> { inclusive = true } }
+                        }
+                    }
+                    composable<Route.Dashboard> {
+                        io.bhodl.desktop.ui.TwoTabShell(selected = Tab.Wallet, onTabSelected = {}, onBack = nc.railBack(Tab.Wallet)) {
+                            Text("wallet workspace")
+                        }
+                    }
+                }
+            }
+        }
+        waitForIdle()
+        runOnIdle { nc.navigate(Route.OpenWallet(walletId = "w1")) }
+        waitUntil(timeoutMillis = 3_000) { runOnIdle { nc.currentBackStackEntry?.describe() } == "dashboard" }
+        val back = io.bhodl.desktop.ui.TwoTabShellTags.BACK
+        runOnIdle { onNodeWithTag(back).fetchSemanticsNode().config[androidx.compose.ui.semantics.SemanticsActions.OnClick].action!!.invoke() }
+        waitForIdle()
+        runOnIdle { assertEquals("tracking:home", nc.currentBackStackEntry!!.describe()) }
+    }
+
+    @Test
+    fun `rail Back closes an in-screen page first`() = runDesktopComposeUiTest {
+        var open by androidx.compose.runtime.mutableStateOf(true)
+        setContent {
+            io.bhodl.ui.theme.BhodlTheme {
+                io.bhodl.desktop.ui.TwoTabShell(selected = Tab.Portfolio, onTabSelected = {}, onBack = null) {
+                    io.bhodl.desktop.ui.BackHandlerEffect(enabled = open) { open = false }
+                    Text(if (open) "item page" else "class page")
+                }
+            }
+        }
+        onNodeWithTag(io.bhodl.desktop.ui.TwoTabShellTags.BACK).assertIsEnabled().performClick()
+        waitForIdle()
+        assertEquals(false, open)
+        onNodeWithTag(io.bhodl.desktop.ui.TwoTabShellTags.BACK).assertIsNotEnabled()
+    }
+
+    @Test
+    fun `SEC-145 Wallet without an open wallet opens the first tracked one`() = runDesktopComposeUiTest {
+        val nc = host(Route.Tracking())
+        runOnIdle { nc.handleRailTab(Tab.Wallet, current = Tab.Home, walletOpen = false, firstWalletId = "w1") }
+        waitForIdle()
+        runOnIdle { assertEquals("open:w1", nc.currentBackStackEntry!!.describe()) }
     }
 
     @Test

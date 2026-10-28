@@ -22,6 +22,8 @@ import io.bhodl.ffi.Network
 import io.bhodl.ui.theme.BhodlTheme
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Shield
+import io.bhodl.shared.resources.hdr_clearnet_mainnet
+import io.bhodl.shared.resources.hdr_clearnet_mainnet_help
 import io.bhodl.shared.resources.Res
 import io.bhodl.shared.resources.security_hub_open
 import org.jetbrains.compose.resources.stringResource
@@ -169,6 +171,47 @@ private fun networkColor(n: Network): androidx.compose.ui.graphics.Color = when 
     else -> BhodlTheme.colors.financialNeutral
 }
 
+/**
+ * Tracker header status (2026-10-26): what the footer bar used to say
+ * on every tracker section, cut to what matters there. Network and
+ * server belong to the Wallet view; here: a warning when a mainnet
+ * wallet syncs over clearnet (the server sees the IP behind the
+ * addresses), the last sync (unless [showSync] is false, e.g. on Home
+ * which shows it already), the privacy eye and the Security shield.
+ */
+@Composable
+public fun TrackerHeaderStatus(
+    mainnetWallets: Boolean,
+    lastSyncUnix: Long?,
+    showSync: Boolean = true,
+    onOpenSecurityHub: (() -> Unit)? = null,
+) {
+    val torEnabled by SettingsStore.torEnabled
+    val timeFmt = remember { DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault()) }
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (mainnetWallets && !torEnabled) {
+            StatusPill(
+                label = stringResource(Res.string.hdr_clearnet_mainnet),
+                color = BhodlTheme.colors.financialPending,
+                testTagId = FooterStatusBarTags.HEADER_CLEARNET,
+            )
+            HelpTip(stringResource(Res.string.hdr_clearnet_mainnet_help))
+        }
+        if (showSync) {
+            Text(
+                text = stringResource(Res.string.wview_footer_sync, lastSyncUnix?.let { timeFmt.format(Instant.ofEpochSecond(it)) } ?: "—"),
+                style = BhodlTheme.typography.labelMedium,
+                color = BhodlTheme.colors.textTertiary,
+                modifier = Modifier.testTag(FooterStatusBarTags.HEADER_SYNC),
+            )
+        }
+        PrivacyToggleButton()
+        if (onOpenSecurityHub != null) {
+            SecurityHubShieldButton(onClick = onOpenSecurityHub)
+        }
+    }
+}
+
 public object FooterStatusBarTags {
     public const val ROOT: String = "footer-status.root"
     public const val NETWORK: String = "footer-status.network"
@@ -176,6 +219,8 @@ public object FooterStatusBarTags {
     public const val WALLET_COUNT: String = "footer-status.wallet-count"
     public const val SYNC: String = "footer-status.sync"
     public const val SECURITY_HUB: String = "footer-status.security-hub"
+    public const val HEADER_CLEARNET: String = "tracker-header.clearnet"
+    public const val HEADER_SYNC: String = "tracker-header.sync"
 }
 
 /** UX review 2026-10 (item 14) — footer entry point to the Security Hub. */

@@ -125,9 +125,8 @@ class SavingsGoalsCardBitcoinLensTest {
         val nodes = onAllNodesWithTag(GoalTags.targetAmountTag(1L), useUnmergedTree = true)
             .fetchSemanticsNodes(atLeastOneRootRequired = false)
         assertTrue(nodes.isNotEmpty(), "target_sat Money tag should exist")
-        // The static "of" infix between current and target stays as a
-        // plain Text on the row.
-        waitUntilAtLeastOneExists(hasText("of"))
+        // Goals redesign 2026-10 — current and target sit in labelled tiles.
+        waitUntilAtLeastOneExists(hasText("TARGET"))
     }
 
     @Test

@@ -7,6 +7,7 @@ import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.runDesktopComposeUiTest
@@ -118,7 +119,9 @@ class UcReportsTrackerTest {
     @Test
     fun `TRK-138 category table sorts by net and flips on a header click`() = runDesktopComposeUiTest {
         val events = listOf(ev("w", "1", INCOMING, 1_000UL, "Salary"), ev("w", "2", OUTGOING, 300UL, "Food"))
-        setContent { BhodlTheme { ReportsTabBody(events, listOf(group("Cold", "w")), periodLabel = "30D") } }
+        // Reports redesign 2026-10 — the pie and insights above repeat the
+        // category names, so the table is checked on its own.
+        setContent { BhodlTheme { CategoryReportTable(events = events) } }
         waitUntilAtLeastOneExists(hasText("Food"))
         assertTrue(topOf("Salary") < topOf("Food"), "net descending by default")
         onNode(hasText("Net", substring = true) and hasText("▼", substring = true)).performClick()
@@ -133,6 +136,7 @@ class UcReportsTrackerTest {
     fun `TRK-138 empty states for no events and no wallets`() = runDesktopComposeUiTest {
         setContent { BhodlTheme { ReportsTabBody(emptyList(), emptyList(), periodLabel = "30D") } }
         waitUntilAtLeastOneExists(hasText("No transactions in the current period."))
+        onNodeWithTag(ReportsTags.kind(ReportKind.WALLETS)).performClick()
         waitUntilAtLeastOneExists(hasText("No wallets in the registry."))
     }
 
@@ -190,13 +194,13 @@ class UcReportsTrackerTest {
             BhodlTheme {
                 androidx.compose.foundation.layout.Column {
                     BudgetBreakdownCard("Spending", rows, onEditBudget = { _, _ -> })
-                    BillsTrackerCard(listOf(TrackingBillFfi(1, "Rent", 27_182UL, 5u, null, null, 0)), {}, {}, { _, _ -> })
+                    BillsCalendarStrip(listOf(TrackingBillFfi(1, "Rent", 27_182UL, 5u, null, null, 0)), todayLocal(), { _, _ -> }, {}, {})
                     RecurringCard(listOf(candidate), {}, {})
                     RulesCard(listOf(TrackingRuleFfi(1, "Big", "amount", "gt", "31415", "category", "Big", 0, true, 0)), {}, {}, {})
                     HistoryTabBody(
                         wallets = listOf(w1), refreshing = false, groupedWallets = listOf(group("Cold", "w1", balance = 31_415UL)),
                         excludedWalletIds = emptySet(), onToggleInclude = { _, _ -> }, events = events, filteredEvents = events,
-                        breakdown = categoryBreakdown(events), categories = listOf("Food"), categoryFilter = null,
+                        categories = listOf("Food"), categoryFilter = null,
                         timeRangeFilter = null, onClearTimeRange = {}, onSelectCategory = {}, onEditCategory = {},
                     )
                 }

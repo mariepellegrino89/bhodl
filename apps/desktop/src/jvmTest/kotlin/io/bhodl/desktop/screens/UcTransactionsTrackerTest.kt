@@ -128,10 +128,10 @@ class UcTransactionsTrackerTest {
         assertEquals(0, count(TrackingTags.FILTER_NONE))
         seed(listOf(food, none))
         waitUntilAtLeastOneExists(hasTestTag(TrackingTags.FILTER_NONE))
-        onNodeWithTag(TrackingTags.FILTER_NONE).performClick()
+        onNodeWithTag(TrackingTags.FILTER_NONE).performScrollTo().performClick()
         waitForIdle()
         assertEquals("", TrackerUiState.categoryFilter.value)
-        onNodeWithTag(TrackingTags.FILTER_ALL).performClick()
+        onNodeWithTag(TrackingTags.FILTER_ALL).performScrollTo().performClick()
         waitForIdle()
         assertNull(TrackerUiState.categoryFilter.value)
     }

@@ -85,6 +85,8 @@ import io.bhodl.shared.resources.set_modules_hint
 import io.bhodl.shared.resources.set_modules_title
 import io.bhodl.shared.resources.set_network_hint
 import io.bhodl.shared.resources.set_network_title
+import io.bhodl.shared.resources.set_online_prices_hint
+import io.bhodl.shared.resources.set_online_prices_title
 import io.bhodl.shared.resources.set_recompute_button
 import io.bhodl.shared.resources.set_recompute_done
 import io.bhodl.shared.resources.set_recompute_done_failed
@@ -100,6 +102,52 @@ import io.bhodl.shared.resources.set_tor_proxy_label
 import io.bhodl.shared.resources.set_tor_route
 import io.bhodl.shared.resources.set_tor_route_hint
 
+/**
+ * Online prices on / off: off, no price request leaves the device
+ * (see [io.bhodl.desktop.settings.SettingsStore.onlinePrices]).
+ */
+@Composable
+internal fun OnlinePricesSection(
+    enabled: Boolean,
+    onToggle: (Boolean) -> Unit,
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            text = stringResource(Res.string.set_online_prices_title),
+            style = BhodlTheme.typography.labelMedium,
+            color = BhodlTheme.colors.textSecondary,
+        )
+        Text(
+            text = stringResource(Res.string.set_online_prices_hint),
+            style = BhodlTheme.typography.bodyMedium,
+            color = BhodlTheme.colors.textTertiary,
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = if (enabled) stringResource(Res.string.set_toggle_on) else stringResource(Res.string.set_toggle_off),
+                style = BhodlTheme.typography.bodyMedium,
+                color = if (enabled) BhodlTheme.colors.financialPositive
+                else BhodlTheme.colors.textTertiary,
+                modifier = Modifier.weight(1f),
+            )
+            Switch(
+                checked = enabled,
+                onCheckedChange = onToggle,
+                modifier = Modifier.testTag("settings.online-prices"),
+            )
+        }
+    }
+}
+
+/**
+ * Yahoo Finance quotes for investments with a ticker, every 5 minutes.
+ */
 @Composable
 internal fun InvestmentPriceFetchSection(
     enabled: Boolean,

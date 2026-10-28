@@ -49,7 +49,7 @@ public object SyncCache {
      * Record the result of a successful sync. `atMs` defaults to the
      * current wall-clock time; tests inject a deterministic value.
      */
-    public fun record(balanceSat: ULong, atMs: Long = System.currentTimeMillis()) {
+    public fun record(balanceSat: ULong, atMs: Long = io.bhodl.desktop.AppClock.nowMillis()) {
         lastBalanceSat = balanceSat
         lastSyncAtMs = atMs
     }
@@ -60,7 +60,7 @@ public object SyncCache {
      * skips the auto-sync.
      */
     public fun isFresh(
-        nowMs: Long = System.currentTimeMillis(),
+        nowMs: Long = io.bhodl.desktop.AppClock.nowMillis(),
         cooldownMs: Long = DEFAULT_COOLDOWN_MS,
     ): Boolean {
         val last = lastSyncAtMs ?: return false

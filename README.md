@@ -6,7 +6,9 @@ BHODL is a desktop app (Rust core + Kotlin/Compose) that follows your Bitcoin wa
 their public keys and turns them into a personal-finance tracker: net worth, budgets, bills,
 investments and goals, all measured in bitcoin first. Fiat only shows up where it is
 operational (rent, bills, tax cost basis). No account, no cloud, no telemetry: everything
-lives in an encrypted database on your machine.
+lives in an encrypted database on your machine. The only servers it contacts are the
+wallet-sync server and the price providers, and you can change or turn off both
+([privacy policy](PRIVACY.md)).
 
 **BHODL never holds private keys and cannot send bitcoin.** Wallets are added from their
 public keys (xpub); spending stays in your signing wallet (hardware wallet,
@@ -35,12 +37,14 @@ server cannot link your addresses to your IP address.
   SLIP-132 `zpub` / `ypub` accepted). The core also supports Sparrow / Specter HD
   descriptors (fingerprint + derivation path + xpub) and explicit address lists; the
   desktop form for those is not built yet.
-- Sparrow-style workspace: Transactions · Receive · Addresses · UTXOs · Wallet settings.
+- Sparrow-style workspace: Transactions · Receive · Addresses · UTXOs · Wallet settings,
+  under one card per tracked wallet (balance, 30-day sparkline, sync state) and with a
+  coin map of the UTXOs.
 - Receive: fresh addresses derived from the xpub, label-first (the label and category you
   set on an address are copied onto the payment that arrives), BIP-21 QR codes.
 - BIP-329 labels import / export, local address book, public descriptor export.
 - Optional Tor (SOCKS5) for all Esplora and price traffic, one circuit per wallet; custom
-  Esplora endpoint.
+  Esplora endpoint. "Online prices" off: no price request leaves the device.
 - Encryption at rest: SQLCipher, with the data key wrapped by an Argon2id key derived from a
   device PIN. An optional recovery code resets a forgotten PIN; without it, a forgotten PIN
   means erasing the local data and adding the wallets again from their xpubs.
@@ -49,6 +53,14 @@ server cannot link your addresses to your IP address.
 
 - Net worth in sats/BTC across watch-only wallets, investments, manual assets (cash, real
   estate, vehicles…) and liabilities, with history.
+- Portfolio as class cards (Bitcoin, investments, manual assets, liabilities) with a
+  detail card per item: each type has its own facts (ETF TER and yearly cost, deposit rate
+  and maturity, house equity and LTV against the linked mortgage, credit card utilisation…).
+  The balance-sheet table is one click away.
+- Mortgages and loans follow their amortization plan (original amount, disbursement date,
+  rate, monthly payment or end date): the debt goes down month by month, in the history
+  too. Installments and extra repayments entered as off-wallet payments adjust the plan;
+  an extra repayment either shortens the term or lowers the installment.
 - **Bitcoin Lens**: bitcoin is the unit of account. The BTC chart is not smoothed: if your
   fiat savings lose value against bitcoin, you see it.
 - Investments with tax lots and FIFO / HIFO / Specific-ID cost basis, a sell flow that
@@ -57,15 +69,26 @@ server cannot link your addresses to your IP address.
   at that day's market price, every spend or sale as a disposal (weighted average cost),
   with realized and unrealized gain/loss. Change the price of any transaction or exclude
   it; transfers between your own wallets are left out automatically. Not tax advice.
+- **Off-wallet income and spending** (cash, bank account, credit card, other): enter it in
+  euro, dollars or francs and it is stored in sat at that day's BTC price, so budgets and
+  reports cover what you spend outside the wallets too. The account's balance (or the
+  card's debt) moves with each entry, and Transactions filter by channel. A bill can be marked paid by the
+  transaction that paid it, wallet or off-wallet, and counts in its budget category.
 - Budgets, bills, recurring-payment detection, auto-categorization rules, savings and
   sinking-fund goals, KPIs on the home (savings rate, burn, FIRE, runway, opportunity cost),
-  90-day cash-flow forecast, monthly review reminder, reports (Sankey, breakdowns) and CSV
-  export.
+  90-day cash-flow forecast, monthly review reminder, reports (category pie and
+  period-over-period comparison, per-wallet table), Sankey cash-flow chart and CSV export.
 - Wallet labels and categories flow into the tracker: label an address once on Receive and
   the incoming payment is already categorized.
 
 **Everywhere**
 
+- **Test mode**: a separate profile with sample data (wallets, transactions, budgets,
+  bills, goals, portfolio) to try the app without a PIN. Your real data stays closed while
+  it is on. Test data can be changed freely, exported as one `.bhodl-test` file (sent by
+  mail or chat, or committed) and imported by someone else, with a marked initial state to
+  go back to. It never touches the network. Settings › Test mode, or "Try with sample
+  data" on the welcome screen.
 - Privacy mode (Ctrl+Shift+H) hides every amount, including chart axes and tooltips.
 - Security Hub: device PIN (change it here), recovery code, auto-lock, Tor and label-export
   status on one screen.
@@ -84,6 +107,16 @@ Rendered from the app with demo data on signet.
 | ![Portfolio balance sheet and investments](docs/screenshots/tracker-portfolio-dark.png) | ![Budget with price vs spending split](docs/screenshots/tracker-budget-dark.png) |
 | Portfolio: balance sheet and investments with cost in BTC | Budget: sats budgets with price vs spending split |
 
+## Download
+
+Windows installers (MSI) are published on
+[GitHub Releases](https://github.com/mariepellegrino89/bhodl/releases), built from source
+by CI. The installer shows the license and the privacy notice, and Windows' "Apps"
+settings uninstall it. Linux and macOS: build from source (below).
+
+[Code signing policy](CODE_SIGNING_POLICY.md) · [Privacy policy](PRIVACY.md) · how a
+release is cut: [docs/release-signing.md](docs/release-signing.md).
+
 ## Building
 
 Requirements: **Rust 1.88** (pinned in `rust-toolchain.toml`), **JDK 21**, Git. Docker is
@@ -95,6 +128,18 @@ only needed for the integration tests. Gradle comes from the wrapper.
 
 The first build compiles OpenSSL and SQLCipher from source and takes around 10 minutes;
 later builds are incremental.
+
+To start straight in test mode, on the project's test data or on a shared file:
+
+```sh
+BHODL_DEMO=1 ./gradlew :apps:desktop:run                       # project test data
+BHODL_DEMO=/path/to/data.bhodl-test ./gradlew :apps:desktop:run  # a shared file
+```
+
+The project's test data is `apps/desktop/src/jvmMain/resources/demo/base.bhodl-test`. To
+share an update with everyone, export from test mode and replace that file in a pull
+request; to rebuild it from the generator (`DemoSeed`), run
+`BHODL_WRITE_DEMO_DATA=<path> ./gradlew :apps:desktop:jvmTest --tests "*TestModeTest.write*"`.
 
 ### Windows notes
 
@@ -117,10 +162,12 @@ cargo fmt --all --check
 cargo deny check                         # advisories, licenses, sources
 
 ./gradlew :shared:jvmTest                # FFI smoke tests
-./gradlew :apps:desktop:jvmTest          # desktop unit + Compose UI tests
+./gradlew :apps:desktop:jvmTest          # desktop unit + Compose UI tests (renders to build/screenshots)
+./gradlew :apps:desktop:verifyRoborazziJvm  # same + compare renders with the references (CI, Linux)
 ./gradlew :apps:desktop:integrationTest  # bitcoind regtest + electrs (Docker)
 ```
 
+Screenshot references and how to re-record them: [CONTRIBUTING](CONTRIBUTING.md#screenshot-tests).
 Live Tor tests (`scripts/tor-tests.sh`), coverage, the Android build and the details behind
 each step are in the [developer handbook](docs/handbook.md).
 

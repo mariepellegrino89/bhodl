@@ -1,5 +1,6 @@
 package io.bhodl.desktop.screens
 
+import io.bhodl.desktop.AppClock
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -23,11 +24,11 @@ private const val MAX_TICK_MS: Long = 60L * 60L * 1000L
  */
 @Composable
 internal fun rememberTickingNowUnix(zone: ZoneId = ZoneId.systemDefault()): Long {
-    var now by remember { mutableStateOf(System.currentTimeMillis() / 1000L) }
+    var now by remember { mutableStateOf(AppClock.nowMillis() / 1000L) }
     LaunchedEffect(zone) {
         while (true) {
-            delay(msUntilNextTick(System.currentTimeMillis(), zone))
-            now = System.currentTimeMillis() / 1000L
+            delay(msUntilNextTick(AppClock.nowMillis(), zone))
+            now = AppClock.nowMillis() / 1000L
         }
     }
     return now

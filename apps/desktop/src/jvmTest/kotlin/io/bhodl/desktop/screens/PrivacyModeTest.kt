@@ -95,7 +95,7 @@ class PrivacyModeTest {
                 syncFailed = false,
                 onSync = {},
             )
-            NwBreakdownDonut(TrackerNetWorth(3_141_592UL, 1_000_000UL, 0UL, 500_000UL))
+            HomeCompositionCard(TrackerNetWorth(3_141_592UL, 1_000_000UL, 0UL, 500_000UL), onOpenPortfolio = {})
             InflowOutflowChart(events)
             CategoryDonut(
                 listOf(

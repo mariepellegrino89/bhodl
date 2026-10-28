@@ -61,6 +61,8 @@ internal fun ruleDraftFromEdit(
     category: String,
     walletLabel: String?,
     kind: RulePatternKind,
+    /** "Exact amount" in the app language (the rule's stored name). */
+    exactAmountName: String = EXACT_AMOUNT_RULE_NAME,
 ): RuleDraft? {
     val cat = category.trim().takeIf { it.isNotEmpty() } ?: return null
     return when (kind) {
@@ -81,7 +83,7 @@ internal fun ruleDraftFromEdit(
             // raw "21000 sat → cat" name would print the amount in the rules
             // list even in privacy mode. The amount is the condition value,
             // rendered through the (masked) formatter.
-            RuleDraft("$EXACT_AMOUNT_RULE_NAME → $cat", field, "eq", event.amountSat.toString(), cat)
+            RuleDraft("$exactAmountName → $cat", field, "eq", event.amountSat.toString(), cat)
         }
     }
 }
@@ -118,25 +120,6 @@ internal fun ruleDraftMatches(
  */
 internal fun ruleDraftPreviewCount(matches: List<PaymentEvent>): Int =
     matches.map { it.txidOrPaymentId }.distinct().size
-
-/**
- * Offer the prompt only when it adds something: a real new category
- * that differs from the old one, and no enabled rule (in evaluation
- * order) already sends this event to that category.
- */
-internal fun shouldOfferRuleFromEdit(
-    event: PaymentEvent,
-    oldCategory: String?,
-    newCategory: String,
-    rules: List<TrackingRuleFfi>,
-    payee: String?,
-): Boolean {
-    val cat = newCategory.trim()
-    if (cat.isEmpty()) return false
-    if (cat == oldCategory?.trim()) return false
-    val enabled = rulesInEvaluationOrder(rules).filter { it.enabled }
-    return applyRules(enabled, event, payeeOf = { payee }) != cat
-}
 
 // ─── Explicit ordering ────────────────────────────────────────────────
 
@@ -193,7 +176,13 @@ private val LEGACY_AMOUNT_RULE_NAME = Regex("""^(\d+) sat → (.*)$""")
  * count re-rendered through [formatSat] (the user's unit and the
  * privacy mask); every other name is returned unchanged.
  */
-internal fun displayRuleName(name: String, formatSat: (Long) -> String): String {
+internal fun displayRuleName(
+    name: String,
+    formatSat: (Long) -> String,
+    /** "Exact amount" in the app language: rules saved with the English name show it translated. */
+    exactAmountName: String = EXACT_AMOUNT_RULE_NAME,
+): String {
+    if (name.startsWith("$EXACT_AMOUNT_RULE_NAME → ")) return exactAmountName + name.removePrefix(EXACT_AMOUNT_RULE_NAME)
     val m = LEGACY_AMOUNT_RULE_NAME.matchEntire(name) ?: return name
     val sat = m.groupValues[1].toLongOrNull() ?: return name
     return "${formatSat(sat)} → ${m.groupValues[2]}"

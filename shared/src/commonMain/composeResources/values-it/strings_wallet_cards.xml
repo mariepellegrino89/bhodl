@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="wlc_add">+ Aggiungi wallet</string>
+    <string name="wlc_synced">sincronizzato</string>
+    <string name="wlc_stale">non aggiornato</string>
+    <string name="wlc_stale_help">L'ultima sincronizzazione di questo wallet è fallita o è vecchia: il saldo potrebbe non essere aggiornato. Aprilo e premi Sincronizza.</string>
+    <string name="wlc_kind_xpub">xpub</string>
+    <string name="wlc_kind_addresses">lista indirizzi</string>
+    <string name="wlc_receive">Ricevi</string>
+    <string name="wlc_coin_map">Mappa delle monete</string>
+    <string name="wlc_coin_map_help">Ogni blocco è un UTXO, largo in proporzione all'importo. Tante monete piccole costano più commissioni quando le spendi.</string>
+    <string name="wlc_coin_confirmed">confermato</string>
+    <string name="wlc_coin_pending">in attesa</string>
+</resources>

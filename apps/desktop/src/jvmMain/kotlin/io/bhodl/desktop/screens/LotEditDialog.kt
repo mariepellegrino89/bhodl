@@ -1,5 +1,6 @@
 package io.bhodl.desktop.screens
 
+import io.bhodl.desktop.AppClock
 import io.bhodl.desktop.ui.money.filterDecimalChars
 import io.bhodl.desktop.ui.money.formatDecimalInput
 import io.bhodl.desktop.ui.money.parseDecimalInput
@@ -76,7 +77,7 @@ internal fun LotEditDialog(
         mutableStateOf(editing?.feesFiat?.takeIf { it > 0.0 }?.let { formatDecimalInput(it) } ?: "")
     }
     var purchaseUnix by remember(editing?.id) {
-        mutableStateOf(editing?.purchaseUnix ?: System.currentTimeMillis() / 1000L)
+        mutableStateOf(editing?.purchaseUnix ?: AppClock.nowUnix())
     }
     var notesStr by remember(editing?.id) { mutableStateOf(editing?.notes ?: "") }
 

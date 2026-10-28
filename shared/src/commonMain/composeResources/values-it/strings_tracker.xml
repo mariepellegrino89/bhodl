@@ -159,6 +159,7 @@
     <string name="trk_err_save_goal">Impossibile salvare l’obiettivo.</string>
     <string name="trk_err_save_investment">Impossibile salvare l’investimento.</string>
     <string name="trk_err_save_liability">Impossibile salvare la passività.</string>
+    <string name="trk_err_save_details">Impossibile salvare i dettagli.</string>
     <string name="trk_err_save_lot">Impossibile salvare il lotto.</string>
     <string name="trk_err_save_manual_asset">Impossibile salvare l’asset manuale.</string>
     <string name="trk_err_save_rule">Impossibile salvare la regola.</string>

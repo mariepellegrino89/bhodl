@@ -306,6 +306,8 @@ internal fun WalletUtxosTab(refreshKey: Int) {
                 color = BhodlTheme.colors.error,
             )
         }
+        // Wallet redesign 2026-10 — the coins at a glance, sized by amount.
+        CoinMap(list, Modifier.fillMaxWidth())
         // UX review 2026-10 (rec 2) — one unit for the amount column, in the header.
         val utxoAmounts = rememberColumnAmountFormat(list.map { it.valueSat.toLong() })
         UtxoTable(

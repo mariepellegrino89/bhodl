@@ -191,13 +191,14 @@
     <string name="trp_amount_sat">Importo (sat)</string>
     <string name="trp_bill_due_day_field">Giorno di scadenza del mese (1..31)</string>
     <string name="trp_bill_due_day">Scadenza il giorno %1$d</string>
-    <string name="trp_rec_title">RILEVATI</string>
-    <string name="trp_rec_empty">Nessun pagamento ricorrente rilevato. Quando lo stesso beneficiario si ripete ogni settimana o ogni mese compare qui — accettalo per trasformarlo in una bolletta.</string>
+    <string name="trp_rec_title">PAGAMENTI RICORRENTI TROVATI</string>
+    <string name="trp_rec_help">Uscite della stessa categoria e di importo simile (±10%) che si ripetono almeno 3 volte, ogni mese o ogni settimana. Accetta per farne una bolletta (con la categoria del gruppo), Ignora per non vederle più.</string>
+    <string name="trp_rec_empty">Nessun pagamento ricorrente rilevato. Quando uscite della stessa categoria e di importo simile si ripetono ogni settimana o ogni mese compaiono qui — accettale per trasformarle in una bolletta.</string>
     <string name="trp_rec_more">+ altri %1$d (ignora quelli sopra per vederli)</string>
     <string name="trp_rec_monthly">mensile</string>
     <string name="trp_rec_weekly">settimanale</string>
     <string name="trp_rec_next">· %1$s · prossimo ~ %2$s</string>
-    <string name="trp_rec_accept">+ Bolletta</string>
+    <string name="trp_rec_accept">Accetta</string>
     <string name="trp_rec_dismiss">Ignora</string>
     <string name="trp_rec_conf_high">ALTA</string>
     <string name="trp_rec_conf_med">MEDIA</string>

@@ -1,5 +1,12 @@
 package io.bhodl.desktop.screens
 
+import io.bhodl.shared.resources.bill_category
+import io.bhodl.shared.resources.bill_fixed
+import io.bhodl.shared.resources.bill_variable
+import io.bhodl.shared.resources.bill_estimate_sat
+import io.bhodl.shared.resources.bill_paid_title
+import io.bhodl.shared.resources.bill_paid_body
+import io.bhodl.shared.resources.bgc_mark_paid
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -54,147 +61,6 @@ import io.bhodl.shared.resources.trp_bills_title
 import io.bhodl.shared.resources.trp_field_name
 
 /**
- * Phase 4.4 — Bills Tracker card.
- *
- * Lists recurring payments / subscriptions. Each row shows the bill
- * name, amount (sat or display_label override), the day-of-month it's
- * due, and a "Paid" pill. A bill is considered paid for the current
- * period if `last_paid_unix` falls in the current calendar month.
- *
- * The Add button at the bottom opens [BillEditDialog] in create mode.
- * Tapping a row opens it in edit mode (also exposes Delete).
- */
-@Composable
-internal fun BillsTrackerCard(
-    bills: List<TrackingBillFfi>,
-    onAdd: () -> Unit,
-    onEdit: (TrackingBillFfi) -> Unit,
-    onTogglePaid: (bill: TrackingBillFfi, paidNow: Boolean) -> Unit,
-) {
-    val zoneId = remember { ZoneId.systemDefault() }
-    // Ticks at least at local midnight so "due this month / overdue"
-    // rolls over in a long-running session.
-    val now = rememberTickingNowUnix(zoneId)
-    val currentMonth = remember(now) {
-        YearMonth.from(java.time.Instant.ofEpochSecond(now).atZone(zoneId))
-    }
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .bhodlCard()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = stringResource(Res.string.trp_bills_title),
-                style = BhodlTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                color = BhodlTheme.colors.textSecondary,
-                modifier = Modifier.weight(1f),
-            )
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(BhodlTheme.colors.accentNeon.copy(alpha = 0.18f))
-                    .clickable(onClick = onAdd)
-                    .padding(horizontal = 10.dp, vertical = 4.dp)
-                    .testTag(BillTags.ADD),
-            ) {
-                Text(
-                    text = stringResource(Res.string.trp_add),
-                    style = BhodlTheme.typography.labelMedium,
-                    color = BhodlTheme.colors.accentNeon,
-                )
-            }
-        }
-        if (bills.isEmpty()) {
-            Text(
-                text = stringResource(Res.string.trp_bills_empty),
-                style = BhodlTheme.typography.bodyMedium,
-                color = BhodlTheme.colors.textTertiary,
-            )
-            return@Column
-        }
-        bills.forEach { b ->
-            BillRow(
-                bill = b,
-                currentMonth = currentMonth,
-                zoneId = zoneId,
-                nowUnix = now,
-                onEdit = { onEdit(b) },
-                onTogglePaid = { paidNow -> onTogglePaid(b, paidNow) },
-            )
-        }
-    }
-}
-
-@Composable
-private fun BillRow(
-    bill: TrackingBillFfi,
-    currentMonth: YearMonth,
-    zoneId: ZoneId,
-    nowUnix: Long,
-    onEdit: () -> Unit,
-    onTogglePaid: (Boolean) -> Unit,
-) {
-    val paidThisMonth = isPaidInMonth(bill.lastPaidUnix, currentMonth, zoneId)
-    val statusColor = if (paidThisMonth) BhodlTheme.colors.financialPositive
-    else BhodlTheme.colors.financialPending
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            // Item 15 — Settings › Density row height.
-            .heightIn(min = BhodlTheme.density.rowHeight)
-            .padding(vertical = 2.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .clickable(onClick = onEdit),
-        ) {
-            Text(
-                text = bill.name,
-                style = BhodlTheme.typography.bodyMedium,
-                color = BhodlTheme.colors.textPrimary,
-            )
-            Text(
-                text = billSubtitle(bill),
-                style = BhodlTheme.typography.labelMedium,
-                color = BhodlTheme.colors.textTertiary,
-            )
-        }
-        // UX review 2026-10 (B6) — the amount column always shows the
-        // amount; the optional free-text note moved under the name.
-        Text(
-            text = displayAmount(bill.amountSat),
-            style = BhodlTheme.typography.bodyMedium,
-            color = BhodlTheme.colors.textPrimary,
-            modifier = Modifier.weight(1.2f).testTag(BillTags.amount(bill.id)),
-        )
-        Box(
-            modifier = Modifier
-                .clip(RoundedCornerShape(8.dp))
-                .background(statusColor.copy(alpha = 0.18f))
-                .border(1.dp, statusColor.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
-                .clickable { onTogglePaid(!paidThisMonth) }
-                .padding(horizontal = 10.dp, vertical = 4.dp)
-                .testTag(BillTags.paidChip(bill.id)),
-        ) {
-            Text(
-                text = if (paidThisMonth) stringResource(Res.string.trp_bill_paid) else stringResource(Res.string.trp_bill_mark_paid),
-                style = BhodlTheme.typography.labelMedium,
-                color = statusColor,
-            )
-        }
-    }
-}
-
-/**
  * Phase 4.4 — create / edit / delete dialog for a single bill.
  *
  * `editing` null → create mode. Save inserts a new row. Non-null →
@@ -205,8 +71,10 @@ private fun BillRow(
 internal fun BillEditDialog(
     editing: TrackingBillFfi?,
     onDismiss: () -> Unit,
-    onSave: (name: String, amountSat: ULong, dueDay: Int, displayLabel: String?) -> Unit,
+    onSave: (name: String, amountSat: ULong, dueDay: Int, displayLabel: String?, variable: Boolean, category: String?) -> Unit,
     onDelete: (id: Long) -> Unit,
+    /** Schema v8 — categories offered for the bill's budget category. */
+    knownCategories: List<String> = emptyList(),
 ) {
     var name by remember(editing?.id) { mutableStateOf(editing?.name ?: "") }
     var amountStr by remember(editing?.id) {
@@ -218,6 +86,11 @@ internal fun BillEditDialog(
     var displayLabel by remember(editing?.id) {
         mutableStateOf(editing?.displayLabel.orEmpty())
     }
+    // Schema v7 — a variable bill (power, gas): the amount is an estimate,
+    // the real one is asked when it is marked paid.
+    var variable by remember(editing?.id) { mutableStateOf(editing?.variable ?: false) }
+    // Schema v8 — the budget category its payments count against.
+    var category by remember(editing?.id) { mutableStateOf(editing?.category.orEmpty()) }
     val amount: ULong? = amountStr.trim().takeIf { it.isNotBlank() }?.toULongOrNull()
     val dueDay: Int? = dueDayStr.trim().toIntOrNull()?.coerceIn(1, 31)
     val canSave = name.isNotBlank() && amount != null && dueDay != null
@@ -234,11 +107,27 @@ internal fun BillEditDialog(
                     placeholder = { Text(stringResource(Res.string.trp_bill_name_hint)) },
                     modifier = Modifier.fillMaxWidth().testTag(BillTags.INPUT_NAME),
                 )
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf(false to Res.string.bill_fixed, true to Res.string.bill_variable).forEach { (v, label) ->
+                        val on = variable == v
+                        Text(
+                            stringResource(label),
+                            style = BhodlTheme.typography.labelMedium,
+                            color = if (on) BhodlTheme.colors.brandPrimary else BhodlTheme.colors.textSecondary,
+                            modifier = Modifier
+                                .clip(androidx.compose.foundation.shape.RoundedCornerShape(999.dp))
+                                .background(if (on) BhodlTheme.colors.brandPrimary.copy(alpha = 0.14f) else BhodlTheme.colors.surfaceVariant)
+                                .clickable(role = androidx.compose.ui.semantics.Role.RadioButton) { variable = v }
+                                .padding(horizontal = 12.dp, vertical = 6.dp)
+                                .testTag(if (v) BillTags.KIND_VARIABLE else BillTags.KIND_FIXED),
+                        )
+                    }
+                }
                 OutlinedTextField(
                     value = amountStr,
                     onValueChange = { amountStr = it.filter { ch -> ch.isDigit() } },
                     singleLine = true,
-                    label = { Text(stringResource(Res.string.trp_amount_sat)) },
+                    label = { Text(stringResource(if (variable) Res.string.bill_estimate_sat else Res.string.trp_amount_sat)) },
                     keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
                         keyboardType = KeyboardType.Number,
                     ),
@@ -253,6 +142,13 @@ internal fun BillEditDialog(
                         keyboardType = KeyboardType.Number,
                     ),
                     modifier = Modifier.fillMaxWidth().testTag(BillTags.INPUT_DUEDAY),
+                )
+                CategoryField(
+                    value = category,
+                    onValueChange = { category = it },
+                    knownCategories = knownCategories,
+                    label = stringResource(Res.string.bill_category),
+                    tag = BillTags.INPUT_CATEGORY,
                 )
                 OutlinedTextField(
                     value = displayLabel,
@@ -271,6 +167,8 @@ internal fun BillEditDialog(
                         amount!!,
                         dueDay!!,
                         displayLabel.trim().ifBlank { null },
+                        variable,
+                        category.trim().ifBlank { null },
                     )
                 },
                 enabled = canSave,
@@ -303,7 +201,12 @@ internal object BillTags {
     const val INPUT_AMOUNT: String = "bill.input-amount"
     const val INPUT_DUEDAY: String = "bill.input-dueday"
     const val INPUT_LABEL: String = "bill.input-label"
+    const val INPUT_CATEGORY: String = "bill.input-category"
     fun paidChip(id: Long): String = "bill.paid.$id"
+    const val KIND_FIXED: String = "bill.kind.fixed"
+    const val KIND_VARIABLE: String = "bill.kind.variable"
+    const val PAID_AMOUNT: String = "bill.paid-amount"
+    const val PAID_SAVE: String = "bill.paid-save"
     fun amount(id: Long): String = "bill.amount.$id"
 }
 
@@ -316,4 +219,38 @@ internal fun billSubtitle(bill: TrackingBillFfi): String {
     val due = stringResource(Res.string.trp_bill_due_day, bill.dueDay.toInt())
     val note = bill.displayLabel?.trim()?.takeIf { it.isNotEmpty() }
     return if (note != null) "$due · $note" else due
+}
+
+/** Schema v7 — "how much did you pay?" when a variable bill is marked paid. */
+@Composable
+internal fun BillPaidAmountDialog(bill: TrackingBillFfi, onDismiss: () -> Unit, onSave: (ULong) -> Unit) {
+    var input by remember(bill.id) { mutableStateOf(bill.amountSat.toString()) }
+    val parsed = input.trim().toULongOrNull()
+    SlideOverPanel(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(Res.string.bill_paid_title, bill.name)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    stringResource(Res.string.bill_paid_body, io.bhodl.desktop.ui.displayAmount(bill.amountSat.toLong())),
+                    style = BhodlTheme.typography.bodyMedium,
+                    color = BhodlTheme.colors.textTertiary,
+                )
+                OutlinedTextField(
+                    value = input,
+                    onValueChange = { input = it.filter { ch -> ch.isDigit() } },
+                    singleLine = true,
+                    label = { Text(stringResource(Res.string.trp_amount_sat)) },
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.fillMaxWidth().testTag(BillTags.PAID_AMOUNT),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { parsed?.let(onSave) }, enabled = parsed != null, modifier = Modifier.testTag(BillTags.PAID_SAVE)) {
+                Text(stringResource(Res.string.bgc_mark_paid))
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(Res.string.common_cancel)) } },
+    )
 }

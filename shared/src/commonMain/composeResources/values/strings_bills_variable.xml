@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="bill_fixed">Fixed amount</string>
+    <string name="bill_variable">Variable amount</string>
+    <string name="bill_estimate_sat">Estimated amount (sat)</string>
+    <string name="bill_variable_tag">variable</string>
+    <string name="bill_paid_title">Paid: %1$s</string>
+    <string name="bill_paid_body">How much did you pay? The estimate is %1$s.</string>
+</resources>

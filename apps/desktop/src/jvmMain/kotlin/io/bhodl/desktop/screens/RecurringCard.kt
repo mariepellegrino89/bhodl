@@ -46,6 +46,7 @@ import io.bhodl.shared.resources.trp_rec_monthly
 import io.bhodl.shared.resources.trp_rec_more
 import io.bhodl.shared.resources.trp_rec_next
 import io.bhodl.shared.resources.trp_rec_title
+import io.bhodl.shared.resources.trp_rec_help
 import io.bhodl.shared.resources.trp_rec_weekly
 import io.bhodl.desktop.ui.categoryDisplayName
 
@@ -82,12 +83,18 @@ internal fun RecurringCard(
                 .padding(horizontal = BhodlTheme.spacing.md, vertical = BhodlTheme.spacing.sm),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                text = stringResource(Res.string.trp_rec_title),
-                style = BhodlTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                color = BhodlTheme.colors.textSecondary,
+            Row(
                 modifier = Modifier.weight(1f),
-            )
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(
+                    text = stringResource(Res.string.trp_rec_title),
+                    style = BhodlTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                    color = BhodlTheme.colors.textSecondary,
+                )
+                io.bhodl.desktop.ui.HelpTip(stringResource(Res.string.trp_rec_help))
+            }
             if (candidates.isNotEmpty()) {
                 Box(
                     modifier = Modifier

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="rpo_kind_categories">By category</string>
+    <string name="rpo_kind_categories_sub">where the sats go</string>
+    <string name="rpo_kind_wallets">By wallet</string>
+    <string name="rpo_kind_wallets_sub">balance and flows per wallet</string>
+    <string name="rpo_expenses">Expenses</string>
+    <string name="rpo_income">Income</string>
+    <string name="rpo_net">Net</string>
+    <string name="rpo_saved">Kept</string>
+    <string name="rpo_h_expenses">Outgoing payments of the period, transfers between your wallets excluded.</string>
+    <string name="rpo_h_income">Incoming payments of the period, transfers between your wallets excluded.</string>
+    <string name="rpo_h_net">Income minus expenses.</string>
+    <string name="rpo_h_saved">Share of income you kept: net / income.</string>
+    <string name="rpo_vs_previous">vs previous period</string>
+    <string name="rpo_grew">Grew most</string>
+    <string name="rpo_dropped">Dropped most</string>
+    <string name="rpo_top">Top expense</string>
+    <string name="rpo_insight_none">—</string>
+    <string name="rpo_donut">Expenses by category</string>
+    <string name="rpo_donut_help">Each slice is a category's share of the period's expenses. Click a category to highlight it in the bars too.</string>
+    <string name="rpo_bars">This period vs the previous one</string>
+    <string name="rpo_bars_help">Thick bar: this period. Thin bar: the window of the same length just before. The percentage is the change.</string>
+    <string name="rpo_total">total</string>
+    <string name="rpo_current">This period</string>
+    <string name="rpo_previous">Previous period</string>
+    <string name="rpo_prev_value">%1$s in the previous period</string>
+</resources>

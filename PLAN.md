@@ -850,11 +850,35 @@ Score 0-100 con suggerimenti concreti pre-broadcast.
 7. Apertura **GitHub repo** (privato/pubblico).
 8. **Spike tecnico**: prototipo Compose Multiplatform + UniFFI bindings su BDK + LDK Node, su 3 piattaforme (Android + iOS + macOS) per validare la decisione frontend prima di committare.
 
+## 14. Redesign dell'interfaccia desktop (ottobre 2026)
+
+Proposte grafiche su artifact separati, una pagina per sezione con quattro
+alternative (A rifinita, B terminale denso, C card visive, D bitcoin-first).
+Ordine di lavoro: una sezione alla volta, scelta l'alternativa con l'utente,
+poi implementazione + test + giro di controllo sugli screenshot (tema scuro
+e chiaro).
+
+1. **Portafoglio** — fatto (branch `feat/portfolio-class-cards`): card di
+   classe, card di dettaglio per 19 categorie, dettagli per tipo (registry v6),
+   vista Schede ⇄ Tabella.
+2. **Home**, 3. **Transazioni**, 4. **Budget e bollette**, 5. **Obiettivi**,
+   6. **Report**, 7. **Wallet**, 8. **Impostazioni** — proposte pronte, in
+   attesa della scelta.
+9. **Aiuto contestuale ovunque** (trasversale, richiesto 2026-10-25): un
+   punto di domanda con tooltip accanto a ogni numero, indicatore, campo e
+   impostazione che non si spiega da solo (cosa misura, come è calcolato, da
+   dove arrivano i dati). Un solo componente riusabile (`HelpTip`),
+   raggiungibile da tastiera e letto dagli screen reader; testi EN/IT nelle
+   risorse. Si applica a ogni sezione mentre viene rifatta, partendo dal
+   Portafoglio, e poi alle schermate non toccate dal redesign (wizard,
+   hub sicurezza, dialoghi).
+
 ---
 
 *Documento vivo. Versione 0.2 — maggio 2026.*
 
 **Changelog**:
+- v0.4 (2026-10-25): §14 piano del redesign desktop e aiuto contestuale (tooltip) ovunque.
 - v0.3 (2026-10-23): BHODL diventa watch-only — nuova sezione "Decisione 2026-10-23"; note di superamento in §4.1–4.4, 4.7, 4.8, 4.10; voci di roadmap §10 marcate come superate o da ripensare.
 - v0.2 (2026-05-04): pubblico target → mainstream + 3 tier; Lightning → dual path A/B; frontend → KMP + Compose Multiplatform; aggiornate sezioni 1.3, 4.3, 6.2 e le open questions (sezione poi rimossa).
 - v0.1 (2026-05-04): prima stesura completa.

@@ -69,6 +69,8 @@ public object SettingsPersistence {
         val btcUnit: String = BtcUnit.SAT.name,
         val fiatCurrency: String = SettingsStore.DEFAULT_FIAT_CURRENCY.name,
         val autoFetchInvestmentPrices: Boolean = false,
+        // Missing in older snapshots: prices stay online, as before.
+        val onlinePrices: Boolean = true,
         // Phase 7.2 — when true, the net-worth hero boots into the
         // HIDDEN display mode (bullets). Backward-compatible: missing
         // field defaults to false so existing snapshots keep behaving
@@ -80,6 +82,9 @@ public object SettingsPersistence {
         // old snapshots → empty set (every wallet included, the prior
         // default behaviour).
         val excludedWalletIds: List<String> = emptyList(),
+        // Redesign 2026-10 — category colours and the user's own categories.
+        val categoryColors: Map<String, Int> = emptyMap(),
+        val customCategories: List<String> = emptyList(),
         // Phase 7.6 — last Unix timestamp the user dismissed the
         // monthly-review banner. Persisted so the dismiss survives
         // app restarts. 0 = never dismissed (default for old snapshots).
@@ -166,8 +171,12 @@ public object SettingsPersistence {
         btcUnit = SettingsStore.btcUnit.value.name,
         fiatCurrency = SettingsStore.fiatCurrency.value.name,
         autoFetchInvestmentPrices = SettingsStore.autoFetchInvestmentPrices.value,
+        onlinePrices = SettingsStore.onlinePrices.value,
         privacyAutoHide = SettingsStore.privacyAutoHide.value,
         excludedWalletIds = SettingsStore.excludedWalletIds.value.toList(),
+        // The real profile's, also while a test profile is open.
+        categoryColors = SettingsStore.persistedProfileSettings().categoryColors,
+        customCategories = SettingsStore.persistedProfileSettings().customCategories,
         lastMonthlyReviewDismissedUnix = SettingsStore.lastMonthlyReviewDismissedUnix.value,
         unitFormat = SettingsStore.unitFormat.value.name,
         showFiatInBankCsv = SettingsStore.showFiatInBankCsv.value,
@@ -175,11 +184,11 @@ public object SettingsPersistence {
         showFiatInTaxExports = SettingsStore.showFiatInTaxExports.value,
         showFiatInInvoiceReceipts = SettingsStore.showFiatInInvoiceReceipts.value,
         showFiatOverlayOnNwChart = SettingsStore.showFiatOverlayOnNwChart.value,
-        moduleInvestments = SettingsStore.moduleInvestments.value,
-        moduleBudgetBills = SettingsStore.moduleBudgetBills.value,
-        moduleSavingsGoals = SettingsStore.moduleSavingsGoals.value,
-        moduleManualAssets = SettingsStore.moduleManualAssets.value,
-        moduleAnalyticsLabs = SettingsStore.moduleAnalyticsLabs.value,
+        moduleInvestments = SettingsStore.persistedProfileSettings().modules.investments,
+        moduleBudgetBills = SettingsStore.persistedProfileSettings().modules.budgetBills,
+        moduleSavingsGoals = SettingsStore.persistedProfileSettings().modules.savingsGoals,
+        moduleManualAssets = SettingsStore.persistedProfileSettings().modules.manualAssets,
+        moduleAnalyticsLabs = SettingsStore.persistedProfileSettings().modules.analyticsLabs,
         modulesBannerDismissed = SettingsStore.modulesBannerDismissed.value,
         bitcoinUnit = SettingsStore.unitFormat.value.name,
         bip177Notation = SettingsStore.bip177Notation.value,
@@ -243,11 +252,13 @@ public object SettingsPersistence {
         runCatching { SettingsStore.setDensity(BhodlDensity.valueOf(snapshot.density)) }
         runCatching { SettingsStore.setFiatCurrency(FiatCurrency.valueOf(snapshot.fiatCurrency)) }
         SettingsStore.setAutoFetchInvestmentPrices(snapshot.autoFetchInvestmentPrices)
+        SettingsStore.setOnlinePrices(snapshot.onlinePrices)
         SettingsStore.setPrivacyAutoHide(snapshot.privacyAutoHide)
         // Use replace (not the public setter) to avoid triggering an
         // immediate persistIfEnabled() during rehydrate — the caller
         // arranges the persistence hook AFTER rehydrate by contract.
         SettingsStore.replaceExcludedWalletIds(snapshot.excludedWalletIds.toSet())
+        SettingsStore.replaceCategories(snapshot.categoryColors, snapshot.customCategories)
         SettingsStore.replaceLastMonthlyReviewDismissedUnix(snapshot.lastMonthlyReviewDismissedUnix)
         SettingsStore.replaceSecurityTimestamps(labelsExportedAt = snapshot.labelsExportedAt)
         SettingsStore.replaceOnboardingUnitsSeen(snapshot.onboardingUnitsSeen)

@@ -160,6 +160,20 @@ class UcWalletSettingsTest {
             assertTrue(keep.id in SettingsStore.excludedWalletIds.value)
         }
 
+    @Test
+    fun `WAL-032 a removed xpub can be added again, without the old local labels`() {
+        val reg = registry()
+        val first = reg.addWatchXpub("Doomed", TPUB, Network.SIGNET, WatchBipFfi.TAPROOT)
+        reg.setEventCategory(first.id, "aa".repeat(32), "food")
+        reg.removeWallet(first.id)
+        assertTrue(reg.listWallets().isEmpty())
+
+        val again = reg.addWatchXpub("Doomed", TPUB, Network.SIGNET, WatchBipFfi.TAPROOT)
+        assertEquals(listOf(again.id), reg.listWallets().map { it.id })
+        assertTrue(File(tmp, "watch-state/${again.id}.sqlite").exists(), "a fresh watch state to sync into")
+        assertNull(reg.getEventCategory(again.id, "aa".repeat(32)), "local labels went with the old wallet")
+    }
+
     // ---- WAL-121 / WAL-122 descriptor --------------------------------------------
 
     @Test

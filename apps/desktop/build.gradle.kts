@@ -9,6 +9,9 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
     // JVM coverage. Aggregated at the root via `dependencies { kover(project(...)) }`.
     alias(libs.plugins.kover)
+    // Screenshot references for the screen renders: adds
+    // recordRoborazziJvm / verifyRoborazziJvm / compareRoborazziJvm.
+    alias(libs.plugins.roborazzi)
 }
 
 kotlin {
@@ -66,6 +69,15 @@ kotlin {
             // (still `@ExperimentalTestApi` in 1.10) to drive the NavHost
             // without standing up a real window.
             implementation(compose.desktop.uiTestJUnit4)
+            // Roborazzi: compares the screen renders with the reference
+            // PNGs in src/jvmTest/screenshots (see ScreenshotCheck.kt).
+            // Its POM pins the macOS-arm64 Compose runtime (the machine it
+            // was built on); `compose.desktop.currentOs` already brings ours.
+            // (The KMP handler takes a configure block only with a string.)
+            val roborazzi = libs.roborazzi.compose.desktop.get()
+            implementation("${roborazzi.module}:${roborazzi.versionConstraint.requiredVersion}") {
+                exclude(group = "org.jetbrains.compose.desktop", module = "desktop-jvm-macos-arm64")
+            }
             // Testcontainers + JSON parsing for the L3 integration tests
             // (regtest bitcoind + electrs). Filed under jvmTest because we
             // re-use the existing classpath/cdylib wiring instead of
@@ -119,6 +131,23 @@ tasks.named<Test>("jvmTest") {
     // OS language; tests that need another locale pass it explicitly.
     systemProperty("user.language", "en")
     systemProperty("user.country", "US")
+    // Screenshot references show dates: render them in the CI runner's
+    // zone on every machine so a local record matches the CI verify.
+    systemProperty("user.timezone", "UTC")
+}
+
+// Screenshot tests (ScreenshotCheck.kt). References are recorded on
+// Linux only — font rasterisation differs per OS — and committed here:
+//   ./gradlew :apps:desktop:recordRoborazziJvm   (Linux / Docker / CI workflow)
+//   ./gradlew :apps:desktop:verifyRoborazziJvm   (CI: fails on a pixel diff)
+// A plain `jvmTest` only writes the renders to build/screenshots.
+// Diff images land in build/outputs/roborazzi, the HTML report in
+// build/reports/roborazzi.
+roborazzi {
+    outputDir.set(layout.projectDirectory.dir("src/jvmTest/screenshots"))
+    compare {
+        outputDir.set(layout.buildDirectory.dir("outputs/roborazzi"))
+    }
 }
 
 // Dev-only: on the `run` task (and the KMP `jvmRun` alias) the BTC
@@ -202,12 +231,29 @@ compose.desktop {
     application {
         mainClass = "io.bhodl.desktop.MainKt"
         nativeDistributions {
-            // Phase-0 spike: we don't ship installers yet, but declaring the
-            // formats now makes `./gradlew :apps:desktop:packageDistributionForCurrentOS`
-            // work out of the box for ad-hoc binaries during development.
+            // Windows releases ship the MSI built by .github/workflows/release.yml
+            // (`./gradlew :apps:desktop:packageMsi`), signed through SignPath
+            // (see CODE_SIGNING_POLICY.md).
             targetFormats(TargetFormat.Exe, TargetFormat.Msi)
             packageName = "BHODL"
             packageVersion = "0.1.0"
+            // From `suggestRuntimeModules`: JNA (the Rust core) needs
+            // jdk.unsupported in the bundled runtime.
+            modules("java.instrument", "jdk.unsupported")
+            description = "Watch-only Bitcoin wallet and net-worth tracker"
+            vendor = "BHODL contributors"
+            copyright = "Copyright (c) 2026 BHODL Wallet contributors. MIT or Apache-2.0."
+            // The installer shows the license and the privacy notice before
+            // installing (SignPath Foundation requires the privacy part).
+            licenseFile.set(project.file("packaging/installer-notice.txt"))
+            windows {
+                menu = true
+                shortcut = true
+                dirChooser = true
+                menuGroup = "BHODL"
+                // Fixed for every release: lets a new MSI upgrade the old one.
+                upgradeUuid = "d14a013c-f6be-43dd-9e2b-2f0ca3a3c241"
+            }
         }
     }
 }

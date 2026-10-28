@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="txc_in_out">Entrate e uscite</string>
+    <string name="txc_in_out_help">Pagamenti in entrata e in uscita nel periodo, esclusi i trasferimenti tra i tuoi wallet.</string>
+    <string name="txc_income">Entrate</string>
+    <string name="txc_expenses">Uscite</string>
+    <string name="txc_saved">Risparmiato nel periodo</string>
+    <string name="txc_where">Dove sono andati i sat</string>
+    <string name="txc_where_help">Le uscite del periodo per categoria: le cinque più grandi hanno il loro nome, le altre sono raggruppate.</string>
+    <string name="txc_where_empty">Nessuna uscita nel periodo.</string>
+    <string name="txc_other">Altre</string>
+    <string name="txc_uncategorized">Senza categoria</string>
+    <string name="txc_search">Cerca categoria, wallet, txid o importo</string>
+    <string name="txc_today">Oggi</string>
+    <string name="txc_yesterday">Ieri</string>
+    <string name="txc_pending">In attesa</string>
+    <string name="txc_show_more">Mostrate %1$d di %2$d · mostra altre</string>
+    <string name="txc_review">Da rivedere · %1$d</string>
+    <string name="txc_review_help">Pagamenti del periodo senza categoria. Scegli con un clic una delle categorie che usi di più, oppure Altro… per l’editor completo.</string>
+    <string name="txc_quick_more">Altro…</string>
+</resources>

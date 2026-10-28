@@ -128,6 +128,15 @@ class UcAddWatchWalletTest {
     }
 
     @Test
+    fun `WAL-018 the back arrow at the top leaves without adding`() = runDesktopComposeUiTest {
+        var back = 0
+        setContent { BhodlTheme { AddWatchScreen(onAdded = {}, onBack = { back++ }) } }
+        onNodeWithTag(io.bhodl.desktop.ui.BhodlBackArrowTags.ROOT).performClick()
+        assertEquals(1, back)
+        assertTrue(registry.listWallets().isEmpty())
+    }
+
+    @Test
     fun `WAL-020 the same tpub twice is refused and names the existing wallet`() = runDesktopComposeUiTest {
         registry.addWatchXpub("Vault", TPUB, Network.SIGNET, WatchBipFfi.TAPROOT)
         var added = 0

@@ -1,5 +1,6 @@
 package io.bhodl.desktop.screens
 
+import androidx.compose.ui.test.assertTextContains
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.ExperimentalTestApi
@@ -64,22 +65,60 @@ class UcCardsTrackerTest {
         "w", "t", PaymentKind.ON_CHAIN, PaymentDirection.OUTGOING, 1_000UL, null, now.toULong(), null, category, kind,
     )
 
+    @Test
+    fun `a variable bill saves as variable and asks the amount when marked paid`() = runDesktopComposeUiTest {
+        var savedVariable: Boolean? = null
+        setContent {
+            BhodlTheme { BillEditDialog(null, onDismiss = {}, onSave = { _, _, _, _, v, _ -> savedVariable = v }, onDelete = {}) }
+        }
+        onNodeWithTag(BillTags.INPUT_NAME).performTextInput("Luce e gas")
+        onNodeWithTag(BillTags.INPUT_AMOUNT).performTextInput("140000")
+        onNodeWithTag(BillTags.KIND_VARIABLE).performClick()
+        waitUntilAtLeastOneExists(hasText("Estimated amount", substring = true))
+        onNodeWithTag(BillTags.SAVE).performClick()
+        assertEquals(true, savedVariable)
+    }
+
+    @Test
+    fun `marking a variable bill paid takes the amount, a fixed one records its own`() = runDesktopComposeUiTest {
+        val variable = io.bhodl.ffi.TrackingBillFfi(1, "Luce e gas", 140_000UL, 28u, null, null, 0, variable = true)
+        val fixed = io.bhodl.ffi.TrackingBillFfi(2, "Affitto", 950_000UL, 28u, null, null, 0)
+        val paid = mutableListOf<Pair<Long, ULong>>()
+        val today = java.time.LocalDate.now()
+        setContent {
+            BhodlTheme {
+                BillsCalendarStrip(listOf(variable, fixed), today, { _, _ -> }, {}, {}, onMarkPaidAmount = { b, sat -> paid += b.id to sat })
+            }
+        }
+        onNodeWithTag(BillTags.amount(1), useUnmergedTree = true).assertTextContains("≈", substring = true)
+        onNodeWithTag(BillTags.paidChip(2)).performClick()
+        onNodeWithTag(BillTags.paidChip(1)).performClick()
+        waitUntil(timeoutMillis = 3_000) { onAllNodes(hasTestTag(BillTags.PAID_AMOUNT), useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
+        onNodeWithTag(BillTags.PAID_AMOUNT, useUnmergedTree = true).performTextClearance()
+        onNodeWithTag(BillTags.PAID_AMOUNT, useUnmergedTree = true).performTextInput("163500")
+        onNodeWithTag(BillTags.PAID_SAVE, useUnmergedTree = true).performClick()
+        assertEquals(listOf(2L to 950_000UL, 1L to 163_500UL), paid)
+    }
+
     // ─── TRK-033 / TRK-047 / TRK-048 — category + kind dialog ───────
 
     @Test
-    fun `TRK-033 typing narrows the suggestions and a chip fills the input`() = runDesktopComposeUiTest {
+    fun `TRK-033 the category menu filters as you type and a pick fills the input`() = runDesktopComposeUiTest {
         var saved: String? = null
         setContent {
             BhodlTheme {
-                CategoryEditDialog(ev(), listOf("Food", "Fuel", "Rent"), onDismiss = {}, onSave = { saved = it })
+                CategoryEditDialog(ev(), listOf("Food", "Fuel", "Rent", "Palestra"), onDismiss = {}, onSave = { saved = it })
             }
         }
-        waitUntilAtLeastOneExists(hasText("Rent"))
+        onNodeWithTag(CategoryPickerTags.TOGGLE).performClick()
+        // Classic categories first; "Fuel" / "Rent" are aliases of Transport / Home.
+        onNodeWithTag(CategoryPickerTags.item("Transport")).assertExists()
+        onNodeWithTag(CategoryPickerTags.item("Palestra")).assertExists()
+        assertEquals(0, count(CategoryPickerTags.item("Fuel")))
         onNodeWithTag(TrackingTags.CATEGORY_INPUT).performTextInput("fo")
         waitForIdle()
-        assertEquals(0, countText("Rent"))
-        assertEquals(0, countText("Fuel"))
-        onNodeWithText("Food").performClick()
+        assertEquals(0, count(CategoryPickerTags.item("Transport")))
+        onNodeWithTag(CategoryPickerTags.item("Food")).performClick()
         onNodeWithTag(TrackingTags.CATEGORY_SAVE).performClick()
         assertEquals("Food", saved)
         // No Clear button without an existing category.
@@ -87,18 +126,68 @@ class UcCardsTrackerTest {
     }
 
     @Test
-    fun `TRK-033 suggestions are capped at eight and Clear saves an empty category`() = runDesktopComposeUiTest {
+    fun `TRK-033 a new category keeps the colour picked for it and Clear saves an empty category`() = runDesktopComposeUiTest {
         var saved: String? = null
-        val known = (1..10).map { "Cat$it" }
         setContent {
-            BhodlTheme { CategoryEditDialog(ev(category = "Cat1"), known, onDismiss = {}, onSave = { saved = it }) }
+            BhodlTheme { CategoryEditDialog(ev(category = "Food"), emptyList(), onDismiss = {}, onSave = { saved = it }) }
         }
         onNodeWithTag(TrackingTags.CATEGORY_INPUT).performTextClearance()
-        waitForIdle()
-        assertEquals(1, countText("Cat8"))
-        assertEquals(0, countText("Cat9"))
+        onNodeWithTag(TrackingTags.CATEGORY_INPUT).performTextInput("Palestra")
+        onNodeWithTag(CategoryPickerTags.NEW).performClick()
+        onNodeWithTag(CategoryPickerTags.swatch(5)).performClick()
+        onNodeWithTag(TrackingTags.CATEGORY_SAVE).performClick()
+        assertEquals("Palestra", saved)
+        assertEquals(listOf("Palestra"), io.bhodl.desktop.settings.SettingsStore.customCategories.value)
+        assertEquals(5, io.bhodl.desktop.settings.SettingsStore.categoryColors.value["palestra"])
         onNodeWithTag(TrackingTags.CATEGORY_CLEAR).performClick()
         assertEquals("", saved)
+    }
+
+    @Test
+    fun `TRK-033 a new colour for an existing category recolours every transaction of it`() = runDesktopComposeUiTest {
+        val before = categoryColorIndex("Cibo", SettingsStore.categoryColors.value)
+        setContent {
+            BhodlTheme { CategoryEditDialog(ev(category = "Cibo"), listOf("Cibo"), onDismiss = {}, onSave = {}) }
+        }
+        onNodeWithTag(CategoryPickerTags.swatch(6)).performClick()
+        onNodeWithTag(TrackingTags.CATEGORY_SAVE).performClick()
+        assertEquals(6, SettingsStore.categoryColors.value["cibo"])
+        // The colour belongs to the name: every "Cibo" row, and its English label, follow.
+        assertEquals(6, categoryColorIndex("Cibo", SettingsStore.categoryColors.value))
+        assertEquals(6, categoryColorIndex("Food", SettingsStore.categoryColors.value))
+        assertTrue(before != 6)
+    }
+
+    @Test
+    fun `TRK-033 added categories and their colours survive a restart`() {
+        val file = File(kotlin.io.path.createTempDirectory("bhodl-uc-colours-").toFile(), "settings.json")
+        try {
+            SettingsStore.addCustomCategory("Palestra")
+            SettingsStore.setCategoryColor("Palestra", 4)
+            SettingsStore.setCategoryColor("Cibo", 6)
+            SettingsPersistence.save(file).getOrThrow()
+            SettingsStore.reset()
+            assertTrue(SettingsStore.customCategories.value.isEmpty())
+            SettingsPersistence.rehydrate(file).getOrThrow()
+            assertEquals(listOf("Palestra"), SettingsStore.customCategories.value)
+            assertEquals(4, SettingsStore.categoryColors.value["palestra"])
+            assertEquals(6, SettingsStore.categoryColors.value["cibo"])
+        } finally {
+            file.parentFile.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `category colours - classic ones differ, aliases share, the user's choice wins`() {
+        assertEquals(0, categoryColorIndex("Cibo", emptyMap()))
+        assertEquals(1, categoryColorIndex("Trasporti", emptyMap()))
+        assertEquals(categoryColorIndex("food", emptyMap()), categoryColorIndex("Spesa", emptyMap()))
+        assertEquals(7, categoryColorIndex("Cibo", mapOf("cibo" to 7)))
+        assertEquals(null, categoryColorIndex("  ", emptyMap()))
+        val distinct = PRESET_CATEGORIES.filter { it.colorIndex != CategoryPalette.OTHER }.map { it.colorIndex }
+        assertTrue(distinct.size - distinct.toSet().size <= 1, "classic categories get (almost) all different colours")
+        val custom = categoryColorIndex("Palestra", emptyMap())!!
+        assertTrue(custom in 0 until CategoryPalette.size - 1, "the hash fallback never hands out grey")
     }
 
     @Test
@@ -148,7 +237,7 @@ class UcCardsTrackerTest {
         var saved: List<Any?>? = null
         setContent {
             BhodlTheme {
-                BillEditDialog(null, onDismiss = {}, onSave = { n, a, d, l -> saved = listOf(n, a, d, l) }, onDelete = {})
+                BillEditDialog(null, onDismiss = {}, onSave = { n, a, d, l, _, _ -> saved = listOf(n, a, d, l) }, onDelete = {})
             }
         }
         onNodeWithTag(BillTags.SAVE).assertIsNotEnabled()
@@ -166,42 +255,12 @@ class UcCardsTrackerTest {
     fun `TRK-092 an empty due day disables Save and edit mode offers Delete`() = runDesktopComposeUiTest {
         var deleted: Long? = null
         val bill = TrackingBillFfi(7, "Rent", 1_000UL, 5u, null, "flat", 0)
-        setContent { BhodlTheme { BillEditDialog(bill, onDismiss = {}, onSave = { _, _, _, _ -> }, onDelete = { deleted = it }) } }
+        setContent { BhodlTheme { BillEditDialog(bill, onDismiss = {}, onSave = { _, _, _, _, _, _ -> }, onDelete = { deleted = it }) } }
         onNodeWithTag(BillTags.INPUT_DUEDAY).performTextClearance()
         onNodeWithTag(BillTags.SAVE).assertIsNotEnabled()
         onNodeWithTag(BillTags.DELETE).performClick()
         assertEquals(7L, deleted)
     }
-
-    @Test
-    fun `TRK-093 bills card shows the paid chip only for this month and toggles it`() = runDesktopComposeUiTest {
-        val paidNow = TrackingBillFfi(1, "Rent", 1_000UL, 5u, now, "flat 2B", 0)
-        val paidLastYear = TrackingBillFfi(2, "Gym", 500UL, 9u, now - 400L * 86_400L, null, 0)
-        val toggles = mutableListOf<Pair<Long, Boolean>>()
-        setContent {
-            BhodlTheme {
-                BillsTrackerCard(listOf(paidNow, paidLastYear), onAdd = {}, onEdit = {}, onTogglePaid = { b, p -> toggles += b.id to p })
-            }
-        }
-        waitUntilAtLeastOneExists(hasText("✓ Paid"))
-        assertEquals(1, countText("✓ Paid"))
-        assertEquals(1, countText("Mark paid"))
-        assertEquals(1, countText("flat 2B"))
-        onNodeWithTag(BillTags.paidChip(1)).performClick()
-        onNodeWithTag(BillTags.paidChip(2)).performClick()
-        assertEquals(listOf(1L to false, 2L to true), toggles)
-    }
-
-    @Test
-    fun `TRK-093 empty bills card shows its hint and Add`() = runDesktopComposeUiTest {
-        var added = 0
-        setContent { BhodlTheme { BillsTrackerCard(emptyList(), onAdd = { added++ }, onEdit = {}, onTogglePaid = { _, _ -> }) } }
-        waitUntilAtLeastOneExists(hasText("No bills yet", substring = true))
-        onNodeWithTag(BillTags.ADD).performClick()
-        assertEquals(1, added)
-    }
-
-    // ─── TRK-099 / TRK-104 — budgets ────────────────────────────────
 
     @Test
     fun `TRK-099 budget dialog saves only a whole number of sats`() = runDesktopComposeUiTest {
@@ -366,28 +425,6 @@ class UcCardsTrackerTest {
         DashboardKpis(10_000UL, inflow, outflow, inflow.toLong() - outflow.toLong(), 3)
 
     @Test
-    fun `TRK-112 savings rate is a dash without income and the balance shows the pending split`() = runDesktopComposeUiTest {
-        setContent {
-            BhodlTheme {
-                KpiRow(kpis(0UL, 500UL), TrackingPeriod.D30, emptyList(), prevKpis = null, balanceSplit = BalanceSplit(9_000UL, 1_000L))
-            }
-        }
-        waitUntilAtLeastOneExists(hasText("no income yet"))
-        assertTrue(countText("confirmed") >= 1 && countText("pending") >= 1)
-        assertTrue(countText("3 tx in window") >= 1)
-    }
-
-    @Test
-    fun `TRK-112 a positive savings rate reads as kept and a negative one as overspent`() = runDesktopComposeUiTest {
-        var k by androidx.compose.runtime.mutableStateOf(kpis(1_000UL, 250UL))
-        setContent { BhodlTheme { KpiRow(k, TrackingPeriod.D30, emptyList(), null, BalanceSplit(10_000UL, 0L)) } }
-        waitUntilAtLeastOneExists(hasText("kept this period"))
-        assertTrue(countText("75") >= 1)
-        k = kpis(1_000UL, 3_000UL)
-        waitUntilAtLeastOneExists(hasText("overspent this period"))
-    }
-
-    @Test
     fun `TRK-113 delta labels compare with the previous period`() = runDesktopComposeUiTest {
         val labels = mutableMapOf<String, String>()
         setContent {
@@ -410,20 +447,6 @@ class UcCardsTrackerTest {
     }
 
     // ─── TRK-126 / TRK-124 — unmounted cards (logic only) ───────────
-
-    @Test
-    fun `TRK-126 dismissing the review banner stores the date and hides it`() = runDesktopComposeUiTest {
-        val firstOfMonth = java.time.LocalDate.now().withDayOfMonth(1).atTime(10, 0)
-            .atZone(java.time.ZoneId.systemDefault()).toEpochSecond()
-        var reviewed = 0
-        setContent { BhodlTheme { MonthlyReviewBanner(nowUnix = firstOfMonth, onReview = { reviewed++ }) } }
-        onNodeWithTag(MonthlyReviewBannerTags.REVIEW).performClick()
-        assertEquals(1, reviewed)
-        onNodeWithTag(MonthlyReviewBannerTags.DISMISS).performClick()
-        waitForIdle()
-        assertEquals(firstOfMonth, SettingsStore.lastMonthlyReviewDismissedUnix.value)
-        assertEquals(0, count(MonthlyReviewBannerTags.BANNER))
-    }
 
     @Test
     fun `TRK-126 the dismiss date survives a save - reset - rehydrate round-trip`() {

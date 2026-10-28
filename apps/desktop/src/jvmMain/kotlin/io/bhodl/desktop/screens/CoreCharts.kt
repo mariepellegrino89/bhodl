@@ -100,141 +100,6 @@ internal fun nwRoleColors(): NwRoleColors {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// NW Breakdown Donut
-// ─────────────────────────────────────────────────────────────────────
-
-data class NwSlice(
-    val label: String,
-    val sat: ULong,
-    val color: Color,
-)
-
-@Composable
-internal fun NwBreakdownDonut(
-    /** UX review 2026-10 (B1) — the shared [TrackerNetWorth]. Slices
-     *  show the gross composition (assets and liabilities); the centre
-     *  shows the NET worth, the same number as the hero. */
-    netWorth: TrackerNetWorth,
-    modifier: Modifier = Modifier,
-) {
-    val walletSat = netWorth.walletSat
-    val investmentsSat = netWorth.investmentsSat
-    val manualAssetsSat = netWorth.manualAssetsSat
-    val liabilitiesSat = netWorth.liabilitiesSat
-    val roles = nwRoleColors()
-    val fmtAmount = rememberAmountFormatter()
-    val lblWallets = stringResource(Res.string.trk_nw_slice_wallets)
-    val lblInvestments = stringResource(Res.string.trk_nw_slice_investments)
-    val lblManual = stringResource(Res.string.trk_nw_slice_manual)
-    val lblLiabilities = stringResource(Res.string.trk_nw_slice_liabilities)
-    val slices = remember(walletSat, investmentsSat, manualAssetsSat, liabilitiesSat, roles, lblWallets) {
-        buildList {
-            if (walletSat > 0UL) add(NwSlice(lblWallets, walletSat, roles.btcWallets))
-            if (investmentsSat > 0UL) add(NwSlice(lblInvestments, investmentsSat, roles.investments))
-            if (manualAssetsSat > 0UL) add(NwSlice(lblManual, manualAssetsSat, roles.manualAssets))
-            if (liabilitiesSat > 0UL) add(NwSlice(lblLiabilities, liabilitiesSat, roles.liabilities))
-        }
-    }
-
-    if (slices.isEmpty()) return
-
-    val totalSat = slices.sumOf { it.sat.toLong() }.coerceAtLeast(1L)
-    // UX review 2026-10 (item 15) — table view of the donut.
-    var showTable by remember { mutableStateOf(false) }
-    val fmt = rememberAmountFormatter()
-    val table = shareTable(slices.map { it.label to it.sat.toLong() }, chartColumnTitles(), fmt)
-
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .bhodlCard()
-            .padding(16.dp)
-            .testTag(CoreChartsTags.NW_DONUT),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        ChartHeader(title = stringResource(Res.string.trk_nw_breakdown_title), showTable = showTable, onToggle = { showTable = !showTable })
-        if (showTable) {
-            ChartDataTable(table)
-            return@Column
-        }
-
-        // B14 — ring sized so the centre label (up to "-21.00000000 BTC")
-        // fits inside the hole instead of spilling over the slices.
-        Box(
-            modifier = Modifier.size(200.dp).chartSemantics(stringResource(Res.string.chart_name_breakdown)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Canvas(modifier = Modifier.size(200.dp)) {
-                val strokeWidth = 22.dp.toPx()
-                val diameter = size.minDimension - strokeWidth
-                val topLeft = Offset(strokeWidth / 2f, strokeWidth / 2f)
-                val arcSize = Size(diameter, diameter)
-
-                var startAngle = -90f
-                for (slice in slices) {
-                    val sweep = (slice.sat.toFloat() / totalSat.toFloat()) * 360f
-                    drawArc(
-                        color = slice.color,
-                        startAngle = startAngle,
-                        sweepAngle = sweep,
-                        useCenter = false,
-                        topLeft = topLeft,
-                        size = arcSize,
-                        style = Stroke(width = strokeWidth, cap = StrokeCap.Butt),
-                    )
-                    startAngle += sweep
-                }
-            }
-            Column(
-                modifier = Modifier.widthIn(max = 148.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                val nw = netWorth.netWorthSat
-                val nwText = io.bhodl.desktop.ui.amountSign(nw, plusForPositive = false) + fmtAmount(kotlin.math.abs(nw))
-                Text(
-                    text = nwText,
-                    style = BhodlTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
-                    color = BhodlTheme.colors.textPrimary,
-                    maxLines = 1,
-                    softWrap = false,
-                    modifier = Modifier.testTag(CoreChartsTags.NW_DONUT_CENTER),
-                )
-                Text(
-                    text = stringResource(Res.string.tracker_net_worth_label),
-                    style = BhodlTheme.typography.labelMedium,
-                    color = BhodlTheme.colors.textTertiary,
-                    maxLines = 1,
-                )
-            }
-        }
-
-        // Legend
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            for (slice in slices) {
-                val pct = (slice.sat.toDouble() / totalSat.toDouble() * 100).toInt()
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Box(
-                        Modifier
-                            .size(10.dp)
-                            .clip(RoundedCornerShape(2.dp))
-                            .background(slice.color),
-                    )
-                    Text(
-                        text = "${slice.label} ($pct%)",
-                        style = BhodlTheme.typography.bodyMedium,
-                        color = BhodlTheme.colors.textSecondary,
-                    )
-                }
-            }
-        }
-    }
-}
-
-// ─────────────────────────────────────────────────────────────────────
 // Inflow / Outflow Bar Chart + Totals
 // ─────────────────────────────────────────────────────────────────────
 
@@ -242,6 +107,10 @@ internal data class MonthlyFlow(
     val label: String,
     val incomingSat: ULong,
     val outgoingSat: ULong,
+    /** Short month name under its bars ("ott"). */
+    val monthLabel: String = label,
+    /** The year under the month, on the first bar and on every January; null otherwise. */
+    val yearLabel: String? = null,
 )
 
 @Composable
@@ -318,17 +187,27 @@ internal fun InflowOutflowChart(
             }
         }
 
-        // Month labels (first, middle, last)
-        if (months.size >= 2) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Text(months.first().label, style = BhodlTheme.typography.labelMedium, color = BhodlTheme.colors.textTertiary)
-                if (months.size >= 3) {
-                    Text(months[months.size / 2].label, style = BhodlTheme.typography.labelMedium, color = BhodlTheme.colors.textTertiary)
+        // One label under every pair of bars: the month, and the year on
+        // the first bar and on each January.
+        Row(modifier = Modifier.fillMaxWidth().testTag(CoreChartsTags.INFLOW_OUTFLOW_MONTHS)) {
+            months.forEach { m ->
+                Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        m.monthLabel,
+                        style = BhodlTheme.typography.labelMedium,
+                        color = BhodlTheme.colors.textSecondary,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Clip,
+                    )
+                    Text(
+                        m.yearLabel.orEmpty(),
+                        style = BhodlTheme.typography.labelMedium,
+                        color = BhodlTheme.colors.textTertiary,
+                        maxLines = 1,
+                        softWrap = false,
+                    )
                 }
-                Text(months.last().label, style = BhodlTheme.typography.labelMedium, color = BhodlTheme.colors.textTertiary)
             }
         }
 
@@ -401,13 +280,21 @@ internal fun computeMonthlyFlows(
         }
     if (byMonth.isEmpty()) return emptyList()
     val sorted = byMonth.toSortedMap()
-    return sorted.map { (ym, evs) ->
+    val first = sorted.firstKey()
+    // Every month from the first to the last, empty ones included: the
+    // axis is continuous and each label sits under its own bars.
+    val all = generateSequence(first) { it.plusMonths(1) }.takeWhile { it <= sorted.lastKey() }
+        .associateWith { sorted[it].orEmpty() }
+    return all.map { (ym, evs) ->
         val incoming = evs.sumOf { it.externalInflowSat() }
         val outgoing = evs.sumOf { it.externalOutflowSat() }
+        val name = ym.month.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.getDefault())
         MonthlyFlow(
-            label = "${ym.month.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.getDefault())} ${ym.year % 100}",
+            label = "$name ${ym.year % 100}",
             incomingSat = incoming,
             outgoingSat = outgoing,
+            monthLabel = name,
+            yearLabel = if (ym == first || ym.monthValue == 1) ym.year.toString() else null,
         )
     }
 }
@@ -416,4 +303,5 @@ internal object CoreChartsTags {
     const val NW_DONUT: String = "core-charts.nw-donut"
     const val NW_DONUT_CENTER: String = "core-charts.nw-donut.center"
     const val INFLOW_OUTFLOW: String = "core-charts.inflow-outflow"
+    const val INFLOW_OUTFLOW_MONTHS: String = "core-charts.inflow-outflow.months"
 }
