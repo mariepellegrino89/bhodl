@@ -2898,3 +2898,25 @@ Gli screenshot della revisione grafica finiscono in `apps/desktop/build/screensh
 | 81.8 | Debiti senza piano    | 1. Carta: spesa il giorno 2. 2. Prestito: pagamento il giorno 3. | Lo storico mostra il debito di ogni giorno, non quello di oggi.  | [auto] net_worth_history `reconstruct_unplanned_debts_undo_later_entries` |
 | 81.9 | Scheda mutuo          | 1. Apri il mutuo in Portafoglio.                              | Residuo in sat al cambio di oggi, rata, rate rimanenti, rimborsato 25 %, prossima rata, estinzione prevista. | [auto] LoanPlanTest.`the mortgage card shows the plan` + [ ] verifica in app |
 | 81.10| Validazioni           | 1. Entrata su un debito. 2. Carta che paga sé stessa. 3. Debito inesistente. | Rifiutati.                                       | [auto] uc_tracker_tests `debt_payments_are_validated` |
+
+## 82. Prezzi online, installer Windows e firma (2026-10-28)
+
+> Impostazioni → Rete → "Prezzi online" (acceso di default). Spento, nessuna richiesta
+> di prezzo esce dal dispositivo: né il prezzo BTC attuale e il suo storico (CoinGecko,
+> mempool.space), né i cambi storici scaricati dal core Rust (CoinGecko, blockchain.info,
+> Frankfurter), né le quotazioni Yahoo degli investimenti. I valori in fiat usano i cambi
+> già salvati. Riacceso, i prezzi si aggiornano subito. Le release Windows sono un MSI
+> costruito dalla CI (`release.yml`) da un tag `v*`; l'installer mostra licenza e
+> informativa privacy prima di installare. Firma via SignPath Foundation: vedi
+> `docs/release-signing.md`, `CODE_SIGNING_POLICY.md`, `PRIVACY.md`.
+
+| #    | Test                  | Passi                                                         | Atteso                                                           | Pass |
+|------|-----------------------|---------------------------------------------------------------|------------------------------------------------------------------|------|
+| 82.1 | Interruttore          | 1. Impostazioni → Rete → Prezzi online.                       | Acceso di default; si spegne e si riaccende.                     | [auto] UcSettingsUiSecurityTest.`SEC-092 the online prices switch…` |
+| 82.2 | Nessuna richiesta     | 1. Prezzi online spento. 2. Prezzo BTC, storico, quotazione Yahoo. | Nessuna richiesta HTTP; nessun prezzo nuovo.                 | [auto] UcPortfolioPriceFetcherTest.`PRT-078 with online prices off…` |
+| 82.3 | Persistenza           | 1. Spegni. 2. Riavvia l'app.                                  | Resta spento.                                                    | [auto] SettingsPersistenceTest.`online prices survive a restart…` |
+| 82.4 | Prezzo resta          | 1. Valuta EUR, prezzo caricato. 2. Spegni Prezzi online.      | Il prezzo già caricato resta visibile; nessun errore.            | [ ] verifica in app |
+| 82.5 | Cambi storici offline | 1. Spegni. 2. Aggiungi un movimento in EUR di una data vecchia mai vista. | Nessun cambio scaricato: il movimento resta senza valore BTC finché non riaccendi. | [ ] verifica in app |
+| 82.6 | Installer             | 1. `./gradlew :apps:desktop:packageMsi`. 2. Installa l'MSI.   | Mostra licenza e privacy; voce nel menu Start; l'app si avvia e apre il registro. | [ ] verifica su Windows |
+| 82.7 | Disinstallazione      | 1. Impostazioni di Windows → App → BHODL → Disinstalla.       | Rimosso; il registro e i wallet dell'utente restano.             | [ ] verifica su Windows |
+| 82.8 | Release dalla CI      | 1. Actions → Release → Run workflow.                          | Artefatto `bhodl-windows` con MSI e SHA256SUMS.txt; nessuna release creata. | [ ] verifica su GitHub |
