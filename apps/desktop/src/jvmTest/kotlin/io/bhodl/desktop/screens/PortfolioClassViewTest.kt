@@ -289,7 +289,8 @@ class PortfolioClassViewTest {
         onNode(hasText("Casa"), useUnmergedTree = true).performClick()
         onNodeWithTag(PortfolioCardsTags.DETAILS_SAVE, useUnmergedTree = true).performClick()
         assertEquals(
-            """{"rate_pct":2.9,"rate_type":"fixed","monthly_payment":780.5,"end_date":"2044-09-01","linked_asset_id":"7"}""",
+            """{"rate_pct":2.9,"rate_type":"fixed","monthly_payment":780.5,"end_date":"2044-09-01","linked_asset_id":"7",""" +
+                """"currency":"${io.bhodl.desktop.data.LoanPlans.defaultCurrency()}"}""",
             saved,
         )
     }

@@ -174,6 +174,7 @@ public fun TrackingScreen(
     val bills by TrackerCache.bills
     val goals by TrackerCache.goals
     val liabilities by TrackerCache.liabilities
+    val loanSchedules by TrackerCache.loanSchedules
     val investments by TrackerCache.investments
     // Phase 7.8 — lots grouped by parent investment id.
     val investmentLotsByInvestmentId by TrackerCache.investmentLotsByInvestmentId
@@ -1660,6 +1661,7 @@ public fun TrackingScreen(
             preset = state.preset,
             title = state.forBill?.let { stringResource(Res.string.bill_pay_title, it.name) },
             walletLabels = wallets.filter { it.id !in excludedWalletIds }.map { it.label },
+            debts = debtOptions(liabilities, loanSchedules),
             onAddAccount = { name, ccy, balance ->
                 RegistryStore.current()?.let { registry ->
                     runCatching {
@@ -2063,6 +2065,18 @@ public object TrackingTags {
     public const val ROOT: String = "tracking.root"
 }
 
+/**
+ * Schema v10 — the debts an off-wallet payment can go to: every
+ * liability, a planned mortgage / loan with its plan's currency.
+ */
+internal fun debtOptions(
+    liabilities: List<io.bhodl.ffi.TrackingLiabilityFfi>,
+    schedules: Map<Long, io.bhodl.ffi.LoanScheduleFfi>,
+): List<DebtOption> = liabilities.map { l ->
+    val plan = schedules[l.id]
+    DebtOption(l.id, l.name, planned = plan != null, planCurrency = plan?.currency)
+}
+
 /** Schema v8 — the off-wallet entry dialog: a new entry, an edit, or a bill paid outside the wallets. */
 internal data class ManualDialogState(
     val editing: io.bhodl.ffi.ManualTxnFfi? = null,
@@ -2080,11 +2094,13 @@ internal fun saveManualTxn(registry: io.bhodl.ffi.RegistryHandle, state: ManualD
     val id = if (editing != null) {
         registry.updateManualTxn(
             editing.id, draft.direction, draft.amountSat, draft.amountFiat, draft.currency, draft.occurredUnix, draft.note,
+            draft.debtPayment.takeIf { editing.liabilityId != null },
         )
         editing.id
     } else {
         registry.addManualTxn(
             draft.direction, draft.amountSat, draft.amountFiat, draft.currency, draft.occurredUnix, draft.accountRef, draft.note,
+            draft.debtId, draft.debtPayment.takeIf { draft.debtId != null },
         )
     }
     val walletId = io.bhodl.ffi.manualTxnWalletId(editing?.accountRef ?: draft.accountRef)

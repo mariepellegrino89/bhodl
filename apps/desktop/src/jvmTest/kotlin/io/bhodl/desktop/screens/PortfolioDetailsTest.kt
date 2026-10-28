@@ -70,7 +70,7 @@ class PortfolioDetailsTest {
             ),
         )
         assertEquals(
-            """{"original_amount_sat":1000000,"rate_pct":2.9,"rate_type":"fixed","monthly_payment":780.0,"end_date":"2044-09-01","linked_asset_id":"7"}""",
+            """{"rate_pct":2.9,"rate_type":"fixed","monthly_payment":780.0,"end_date":"2044-09-01","linked_asset_id":"7","original_amount_sat":1000000}""",
             json,
         )
         val dropped = detailsToJson(

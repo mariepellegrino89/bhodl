@@ -117,6 +117,53 @@ class ManualTxnTest {
     }
 
     @Test
+    fun `spending can pay a planned mortgage as an extra repayment, in the plan's currency`() = runDesktopComposeUiTest {
+        var saved: ManualTxnDraft? = null
+        val debts = listOf(
+            DebtOption(4L, "Mutuo", planned = true, planCurrency = "CHF"),
+            DebtOption(5L, "Visa", planned = false),
+        )
+        setContent {
+            BhodlTheme {
+                ManualTxnDialog(
+                    editing = null, editingCategory = null, accounts = cash, knownCategories = emptyList(),
+                    onDismiss = {}, onSave = { saved = it }, nowUnix = DAY, rateOn = { _, _ -> 50_000.0 }, debts = debts,
+                )
+            }
+        }
+        onNodeWithTag(ManualTxnTags.debt(4L)).performClick()
+        // The plan counts in CHF: the amount is typed in CHF only.
+        onNodeWithTag(ManualTxnTags.currency("CHF")).assertExists()
+        onNodeWithTag(ManualTxnTags.currency("EUR")).assertDoesNotExist()
+        onNodeWithTag(ManualTxnTags.debtKind(io.bhodl.desktop.data.LoanPlans.EXTRA_LOWER_PAYMENT)).performClick()
+        onNodeWithTag(ManualTxnTags.DEBT_HINT, useUnmergedTree = true).assertTextContains("installment gets lower", substring = true)
+        onNodeWithTag(ManualTxnTags.AMOUNT).performTextInput("5000")
+        waitUntil(timeoutMillis = 3_000) { onAllNodes(hasTestTag(ManualTxnTags.PREVIEW), useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
+        onNodeWithTag(ManualTxnTags.SAVE).performClick()
+        val d = saved!!
+        assertEquals(4L, d.debtId)
+        assertEquals(io.bhodl.desktop.data.LoanPlans.EXTRA_LOWER_PAYMENT, d.debtPayment)
+        assertEquals("CHF", d.currency)
+        assertEquals(5_000.0, d.amountFiat)
+    }
+
+    @Test
+    fun `income pays no debt`() = runDesktopComposeUiTest {
+        setContent {
+            BhodlTheme {
+                ManualTxnDialog(
+                    editing = null, editingCategory = null, accounts = cash, knownCategories = emptyList(),
+                    onDismiss = {}, onSave = {}, nowUnix = DAY, rateOn = { _, _ -> null },
+                    debts = listOf(DebtOption(5L, "Visa", planned = false)),
+                )
+            }
+        }
+        onNodeWithTag(ManualTxnTags.DEBT_NONE).assertExists()
+        onNodeWithTag(ManualTxnTags.DIR_IN).performClick()
+        onNodeWithTag(ManualTxnTags.DEBT_NONE).assertDoesNotExist()
+    }
+
+    @Test
     fun `an amount in sat needs no rate and income is income`() = runDesktopComposeUiTest {
         var saved: ManualTxnDraft? = null
         setContent {

@@ -26,6 +26,7 @@ import io.bhodl.shared.resources.trk_cache_err_registry_closed
 import io.bhodl.shared.resources.trk_cache_err_sync
 import io.bhodl.shared.resources.trk_cache_err_sync_unknown
 import io.bhodl.desktop.wizard.WalletPaths
+import io.bhodl.ffi.LoanScheduleFfi
 import io.bhodl.ffi.PaymentEvent
 import io.bhodl.ffi.SavedViewFfi
 import io.bhodl.ffi.TrackingBillFfi
@@ -149,7 +150,12 @@ public object TrackerCache {
     public val goals: State<List<TrackingSavingsGoalFfi>> get() = _goals
 
     private val _liabilities = mutableStateOf<List<TrackingLiabilityFfi>>(emptyList())
+    /** A planned mortgage / loan carries the balance its plan leaves today ([withPlannedBalances]). */
     public val liabilities: State<List<TrackingLiabilityFfi>> get() = _liabilities
+
+    private val _loanSchedules = mutableStateOf<Map<Long, LoanScheduleFfi>>(emptyMap())
+    /** Schema v10 — the amortization plan of each planned debt, by liability id. */
+    public val loanSchedules: State<Map<Long, LoanScheduleFfi>> get() = _loanSchedules
 
     private val _investments = mutableStateOf<List<TrackingInvestmentFfi>>(emptyList())
     public val investments: State<List<TrackingInvestmentFfi>> get() = _investments
@@ -355,6 +361,7 @@ public object TrackerCache {
             _bills.value = emptyList()
             _goals.value = emptyList()
             _liabilities.value = emptyList()
+            _loanSchedules.value = emptyMap()
             _portfolioDetails.value = io.bhodl.desktop.screens.PortfolioDetails()
             _investments.value = emptyList()
             _investmentLotsByInvestmentId.value = emptyMap()
@@ -870,6 +877,9 @@ public object TrackerCache {
                             rateFor = io.bhodl.desktop.prices.PriceCache::rateFor,
                         )
                     }
+                    val loanSchedules = runCatching {
+                        registry.loanSchedules(LoanPlans.defaultCurrency(), AppClock.nowUnix())
+                    }.getOrDefault(emptyList()).associateBy { it.liabilityId }
                     Snapshot(
                         wallets = list,
                         watchBalances = perRow,
@@ -893,8 +903,12 @@ public object TrackerCache {
                             .getOrDefault(emptyList()),
                         goals = runCatching { registry.listSavingsGoals() }
                             .getOrDefault(emptyList()),
-                        liabilities = runCatching { registry.listLiabilities() }
-                            .getOrDefault(emptyList()),
+                        liabilities = withPlannedBalances(
+                            runCatching { registry.listLiabilities() }.getOrDefault(emptyList()),
+                            loanSchedules,
+                            io.bhodl.desktop.prices.PriceCache::rateFor,
+                        ),
+                        loanSchedules = loanSchedules,
                         portfolioDetails = loadPortfolioDetails(registry),
                         investments = investmentsList,
                         investmentLotsByInvestmentId = healed.lotsByInvestmentId,
@@ -939,6 +953,7 @@ public object TrackerCache {
                         _bills.value = snap.bills
                         _goals.value = snap.goals
                         _liabilities.value = snap.liabilities
+                        _loanSchedules.value = snap.loanSchedules
                         _portfolioDetails.value = snap.portfolioDetails
                         _investments.value = snap.investments
                         _investmentLotsByInvestmentId.value = snap.investmentLotsByInvestmentId
@@ -1062,6 +1077,7 @@ public object TrackerCache {
         val bills: List<TrackingBillFfi>,
         val goals: List<TrackingSavingsGoalFfi>,
         val liabilities: List<TrackingLiabilityFfi>,
+        val loanSchedules: Map<Long, LoanScheduleFfi> = emptyMap(),
         val portfolioDetails: io.bhodl.desktop.screens.PortfolioDetails = io.bhodl.desktop.screens.PortfolioDetails(),
         val investments: List<TrackingInvestmentFfi>,
         val investmentLotsByInvestmentId: Map<Long, List<TrackingInvestmentLotFfi>>,
@@ -1105,6 +1121,7 @@ public object TrackerCache {
         investmentsAssetSat: ULong = 0UL,
         investmentsPricingAvailable: Boolean = false,
         liabilities: List<TrackingLiabilityFfi> = emptyList(),
+        loanSchedules: Map<Long, LoanScheduleFfi> = emptyMap(),
         portfolioDetails: io.bhodl.desktop.screens.PortfolioDetails = io.bhodl.desktop.screens.PortfolioDetails(),
         investments: List<TrackingInvestmentFfi> = emptyList(),
         investmentLotsByInvestmentId: Map<Long, List<TrackingInvestmentLotFfi>> = emptyMap(),
@@ -1137,6 +1154,7 @@ public object TrackerCache {
         _investmentsPricingAvailable.value = investmentsPricingAvailable
         _totalAssetSat.value = bitcoinAssetSat + investmentsAssetSat + manualAssetsSat
         _liabilities.value = liabilities
+        _loanSchedules.value = loanSchedules
         _portfolioDetails.value = portfolioDetails
         _investments.value = investments
         _investmentLotsByInvestmentId.value = investmentLotsByInvestmentId

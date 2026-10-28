@@ -2867,3 +2867,34 @@ Gli screenshot della revisione grafica finiscono in `apps/desktop/build/screensh
 | 80.2 | Righe manuali         | 1. Cerca `[ ]` nel test-book.                                 | Restano solo rete/wallet veri, file esterni, alcuni percorsi tra schermate, copertura (elenco in use-cases §G). | [auto] questo documento |
 | 80.3 | Colore categoria      | 1. Dati con "Food". 2. App in italiano, colore nuovo per "Cibo". | Anche le righe "Food" cambiano colore.                         | [auto] UcCardsTrackerTest.`TRK-033 a new colour for an existing category…` |
 
+## 81. Piano di ammortamento di mutui e prestiti (2026-10-27)
+
+> Un mutuo o un prestito con importo iniziale, data di erogazione, tasso e rata
+> (oppure data di fine), inseriti in "Dettagli" della scheda, segue il suo piano di
+> ammortamento alla francese: ogni mese la rata paga prima gli interessi e poi il
+> capitale. Il piano è nella valuta dei dettagli (quella della dashboard quando li
+> salvi) e ogni giorno dello storico lo converte in sat al cambio di quel giorno, come
+> la casa e i conti manuali. Il piano è la base; i movimenti fuori dai wallet lo
+> aggiustano: in "Paga un debito" scegli il mutuo e se è una Rata (sostituisce quella
+> prevista del mese più vicino: un importo diverso cambia il piano) o
+> un'Estinzione, che riduce il debito in quella data e poi o lascia la rata e accorcia
+> il piano ("riduci durata") o lascia la scadenza e abbassa la rata ("riduci rata").
+> Il conto da cui paghi ("Pagato con") scende come sempre. Un pagamento su un mutuo
+> con piano va inserito nella valuta del piano. Debiti senza piano (carte, prestiti
+> senza dettagli): il pagamento ne riduce il saldo di quell'importo, e lo storico
+> ricostruisce il debito passato annullando i movimenti successivi a ogni giorno.
+> La scheda del mutuo mostra residuo, rata attuale, tasso, rate rimanenti, quota
+> rimborsata, prossima rata ed estinzione prevista. Registro schema v10.
+
+| #    | Test                  | Passi                                                         | Atteso                                                           | Pass |
+|------|-----------------------|---------------------------------------------------------------|------------------------------------------------------------------|------|
+| 81.1 | Piano base            | 1. Mutuo 12.000 € al 0 %, erogato 15/1/2024, rata 1.000 €. 2. Oggi 20/4/2024. | Residuo 9.000 €, 9 rate, prossima 15/5/2024, fine 15/1/2025. | [auto] LoanPlanTest.`the plan alone takes the debt down month by month` |
+| 81.2 | Rata alla francese    | 1. 120.000 € al 3 % per 20 anni.                              | Rata 665,52 €; dopo la prima 119.634,48 €; fine all'ultima rata. | [auto] loan_schedule `plan_from_end_date_repays_on_the_last_installment` |
+| 81.3 | Rata diversa          | 1. Rata di marzo registrata il 16/3 da 2.500 €.               | Residuo 7.500 €; una rata uguale al piano non cambia nulla.      | [auto] LoanPlanTest.`a recorded installment different from the plan adjusts it` |
+| 81.4 | Estinzione: durata    | 1. 3.000 € l'1/4 "riduci durata".                             | Residuo 6.000 €, rata 1.000 €, fine 15/10/2024.                  | [auto] LoanPlanTest.`an extra repayment shortens the term or lowers…` |
+| 81.5 | Estinzione: rata      | 1. 3.000 € l'1/4 "riduci rata".                               | Rata 700 €, fine invariata 15/1/2025.                            | [auto] stesso test |
+| 81.6 | Valuta del piano      | 1. Mutuo in CHF. 2. Paga un debito → mutuo.                   | Solo CHF tra le valute; in USD rifiutato.                        | [auto] ManualTxnTest.`spending can pay a planned mortgage…` + LoanPlanTest.`a payment in another currency…` |
+| 81.7 | Storico               | 1. Patrimonio → Passività, grafico.                           | Il debito scende a ogni rata e all'estinzione; 0 prima dell'erogazione. | [auto] net_worth_history `reconstruct_planned_mortgage_follows_its_schedule_and_payments` + [ ] verifica in app |
+| 81.8 | Debiti senza piano    | 1. Carta: spesa il giorno 2. 2. Prestito: pagamento il giorno 3. | Lo storico mostra il debito di ogni giorno, non quello di oggi.  | [auto] net_worth_history `reconstruct_unplanned_debts_undo_later_entries` |
+| 81.9 | Scheda mutuo          | 1. Apri il mutuo in Portafoglio.                              | Residuo in sat al cambio di oggi, rata, rate rimanenti, rimborsato 25 %, prossima rata, estinzione prevista. | [auto] LoanPlanTest.`the mortgage card shows the plan` + [ ] verifica in app |
+| 81.10| Validazioni           | 1. Entrata su un debito. 2. Carta che paga sé stessa. 3. Debito inesistente. | Rifiutati.                                       | [auto] uc_tracker_tests `debt_payments_are_validated` |

@@ -920,6 +920,14 @@ pub struct ManualTxnFfi {
     pub account_ref: Option<String>,
     pub note: Option<String>,
     pub created_at_unix: i64,
+    /// Schema v10 — the debt this entry pays, if any.
+    #[uniffi(default = None)]
+    pub liability_id: Option<i64>,
+    /// Schema v10 — "installment", "extra_term" (extra repayment, same
+    /// installment, shorter term) or "extra_payment" (same term, lower
+    /// installment).
+    #[uniffi(default = None)]
+    pub liability_payment: Option<String>,
 }
 
 /// Phase 4.5 — savings goal exposed across the FFI.
@@ -1163,6 +1171,26 @@ pub struct TrackingLiabilityFfi {
     pub kind: String,
     pub display_label: Option<String>,
     pub created_at_unix: i64,
+}
+
+/// The amortization plan of a mortgage or loan (see
+/// `RegistryHandle::loan_schedules`). Amounts in [`Self::currency`].
+#[derive(uniffi::Record)]
+pub struct LoanScheduleFfi {
+    pub liability_id: i64,
+    pub currency: String,
+    pub original_amount: f64,
+    pub start_unix: i64,
+    /// Principal outstanding today.
+    pub balance_now: f64,
+    /// The installment due next (lower after an "extra_payment").
+    pub payment_now: f64,
+    /// Null once repaid.
+    pub next_due_unix: Option<i64>,
+    /// Day of the last installment; null if the installment never
+    /// covers the interest.
+    pub payoff_unix: Option<i64>,
+    pub installments_left: u32,
 }
 
 /// Phase 5.1 — fiat-denominated investment exposed across the FFI.
@@ -2169,6 +2197,9 @@ impl RegistryHandle {
 
     /// Record income ("in") or spending ("out") outside the wallets;
     /// returns its id.
+    ///
+    /// Schema v10 — `liability_id` + `liability_payment` (both or
+    /// neither) make it a payment on that debt, from `account_ref`.
     #[allow(clippy::too_many_arguments)]
     pub fn add_manual_txn(
         &self,
@@ -2179,8 +2210,21 @@ impl RegistryHandle {
         occurred_unix: i64,
         account_ref: Option<String>,
         note: Option<String>,
+        liability_id: Option<i64>,
+        liability_payment: Option<String>,
     ) -> Result<i64, WalletError> {
-        Ok(self.registry()?.add_manual_txn(
+        let debt = match (liability_id, liability_payment.as_deref()) {
+            (Some(liability_id), Some(kind)) => {
+                Some(bhodl_wallet_onchain::DebtPayment { liability_id, kind })
+            }
+            (None, None) => None,
+            _ => {
+                return Err(WalletError::InvalidArgument {
+                    detail: "liability_id and liability_payment go together".into(),
+                });
+            }
+        };
+        Ok(self.registry()?.add_manual_txn_paying(
             &direction,
             amount_sat,
             amount_fiat,
@@ -2188,10 +2232,12 @@ impl RegistryHandle {
             occurred_unix,
             account_ref.as_deref(),
             note.as_deref(),
+            debt,
         )?)
     }
 
-    /// Change a manual transaction (not its account).
+    /// Change a manual transaction (not its account, nor its debt;
+    /// `liability_payment` null keeps how it pays the debt).
     #[allow(clippy::too_many_arguments)]
     pub fn update_manual_txn(
         &self,
@@ -2202,8 +2248,9 @@ impl RegistryHandle {
         currency: Option<String>,
         occurred_unix: i64,
         note: Option<String>,
+        liability_payment: Option<String>,
     ) -> Result<bool, WalletError> {
-        Ok(self.registry()?.update_manual_txn(
+        Ok(self.registry()?.update_manual_txn_paying(
             id,
             &direction,
             amount_sat,
@@ -2211,7 +2258,41 @@ impl RegistryHandle {
             currency.as_deref(),
             occurred_unix,
             note.as_deref(),
+            liability_payment.as_deref(),
         )?)
+    }
+
+    /// The amortization plan of every mortgage / loan whose details
+    /// carry its terms (original amount, start date, rate, installment
+    /// or end date), adjusted by the payments recorded on it, as of
+    /// `now_unix`. `currency` is the plan's currency when the details
+    /// do not name one.
+    pub fn loan_schedules(
+        &self,
+        currency: String,
+        now_unix: i64,
+    ) -> Result<Vec<LoanScheduleFfi>, WalletError> {
+        let schedules = bhodl_wallet_onchain::loan_schedule::load_loan_schedules(
+            &*self.registry()?,
+            &currency,
+        )?;
+        Ok(schedules
+            .into_iter()
+            .map(|(l, s)| LoanScheduleFfi {
+                liability_id: l.id,
+                currency: s.terms.currency.clone(),
+                original_amount: s.terms.principal,
+                start_unix: s.terms.start_unix,
+                balance_now: s.balance_at(now_unix),
+                payment_now: s.payment_at(now_unix),
+                next_due_unix: s.next_due_after(now_unix),
+                payoff_unix: s.payoff_unix,
+                installments_left: u32::try_from(
+                    s.due_dates.iter().filter(|&&d| d > now_unix).count(),
+                )
+                .unwrap_or(u32::MAX),
+            })
+            .collect())
     }
 
     /// Delete a manual transaction, its category and any bill link.
@@ -2235,6 +2316,8 @@ impl RegistryHandle {
                 account_ref: t.account_ref,
                 note: t.note,
                 created_at_unix: t.created_at_unix,
+                liability_id: t.liability_id,
+                liability_payment: t.liability_payment,
             })
             .collect())
     }

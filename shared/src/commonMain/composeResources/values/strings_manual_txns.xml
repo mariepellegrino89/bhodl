@@ -35,4 +35,14 @@
     <string name="mtx_card_hint">The debt on %1$s moves with this entry.</string>
     <string name="mtx_filter_all">All channels</string>
     <string name="mtx_filter_wallets">Wallets</string>
+    <string name="mtx_pays_debt">Pays a debt</string>
+    <string name="mtx_debt_none">No</string>
+    <string name="mtx_debt_installment">Installment</string>
+    <string name="mtx_debt_extra_term">Extra · shorter term</string>
+    <string name="mtx_debt_extra_payment">Extra · lower installment</string>
+    <string name="mtx_debt_hint_installment">Takes the place of the planned installment of that month in the plan of %1$s.</string>
+    <string name="mtx_debt_hint_extra_term">Lowers the debt of %1$s on this day: the installment stays, the plan ends earlier.</string>
+    <string name="mtx_debt_hint_extra_payment">Lowers the debt of %1$s on this day: the end stays, the installment gets lower.</string>
+    <string name="mtx_debt_hint_plain">The debt of %1$s goes down by this amount.</string>
+    <string name="mtx_debt_currency">The plan of %1$s is in %2$s: enter the amount in %2$s.</string>
 </resources>

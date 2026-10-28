@@ -15,8 +15,12 @@
 //!     used as proxy for historical value, converted to sat via rate at
 //!     `t`. An asset only appears once its `purchase_unix` (or
 //!     `created_at_unix` when `purchase_unix` is NULL) has passed.
-//!  4. **Liabilities** — static: the current sum, constant across all
-//!     days (liability history is out-of-scope for this phase).
+//!  4. **Liabilities** — a mortgage or loan with a plan follows its
+//!     amortization schedule ([`crate::loan_schedule`]): the principal
+//!     outstanding that day, in its currency, converted at that day's
+//!     rate (0 before its start). Any other debt is its current balance
+//!     with the later manual entries undone: payments made after the day
+//!     are added back, card spending after it taken off.
 //!
 //! Rate resolution uses `BtcRateHistoryRepository` with a bulk prefetch
 //! at the start of the call (one `range()` per currency); the per-day loop
@@ -40,7 +44,11 @@
 
 use crate::btc_rate_history::{BtcRateHistoryRepository, normalize_to_utc_midnight};
 use crate::error::OnchainError;
-use crate::registry::{Registry, TrackingInvestment, TrackingInvestmentLot, TrackingManualAsset};
+use crate::loan_schedule::{LoanSchedule, load_loan_schedules};
+use crate::registry::{
+    ManualTxn, Registry, TrackingInvestment, TrackingInvestmentLot, TrackingLiability,
+    TrackingManualAsset,
+};
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -177,6 +185,8 @@ pub fn reconstruct_net_worth_history<R: BtcRateHistoryRepository>(
     let sold_back = sold_quantities_by_lot(registry)?;
     let manual_assets = registry.list_manual_assets()?;
     let liabilities = registry.list_liabilities()?;
+    let schedules = load_loan_schedules(registry, currency)?;
+    let manual_txns = registry.list_manual_txns()?;
 
     let mut currencies: Vec<&str> = vec![currency];
     currencies.extend(
@@ -185,6 +195,7 @@ pub fn reconstruct_net_worth_history<R: BtcRateHistoryRepository>(
             .map(|inv| inv.cost_basis_currency.as_str()),
     );
     currencies.extend(manual_assets.iter().map(|a| a.currency.as_str()));
+    currencies.extend(schedules.iter().map(|(_, s)| s.terms.currency.as_str()));
     currencies.sort_unstable();
     currencies.dedup();
     for ccy in currencies {
@@ -209,13 +220,11 @@ pub fn reconstruct_net_worth_history<R: BtcRateHistoryRepository>(
         })
         .collect();
 
-    // --- Step 4: sum liabilities (static across all days) ---
-    // `amount_sat` is u64: convert with saturation and sum saturating so a
-    // corrupt row cannot wrap the total negative or panic in debug.
-    let liabilities_sat_total: i64 = liabilities
+    // --- Step 4: liabilities without a plan, walked back from today ---
+    let unscheduled: Vec<&TrackingLiability> = liabilities
         .iter()
-        .map(|l| i64::try_from(l.amount_sat).unwrap_or(i64::MAX))
-        .fold(0i64, i64::saturating_add);
+        .filter(|l| schedules.iter().all(|(s, _)| s.id != l.id))
+        .collect();
 
     // --- Step 5: per-day loop ---
     let mut out: Vec<NwSnapshot> = Vec::with_capacity(dates.len());
@@ -235,6 +244,9 @@ pub fn reconstruct_net_worth_history<R: BtcRateHistoryRepository>(
 
         let manual_btc = manual_assets_value_btc_at(&manual_assets, t, rate_repo);
         let manual_sat = btc_to_sat(manual_btc);
+
+        let liabilities_sat_total =
+            liabilities_sat_at(&unscheduled, &schedules, &manual_txns, t, rate_repo);
 
         let total = onchain
             .saturating_add(investments_sat)
@@ -413,6 +425,71 @@ pub fn investments_value_btc_at<R: BtcRateHistoryRepository, S: std::hash::Build
     }
 
     total_btc
+}
+
+/// Every debt on day `t`, in sat (see step 4 of the module docs).
+fn liabilities_sat_at<R: BtcRateHistoryRepository>(
+    unscheduled: &[&TrackingLiability],
+    schedules: &[(TrackingLiability, LoanSchedule)],
+    txns: &[ManualTxn],
+    t: i64,
+    rate_repo: &R,
+) -> i64 {
+    unscheduled
+        .iter()
+        .map(|l| unscheduled_liability_sat_at(l, txns, t))
+        .chain(
+            schedules
+                .iter()
+                .map(|(_, s)| btc_to_sat(scheduled_liability_btc_at(s, t, rate_repo))),
+        )
+        .fold(0i64, i64::saturating_add)
+}
+
+/// A debt without a plan on day `t`: its balance today with every manual
+/// entry dated after `t` undone — a payment on it added back, spending
+/// on it as a card taken off, income on the card added back. Never below
+/// zero. `amount_sat` is u64: converted with saturation so a corrupt row
+/// cannot wrap the total negative.
+fn unscheduled_liability_sat_at(l: &TrackingLiability, txns: &[ManualTxn], t: i64) -> i64 {
+    let card_ref = format!("liability:{}", l.id);
+    let now = i64::try_from(l.amount_sat).unwrap_or(i64::MAX);
+    txns.iter()
+        .filter(|x| x.occurred_unix > t)
+        .fold(now, |acc, x| {
+            let amount = i64::try_from(x.amount_sat).unwrap_or(i64::MAX);
+            let mut v = acc;
+            if x.liability_id == Some(l.id) {
+                v = v.saturating_add(amount);
+            }
+            if x.account_ref.as_deref() == Some(card_ref.as_str()) {
+                v = if x.direction == "out" {
+                    v.saturating_sub(amount)
+                } else {
+                    v.saturating_add(amount)
+                };
+            }
+            v
+        })
+        .max(0)
+}
+
+/// A planned debt on day `t` in BTC: the principal outstanding that day
+/// at the day's rate of its currency (0 without a rate — soft-fail).
+fn scheduled_liability_btc_at<R: BtcRateHistoryRepository>(
+    s: &LoanSchedule,
+    t: i64,
+    rate_repo: &R,
+) -> f64 {
+    let balance = s.balance_at(t);
+    if balance <= 0.0 {
+        return 0.0;
+    }
+    let rate = rate_repo
+        .cached_rate_at(t, &s.terms.currency)
+        .unwrap_or(None)
+        .unwrap_or(0.0);
+    if rate > 0.0 { balance / rate } else { 0.0 }
 }
 
 /// Compute the BTC value of all manual assets that existed at time `t`.
@@ -708,6 +785,122 @@ mod tests {
         assert_eq!(
             snaps[0].total_sat, -50_000_000,
             "total D0 should be negative"
+        );
+    }
+
+    #[test]
+    fn reconstruct_planned_mortgage_follows_its_schedule_and_payments() {
+        use crate::registry::DebtPayment;
+        let registry = open_empty_registry();
+        let id = registry
+            .add_liability("Mutuo", 1, "mortgage", None)
+            .unwrap();
+        // 12,000 € at 0 % from 2023-12-01, 1,000 € a month: the first
+        // installment falls on D0 (2024-01-01).
+        registry
+            .set_details(
+                "liability",
+                id,
+                r#"{"original_amount_fiat":12000,"rate_pct":0,"start_date":"2023-12-01","monthly_payment":1000,"currency":"EUR"}"#,
+            )
+            .unwrap();
+        // 2,000 € extra on 15 January, same installment afterwards.
+        let jan15 = D0 + 14 * SECS_PER_DAY;
+        registry
+            .add_manual_txn_paying(
+                "out",
+                4_000_000,
+                Some(2_000.0),
+                Some("EUR"),
+                jan15,
+                None,
+                None,
+                Some(DebtPayment {
+                    liability_id: id,
+                    kind: "extra_term",
+                }),
+            )
+            .unwrap();
+        let mut rate_repo = MockRateRepo::new();
+        let from = D0 - 32 * SECS_PER_DAY; // 2023-11-30
+        let to = D0 + 31 * SECS_PER_DAY;
+        let mut t = from;
+        while t <= to {
+            rate_repo.seed(t, "EUR", 50_000.0);
+            t += SECS_PER_DAY;
+        }
+
+        let snaps =
+            reconstruct_net_worth_history(&registry, &rate_repo, &[], from, to, "EUR").unwrap();
+        let at = |day: i64| {
+            snaps
+                .iter()
+                .find(|s| s.date_unix == day)
+                .unwrap()
+                .liabilities_sat
+        };
+
+        assert_eq!(at(from), 0, "before the start there is no debt");
+        assert_eq!(
+            at(D0 - SECS_PER_DAY),
+            24_000_000,
+            "12,000 € at 50,000 €/BTC"
+        );
+        assert_eq!(at(D0), 22_000_000, "first installment");
+        assert_eq!(at(jan15), 18_000_000, "extra repayment");
+        assert_eq!(
+            at(D0 + 31 * SECS_PER_DAY),
+            16_000_000,
+            "February installment"
+        );
+    }
+
+    #[test]
+    fn reconstruct_unplanned_debts_undo_later_entries() {
+        use crate::registry::DebtPayment;
+        let registry = open_empty_registry();
+        let card = registry
+            .add_liability("Visa", 100_000, "credit-card", None)
+            .unwrap();
+        let loan = registry
+            .add_liability("Auto", 500_000, "loan", None)
+            .unwrap();
+        let card_ref = format!("liability:{card}");
+        // D1: 30,000 sat spent on the card (its debt grows to 130,000).
+        registry
+            .add_manual_txn("out", 30_000, None, None, D1, Some(&card_ref), None)
+            .unwrap();
+        // D2: 50,000 sat paid on the loan from cash (down to 450,000).
+        registry
+            .add_manual_txn_paying(
+                "out",
+                50_000,
+                None,
+                None,
+                D2,
+                None,
+                None,
+                Some(DebtPayment {
+                    liability_id: loan,
+                    kind: "installment",
+                }),
+            )
+            .unwrap();
+        let rate_repo = MockRateRepo::new();
+
+        let snaps =
+            reconstruct_net_worth_history(&registry, &rate_repo, &[], D0, D2, "EUR").unwrap();
+
+        assert_eq!(snaps[0].liabilities_sat, 100_000 + 500_000, "D0");
+        assert_eq!(
+            snaps[1].liabilities_sat,
+            130_000 + 500_000,
+            "D1: card spending"
+        );
+        assert_eq!(
+            snaps[2].liabilities_sat,
+            130_000 + 450_000,
+            "D2: loan payment"
         );
     }
 

@@ -172,4 +172,9 @@
     <string name="pfc_k_months_left">Tempo residuo</string>
     <string name="pfc_k_utilization">Plafond usato</string>
     <string name="pfc_k_next_statement">Prossimo addebito</string>
+    <string name="pfc_f_original_amount_fiat">Importo iniziale</string>
+    <string name="pfc_f_start_date">Data di erogazione</string>
+    <string name="pfc_k_next_installment">Prossima rata</string>
+    <string name="pfc_k_payoff_date">Estinzione prevista</string>
+    <string name="pfc_plan_hint">Con importo iniziale, data di erogazione, tasso e rata (o data di fine) il debito segue il suo piano di ammortamento. Le rate e le estinzioni che registri in Transazioni lo aggiustano.</string>
 </resources>

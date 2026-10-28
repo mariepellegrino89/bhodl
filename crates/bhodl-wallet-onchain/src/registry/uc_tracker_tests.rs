@@ -437,6 +437,132 @@ fn a_card_entry_moves_the_debt() {
     assert!(r.delete_manual_txn(orphan).unwrap());
 }
 
+#[test]
+fn a_debt_payment_lowers_the_debt_and_moves_its_channel() {
+    let dir = TempDir::new().unwrap();
+    let r = open(&dir);
+    let bank = r
+        .add_manual_asset(
+            "Conto", "cash", 5_000.0, "EUR", None, None, None, None, None,
+        )
+        .unwrap();
+    let loan = r.add_liability("Auto", 900_000, "loan", None).unwrap();
+    let pay = |kind| DebtPayment {
+        liability_id: loan,
+        kind,
+    };
+    let debt = |r: &Registry| r.list_liabilities().unwrap()[0].amount_sat;
+    let balance = |r: &Registry| r.list_manual_assets().unwrap()[0].value_fiat;
+
+    let id = r
+        .add_manual_txn_paying(
+            "out",
+            100_000,
+            Some(300.0),
+            Some("EUR"),
+            1,
+            Some(&format!("asset:{bank}")),
+            None,
+            Some(pay("installment")),
+        )
+        .unwrap();
+    assert_eq!(debt(&r), 800_000);
+    assert!((balance(&r) - 4_700.0).abs() < 1e-9);
+    let row = r.list_manual_txns().unwrap().remove(0);
+    assert_eq!(row.liability_id, Some(loan));
+    assert_eq!(row.liability_payment.as_deref(), Some("installment"));
+
+    // Editing re-applies the new amount and may change the kind.
+    assert!(
+        r.update_manual_txn_paying(
+            id,
+            "out",
+            200_000,
+            Some(600.0),
+            Some("EUR"),
+            1,
+            None,
+            Some("extra_term")
+        )
+        .unwrap()
+    );
+    assert_eq!(debt(&r), 700_000);
+    assert!((balance(&r) - 4_400.0).abs() < 1e-9);
+    let row = r.list_manual_txns().unwrap().remove(0);
+    assert_eq!(row.liability_payment.as_deref(), Some("extra_term"));
+    // A plain edit keeps it.
+    assert!(
+        r.update_manual_txn(
+            id,
+            "out",
+            200_000,
+            Some(600.0),
+            Some("EUR"),
+            1,
+            Some("rata")
+        )
+        .unwrap()
+    );
+    let row = r.list_manual_txns().unwrap().remove(0);
+    assert_eq!(row.liability_payment.as_deref(), Some("extra_term"));
+
+    assert!(r.delete_manual_txn(id).unwrap());
+    assert_eq!(debt(&r), 900_000);
+    assert!((balance(&r) - 5_000.0).abs() < 1e-9);
+}
+
+#[test]
+fn debt_payments_are_validated() {
+    let dir = TempDir::new().unwrap();
+    let r = open(&dir);
+    let card = r.add_liability("Visa", 1_000, "credit-card", None).unwrap();
+    let mortgage = r.add_liability("Mutuo", 1_000, "mortgage", None).unwrap();
+    r.set_details(
+        "liability",
+        mortgage,
+        r#"{"original_amount_fiat":100000,"rate_pct":2,"start_date":"2020-01-01","monthly_payment":500,"currency":"EUR"}"#,
+    )
+    .unwrap();
+    let add = |direction, currency: Option<&str>, account: Option<&str>, liability_id, kind| {
+        r.add_manual_txn_paying(
+            direction,
+            1_000,
+            currency.map(|_| 10.0),
+            currency,
+            1,
+            account,
+            None,
+            Some(DebtPayment { liability_id, kind }),
+        )
+    };
+    assert!(
+        invalid(&add("in", None, None, card, "installment")),
+        "income"
+    );
+    assert!(invalid(&add("out", None, None, card, "sideways")), "kind");
+    assert!(
+        invalid(&add("out", None, None, 999, "installment")),
+        "unknown debt"
+    );
+    let card_ref = format!("liability:{card}");
+    assert!(
+        invalid(&add("out", None, Some(&card_ref), card, "installment")),
+        "pays itself"
+    );
+    // A planned mortgage counts its payments in its own currency.
+    assert!(
+        invalid(&add("out", None, None, mortgage, "installment")),
+        "sat"
+    );
+    assert!(
+        invalid(&add("out", Some("USD"), None, mortgage, "installment")),
+        "USD"
+    );
+    add("out", Some("EUR"), None, mortgage, "extra_payment").unwrap();
+    // A card can be paid off from another channel.
+    add("out", None, None, card, "installment").unwrap();
+}
+
 // TRK-091
 #[test]
 fn bills_reject_a_blank_name_on_add() {

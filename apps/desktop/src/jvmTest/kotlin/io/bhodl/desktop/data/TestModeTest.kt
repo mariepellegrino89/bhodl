@@ -57,7 +57,7 @@ class TestModeTest {
     private fun noon(date: LocalDate) = date.atTime(12, 0).toEpochSecond(ZoneOffset.UTC)
 
     private fun addSpending(note: String, date: LocalDate = day0): Long =
-        registry().addManualTxn("out", 5_000uL, null, null, noon(date), null, note)
+        registry().addManualTxn("out", 5_000uL, null, null, noon(date), null, note, null, null)
 
     private fun notes(): List<String> = registry().listManualTxns().mapNotNull { it.note }
 

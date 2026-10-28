@@ -55,6 +55,10 @@ server cannot link your addresses to your IP address.
   detail card per item: each type has its own facts (ETF TER and yearly cost, deposit rate
   and maturity, house equity and LTV against the linked mortgage, credit card utilisation…).
   The balance-sheet table is one click away.
+- Mortgages and loans follow their amortization plan (original amount, disbursement date,
+  rate, monthly payment or end date): the debt goes down month by month, in the history
+  too. Installments and extra repayments entered as off-wallet payments adjust the plan;
+  an extra repayment either shortens the term or lowers the installment.
 - **Bitcoin Lens**: bitcoin is the unit of account. The BTC chart is not smoothed: if your
   fiat savings lose value against bitcoin, you see it.
 - Investments with tax lots and FIFO / HIFO / Specific-ID cost basis, a sell flow that

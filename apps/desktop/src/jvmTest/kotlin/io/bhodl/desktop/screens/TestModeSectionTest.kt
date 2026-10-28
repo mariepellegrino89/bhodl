@@ -76,7 +76,7 @@ class TestModeSectionTest {
             onNodeWithTag(TestModeTags.CONFIRM, useUnmergedTree = true).performClick()
             waitUntil(timeoutMillis = 30_000) { reloads == 1 }
 
-            RegistryStore.require().addManualTxn("out", 5_000uL, null, null, noon, null, "after mark")
+            RegistryStore.require().addManualTxn("out", 5_000uL, null, null, noon, null, "after mark", null, null)
             onNodeWithTag(TestModeTags.RESTORE_INITIAL).performClick()
             onNodeWithTag(TestModeTags.CONFIRM, useUnmergedTree = true).performClick()
             waitUntil(timeoutMillis = 30_000) { reloads == 2 }
