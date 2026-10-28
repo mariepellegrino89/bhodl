@@ -3711,6 +3711,17 @@ fn remove_sqlite_files(path: &Path) {
 /// PIN recovery — `true` when a recovery code was created for the
 /// registry at `data_dir`. Read before unlocking, so the unlock screen
 /// knows which "forgot PIN" branch to offer.
+/// Settings → "Online prices". Off, every historical BTC rate comes from
+/// the local cache and no rate request leaves the device.
+static ONLINE_RATES: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+/// Turn the download of historical BTC rates on or off for every
+/// registry handle of this process.
+#[uniffi::export]
+pub fn set_online_rates(enabled: bool) {
+    ONLINE_RATES.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
 #[uniffi::export]
 pub fn registry_has_recovery_code(data_dir: String) -> bool {
     Path::new(&data_dir).join(RECOVERY_FILE_NAME).is_file()
@@ -5034,11 +5045,13 @@ impl RegistryHandle {
     /// fetches never contend with the registry mutex.
     ///
     /// A test-mode profile answers from its own rates only: nothing is
-    /// ever fetched for it.
+    /// ever fetched for it. Neither is anything with online rates off
+    /// ([`set_online_rates`]).
     fn rate_repo(&self, proxy_url: Option<&str>) -> Result<BtcRateRepo, WalletError> {
         let db_path = self.data_dir.join(REGISTRY_FILE_NAME);
         let repo = BtcRateRepo::open(&db_path, &self.device_key)?.with_proxy(proxy_url)?;
-        Ok(if self.registry()?.is_demo_profile()? {
+        let online = ONLINE_RATES.load(std::sync::atomic::Ordering::Relaxed);
+        Ok(if !online || self.registry()?.is_demo_profile()? {
             repo.offline()
         } else {
             repo

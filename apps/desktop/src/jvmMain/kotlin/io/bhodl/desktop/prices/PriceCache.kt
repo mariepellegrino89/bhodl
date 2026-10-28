@@ -217,6 +217,9 @@ public object PriceCache {
             val currency = SettingsStore.fiatCurrency.value
             if (currency == FiatCurrency.NONE) {
                 _price.value = null
+            } else if (!SettingsStore.onlinePrices.value) {
+                // Online prices off: keep the last price, ask nobody.
+                return@withLock
             } else {
                 _refreshing.value = true
                 val result = withContext(Dispatchers.IO) {

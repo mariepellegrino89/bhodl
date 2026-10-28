@@ -338,6 +338,18 @@ public object SettingsStore {
         persistIfEnabled()
     }
 
+    // Online prices: BTC spot and history (CoinGecko, mempool.space,
+    // blockchain.info, Frankfurter) and investment quotes (Yahoo).
+    // Off, no price request leaves the device: amounts in fiat use the
+    // rates already cached, or show no rate.
+    private val _onlinePrices = mutableStateOf(true)
+    public val onlinePrices: State<Boolean> get() = _onlinePrices
+
+    public fun setOnlinePrices(enabled: Boolean) {
+        _onlinePrices.value = enabled
+        persistIfEnabled()
+    }
+
     // Phase 3.14 — wallet IDs the user has chosen to EXCLUDE from
     // cross-wallet totals and from the Tracking dashboard
     // aggregations. The wallet still appears in the History → Wallets
@@ -691,6 +703,7 @@ public object SettingsStore {
         _excludedWalletIds.value = emptySet()
         _fiatCurrency.value = DEFAULT_FIAT_CURRENCY
         _autoFetchInvestmentPrices.value = false
+        _onlinePrices.value = true
         _privacyAutoHide.value = false
         _balancesHidden.value = false
         _labelsExportedAt.value = emptyMap()
