@@ -209,3 +209,17 @@ version = "2.2.21"
 ecosystem = "Maven"
 ignore = true
 reason = "Build-tooling transitive (AGP / Gradle plugin classpath); not shipped"
+
+[[PackageOverrides]]
+name = "com.google.guava:guava"
+version = "32.0.1-jre"
+ecosystem = "Maven"
+ignore = true
+reason = "Build-tooling transitive (Gradle plugin classpath); not on jvmRuntimeClasspath, not shipped"
+
+[[PackageOverrides]]
+name = "com.google.guava:guava"
+version = "33.4.8-jre"
+ecosystem = "Maven"
+ignore = true
+reason = "Build-tooling transitive (Gradle plugin classpath); not on jvmRuntimeClasspath, not shipped"
