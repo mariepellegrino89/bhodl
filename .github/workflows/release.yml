@@ -54,18 +54,23 @@ jobs:
       # The Gradle build runs these two cargo steps too, but hides their
       # output. Run them first so a failure or a hang shows where it is;
       # Gradle then finds both up to date.
+      #
+      # Build steps run in pwsh, like the windows job in ci.yml: the vendored
+      # OpenSSL (rusqlite bundled-sqlcipher-vendored-openssl) is configured
+      # by perl, and only Strawberry Perl on the pwsh PATH has the modules it
+      # needs. Git Bash's perl fails (first dry run: hung for hours in Gradle).
       - name: Build the uniffi bindgen
-        shell: bash
+        shell: pwsh
         run: >-
           cargo install --locked --force --path crates/uniffi-bindgen-kmp
           --root shared/build/bindgen-install --target-dir build/bindgen-target
       - name: Build the Rust core
-        shell: bash
+        shell: pwsh
         run: cargo build -p bhodl-uniffi
       - name: Build the MSI
-        shell: bash
+        shell: pwsh
         # No build cache: a release is always built from a clean tree.
-        run: ./gradlew :apps:desktop:packageMsi --no-configuration-cache --stacktrace
+        run: ./gradlew.bat :apps:desktop:packageMsi --no-configuration-cache --stacktrace
       - name: Upload the unsigned installer
         id: unsigned
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
