@@ -262,7 +262,7 @@ internal object DemoSeed {
         ).forEach { e ->
             val date = today.minusDays(e.daysAgo)
             val sat = (e.eur / eurPerBtc(date) * 100_000_000.0).roundToLong().toULong()
-            val id = registry.addManualTxn(e.dir, sat, e.eur, "EUR", noon(date), e.account, e.note)
+            val id = registry.addManualTxn(e.dir, sat, e.eur, "EUR", noon(date), e.account, e.note, null, null)
             e.category?.let { registry.setEventCategory(io.bhodl.ffi.manualTxnWalletId(e.account), io.bhodl.ffi.manualTxnEventId(id), it) }
         }
     }

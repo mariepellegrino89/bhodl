@@ -1,0 +1,36 @@
+BHODL - license and privacy
+
+LICENSE
+
+BHODL is free software, dual-licensed under the MIT License or the Apache License,
+Version 2.0, at your option:
+https://github.com/mariepellegrino89/bhodl/blob/main/LICENSE-MIT
+https://github.com/mariepellegrino89/bhodl/blob/main/LICENSE-APACHE
+
+It comes with no warranty. BHODL has not been audited. It never holds private keys and
+cannot send bitcoin.
+
+PRIVACY
+
+BHODL has no account, no cloud and no telemetry. Your data stays in an encrypted
+database on this computer, and the BHODL project never receives any of it.
+
+The app contacts third-party servers only for two things, both of which you can change
+or turn off in Settings > Network:
+
+1. Wallet sync. For the wallets you add, it asks an Esplora server about their
+   addresses. The default server is mempool.space (Signet: blockstream.info). You can use
+   your own server, Tor, or both.
+
+2. Online prices. To show fiat values it downloads BTC prices from CoinGecko,
+   mempool.space, blockchain.info and Frankfurter. It sends only a currency and a date,
+   never addresses or amounts. Turn "Online prices" off and no price request leaves this
+   computer.
+
+Investment quotes from Yahoo Finance are off unless you turn them on.
+
+Full privacy policy, with each provider's policy:
+https://github.com/mariepellegrino89/bhodl/blob/main/PRIVACY.md
+
+Code signing policy:
+https://github.com/mariepellegrino89/bhodl/blob/main/CODE_SIGNING_POLICY.md

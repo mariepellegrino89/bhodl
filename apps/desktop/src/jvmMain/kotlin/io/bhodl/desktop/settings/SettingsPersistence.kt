@@ -69,6 +69,8 @@ public object SettingsPersistence {
         val btcUnit: String = BtcUnit.SAT.name,
         val fiatCurrency: String = SettingsStore.DEFAULT_FIAT_CURRENCY.name,
         val autoFetchInvestmentPrices: Boolean = false,
+        // Missing in older snapshots: prices stay online, as before.
+        val onlinePrices: Boolean = true,
         // Phase 7.2 — when true, the net-worth hero boots into the
         // HIDDEN display mode (bullets). Backward-compatible: missing
         // field defaults to false so existing snapshots keep behaving
@@ -169,6 +171,7 @@ public object SettingsPersistence {
         btcUnit = SettingsStore.btcUnit.value.name,
         fiatCurrency = SettingsStore.fiatCurrency.value.name,
         autoFetchInvestmentPrices = SettingsStore.autoFetchInvestmentPrices.value,
+        onlinePrices = SettingsStore.onlinePrices.value,
         privacyAutoHide = SettingsStore.privacyAutoHide.value,
         excludedWalletIds = SettingsStore.excludedWalletIds.value.toList(),
         // The real profile's, also while a test profile is open.
@@ -249,6 +252,7 @@ public object SettingsPersistence {
         runCatching { SettingsStore.setDensity(BhodlDensity.valueOf(snapshot.density)) }
         runCatching { SettingsStore.setFiatCurrency(FiatCurrency.valueOf(snapshot.fiatCurrency)) }
         SettingsStore.setAutoFetchInvestmentPrices(snapshot.autoFetchInvestmentPrices)
+        SettingsStore.setOnlinePrices(snapshot.onlinePrices)
         SettingsStore.setPrivacyAutoHide(snapshot.privacyAutoHide)
         // Use replace (not the public setter) to avoid triggering an
         // immediate persistIfEnabled() during rehydrate — the caller

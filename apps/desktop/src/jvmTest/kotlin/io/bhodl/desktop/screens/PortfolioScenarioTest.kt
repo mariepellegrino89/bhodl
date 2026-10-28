@@ -171,7 +171,7 @@ class PortfolioScenarioTest {
             dashboardFiatCode = "EUR",
         ).netWorthSat
         val before = netWorth()
-        registry.addManualTxn("out", 200_000UL, 100.0, "EUR", d2, "asset:$bank", "Spesa")
+        registry.addManualTxn("out", 200_000UL, 100.0, "EUR", d2, "asset:$bank", "Spesa", null, null)
         // 100 EUR at 50,000 EUR/BTC; fiat values are truncated to the sat, as in every aggregate.
         assertTrue(kotlin.math.abs(before - 200_000L - netWorth()) <= 1L, "before $before, after ${netWorth()}")
     }

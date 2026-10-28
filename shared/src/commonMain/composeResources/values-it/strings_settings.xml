@@ -35,6 +35,8 @@
     <string name="set_lens_footer">Fuori da queste superfici, tutti gli importi sono mostrati in BTC/sat.</string>
 
     <!-- Sistema › Prezzi investimenti -->
+    <string name="set_online_prices_title">Prezzi online</string>
+    <string name="set_online_prices_hint">Prezzo BTC e suo storico da CoinGecko, mempool.space, blockchain.info e Frankfurter (si inviano solo date e valute, mai indirizzi o importi). Spento, nessuna richiesta di prezzo esce dal dispositivo: i valori in fiat usano i cambi già salvati, o restano senza cambio.</string>
     <string name="set_invfetch_title">Auto-fetch prezzi investimenti</string>
     <string name="set_invfetch_hint">Yahoo Finance (nessuna API key). Tutti i ticker degli investimenti vengono aggiornati ogni 5 min. Routing via Tor quando attivo nella sezione dedicata.</string>
     <string name="set_recompute_hint">Ricalcola il cost basis in BTC di tutti i lotti dalla data d’acquisto (tasso storico). Usa la rete.</string>
