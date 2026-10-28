@@ -67,15 +67,6 @@ public object SyncCache {
         return nowMs - last < cooldownMs
     }
 
-    /**
-     * Wallet workspace (UX review 2026-10) — a broadcast / bump / CPFP
-     * changed the mempool view: drop the cooldown so the next wallet
-     * screen re-syncs, but keep the last balance on screen meanwhile.
-     */
-    public fun markStale() {
-        lastSyncAtMs = null
-    }
-
     /** Drop both timestamp and balance. Called from Logout / wallet swap. */
     public fun clear() {
         lastSyncAtMs = null

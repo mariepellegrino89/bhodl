@@ -629,7 +629,6 @@ class GoalBucketsTest {
             descriptorPub = "wpkh(xpub.../0/*)",
             network = "signet",
             createdAtUnix = 0,
-            pinsWarned = false,
         )
 
     private fun sampleManualAsset(

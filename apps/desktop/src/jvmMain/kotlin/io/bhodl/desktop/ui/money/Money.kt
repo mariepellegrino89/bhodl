@@ -73,6 +73,9 @@ public fun Money(
             ((value.fiatAmount / value.rateBtcFiat) * 100_000_000.0).toLong()
         value.fiatAmount != null &&
             value.semantic == MoneySemantic.AtNow &&
+            // The live price is BTC/<dashboard currency>: never use it
+            // for an amount in another currency ("no rate" instead).
+            (value.fiatCurrency == null || value.fiatCurrency.equals(activeFiatCurrency.code, ignoreCase = true)) &&
             livePriceBtcInFiat != null &&
             livePriceBtcInFiat!! > 0.0 ->
             ((value.fiatAmount / livePriceBtcInFiat!!) * 100_000_000.0).toLong()

@@ -18,10 +18,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.snapshotFlow
 import io.bhodl.desktop.settings.EsploraEndpoint
 import io.bhodl.desktop.wizard.RegistryStore
+import io.bhodl.desktop.wizard.localizedText
+import io.bhodl.shared.resources.Res
+import io.bhodl.shared.resources.trk_cache_err_refresh
+import io.bhodl.shared.resources.trk_cache_err_registry_closed
+import io.bhodl.shared.resources.trk_cache_err_sync
+import io.bhodl.shared.resources.trk_cache_err_sync_unknown
 import io.bhodl.desktop.wizard.WalletPaths
-import io.bhodl.ffi.PaymentDirection
 import io.bhodl.ffi.PaymentEvent
-import io.bhodl.ffi.PaymentKind
 import io.bhodl.ffi.SavedViewFfi
 import io.bhodl.ffi.TrackingBillFfi
 import io.bhodl.ffi.TrackingBudgetFfi
@@ -34,7 +38,6 @@ import io.bhodl.ffi.TrackingManualAssetFfi
 import io.bhodl.ffi.TrackingRuleFfi
 import io.bhodl.ffi.TrackingSavingsGoalFfi
 import io.bhodl.ffi.TransactionRecord
-import io.bhodl.ffi.WalletKindFfi
 import io.bhodl.ffi.WalletRecordFfi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.MainScope
@@ -86,9 +89,6 @@ public object TrackerCache {
 
     private val _watchBalances = mutableStateOf<Map<String, ULong>>(emptyMap())
     public val watchBalances: State<Map<String, ULong>> get() = _watchBalances
-
-    private val _signingBalance = mutableStateOf<ULong?>(null)
-    public val signingBalance: State<ULong?> get() = _signingBalance
 
     /**
      * Phase 7.3 — split of the legacy `_totalAssetSat`. The three
@@ -224,14 +224,31 @@ public object TrackerCache {
     private val _perWalletTxs = mutableStateOf<Map<String, List<TransactionRecord>>>(emptyMap())
     public val perWalletTxs: State<Map<String, List<TransactionRecord>>> get() = _perWalletTxs
 
+    /**
+     * BTC average cost — the user's price / exclusion per transaction,
+     * keyed by txid (the same key the event stream is deduped on, so a
+     * row written against either leg of a transaction applies to it).
+     */
+    /**
+     * Per-wallet legs of every transaction (wallet aliases collapsed,
+     * NOT deduped by txid). The BTC average-cost view nets the legs of a
+     * txid so a payment whose change lands in another own wallet counts
+     * only what actually left.
+     */
+    private val _eventLegs = mutableStateOf<List<PaymentEvent>>(emptyList())
+    public val eventLegs: State<List<PaymentEvent>> get() = _eventLegs
+
+    private val _costBasisInputs = mutableStateOf<Map<String, io.bhodl.ffi.EventCostBasisFfi>>(emptyMap())
+    public val costBasisInputs: State<Map<String, io.bhodl.ffi.EventCostBasisFfi>> get() = _costBasisInputs
+
     private val _refreshing = mutableStateOf(false)
     public val refreshing: State<Boolean> get() = _refreshing
 
     private val _lastSyncUnix = mutableStateOf<Long?>(null)
     public val lastSyncUnix: State<Long?> get() = _lastSyncUnix
 
-    /** Prefix of the [lastError] message set by a failed Esplora sync. */
-    private const val SYNC_ERROR_PREFIX: String = "Sync failed for"
+    /** True while [lastError] holds the verdict of a failed Esplora sync. */
+    private var lastErrorIsSync: Boolean = false
 
     private val _lastError = mutableStateOf<String?>(null)
     public val lastError: State<String?> get() = _lastError
@@ -315,7 +332,6 @@ public object TrackerCache {
         androidx.compose.runtime.snapshots.Snapshot.withMutableSnapshot {
             _wallets.value = emptyList()
             _watchBalances.value = emptyMap()
-            _signingBalance.value = null
             _bitcoinAssetSat.value = 0UL
             _investmentsAssetSat.value = 0UL
             _investmentsPricingAvailable.value = false
@@ -338,13 +354,35 @@ public object TrackerCache {
             _rules.value = emptyList()
             _recurringCandidates.value = emptyList()
             _perWalletTxs.value = emptyMap()
+            _costBasisInputs.value = emptyMap()
+            _eventLegs.value = emptyList()
             _refreshing.value = false
             _lastSyncUnix.value = null
             _lastError.value = null
+            lastErrorIsSync = false
             _hasLoadedOnce.value = false
         }
         rateMisses.clear()
         knownRates.clear()
+        coldLoadStarted.set(false)
+        BtcCostBasisRates.clear()
+    }
+
+    private val coldLoadStarted = AtomicBoolean(false)
+
+    /**
+     * First paint after the device-PIN unlock. Publishes the cached
+     * SQLCipher state straight away (a registry-only pass is local and
+     * fast), then runs the Esplora sync in the background. Syncing first
+     * kept every screen on a spinner until each wallet's full scan
+     * finished — slow with several wallets, slower over Tor. Only the
+     * first caller does the work: the home and tracking screens both
+     * kick it on mount.
+     */
+    public suspend fun coldLoad() {
+        if (_hasLoadedOnce.value || !coldLoadStarted.compareAndSet(false, true)) return
+        refresh(syncEsplora = false)
+        refresh(syncEsplora = true)
     }
 
     // ─── B9 — historical BTC rate healing (off the critical path) ────
@@ -491,7 +529,8 @@ public object TrackerCache {
     public suspend fun refresh(syncEsplora: Boolean = true) {
         refreshMutex.withLock {
             val registry = RegistryStore.current() ?: run {
-                _lastError.value = "Registry not open."
+                _lastError.value = localizedText(Res.string.trk_cache_err_registry_closed)
+                lastErrorIsSync = false
                 return@withLock
             }
             _refreshing.value = true
@@ -510,20 +549,14 @@ public object TrackerCache {
                     var anySyncAttempted = false
                     var anySyncOk = false
                     for (row in list) {
-                        // Decoupling signing<->tracker (2026-05-18): the
-                        // tracker sees a signing wallet ONLY through its
-                        // watch-only (xpub) mirror. Signing rows are never
-                        // opened here and the unlocked WalletStore is not
-                        // consulted at all.
-                        if (row.kind == WalletKindFfi.SIGNING) continue
                         val opened = runCatching {
                             val handle = registry.openWatch(row.id)
                             try {
                                 val syncOk = if (syncEsplora) {
                                     anySyncAttempted = true
                                     // Each watch wallet syncs against ITS OWN
-                                    // network's endpoint (not the loaded
-                                    // signing wallet's).
+                                    // network's endpoint (not the open
+                                    // wallet's).
                                     val network = EsploraEndpoint.networkOf(row.network)
                                     val result = if (network == null) {
                                         Result.failure(
@@ -536,7 +569,7 @@ public object TrackerCache {
                                     }
                                     result.exceptionOrNull()?.let { e ->
                                         syncFailures++
-                                        if (syncFailure == null) syncFailure = e.userMessage("sync failed")
+                                        if (syncFailure == null) syncFailure = e.userMessage(localizedText(Res.string.trk_cache_err_sync_unknown))
                                     }
                                     result.isSuccess
                                 } else true
@@ -576,7 +609,7 @@ public object TrackerCache {
                     val canonical = canonicalWalletIds(list) { w ->
                         runCatching { io.bhodl.ffi.extractAccountXpub(w.descriptorPub) }.getOrNull()
                     }
-                    val watchEvents = runCatching { registry.listWatchEvents() }
+                    val watchEvents = runCatching { watchEventsSource(registry) }
                         .getOrDefault(emptyList())
                     // Pre-dedup-by-txid stream (one event per wallet leg),
                     // aliases removed. send_to_self detection needs the
@@ -586,19 +619,7 @@ public object TrackerCache {
                     // the leg carrying a user category, then the one that
                     // knows the fee (the debit leg: it lets an internal
                     // transfer count its fee as the only outflow).
-                    val merged = allEvents
-                        .groupBy { it.txidOrPaymentId }
-                        .values
-                        .map { legs ->
-                            legs.firstOrNull { it.category != null }
-                                ?: legs.firstOrNull { it.feeSat != null }
-                                ?: legs.first()
-                        }
-                        .sortedWith(
-                            compareByDescending<PaymentEvent> {
-                                it.timestampUnix ?: ULong.MAX_VALUE
-                            },
-                        )
+                    val merged = mergeEventLegs(allEvents)
 
                     // Phase 7.5 — apply categorization rules to events
                     // that don't already have a category. The user's
@@ -758,9 +779,6 @@ public object TrackerCache {
                     Snapshot(
                         wallets = list,
                         watchBalances = perRow,
-                        // Decoupled: the signing balance is never read
-                        // by the tracker (see the wallet loop above).
-                        signingBalance = null,
                         bitcoinAssetSat = bitcoinAsset,
                         investmentsAssetSat = investmentsAsset,
                         investmentsPricingAvailable = pricingAvailable,
@@ -768,7 +786,7 @@ public object TrackerCache {
                         staleWalletIds = staleOut,
                         networkSynced = networkSynced,
                         syncError = syncFailure?.let { msg ->
-                            "$SYNC_ERROR_PREFIX $syncFailures wallet(s) — showing cached data. $msg"
+                            localizedText(Res.string.trk_cache_err_sync, syncFailures, msg)
                         },
                         events = merged,
                         categories = runCatching { registry.listCategories() }
@@ -793,10 +811,18 @@ public object TrackerCache {
                         rules = rulesList,
                         recurringCandidates = recurring,
                         perWalletTxs = perRowTxs,
+                        eventLegs = allEvents,
+                        costBasisInputs = runCatching { registry.listEventCostBasis() }
+                            .getOrDefault(emptyList())
+                            .associateBy { it.txidOrPaymentId },
                     )
                 }
             }.fold(
+                // GAP-019 — a lock / wipe (or a new unlock) landed while this
+                // pass was running: never publish the closed session's data
+                // over the reset cache.
                 onSuccess = { snap ->
+                    if (RegistryStore.current() !== registry) return@fold
                     // Atomic publish — all 24 backing states flip in one
                     // Compose snapshot so no composable can observe a
                     // half-applied refresh (e.g. new `events` against the
@@ -806,7 +832,6 @@ public object TrackerCache {
                     androidx.compose.runtime.snapshots.Snapshot.withMutableSnapshot {
                         _wallets.value = snap.wallets
                         _watchBalances.value = snap.watchBalances
-                        _signingBalance.value = snap.signingBalance
                         _bitcoinAssetSat.value = snap.bitcoinAssetSat
                         _investmentsAssetSat.value = snap.investmentsAssetSat
                         _investmentsPricingAvailable.value = snap.investmentsPricingAvailable
@@ -829,6 +854,8 @@ public object TrackerCache {
                         _rules.value = snap.rules
                         _recurringCandidates.value = snap.recurringCandidates
                         _perWalletTxs.value = snap.perWalletTxs
+                        _costBasisInputs.value = snap.costBasisInputs
+                        _eventLegs.value = snap.eventLegs
                         if (snap.networkSynced) {
                             _lastSyncUnix.value = System.currentTimeMillis() / 1000L
                         }
@@ -836,16 +863,19 @@ public object TrackerCache {
                         // Tor proxy down) is no longer silent.
                         // A registry-only pass did not sync, so it keeps
                         // the previous pass's sync verdict.
-                        _lastError.value = if (syncEsplora) {
-                            snap.syncError
-                        } else {
-                            _lastError.value?.takeIf { it.startsWith(SYNC_ERROR_PREFIX) }
+                        if (syncEsplora) {
+                            _lastError.value = snap.syncError
+                            lastErrorIsSync = snap.syncError != null
+                        } else if (!lastErrorIsSync) {
+                            _lastError.value = null
                         }
                         _hasLoadedOnce.value = true
                     }
                 },
                 onFailure = { e ->
-                    _lastError.value = e.message ?: "Failed to refresh tracker."
+                    if (RegistryStore.current() !== registry) return@fold
+                    _lastError.value = e.userMessage(localizedText(Res.string.trk_cache_err_refresh))
+                    lastErrorIsSync = false
                 },
             )
             _refreshing.value = false
@@ -854,6 +884,10 @@ public object TrackerCache {
         // snapshot is published and outside the mutex.
         if (syncEsplora) launchRateHealing()
     }
+
+    /** Source of the per-wallet event legs. Test seam (production: the FFI). */
+    internal var watchEventsSource: (io.bhodl.ffi.RegistryHandle) -> List<PaymentEvent> =
+        { it.listWatchEvents() }
 
     /**
      * Data dir holding the one-time cleanup marker. Test seam.
@@ -864,8 +898,8 @@ public object TrackerCache {
     internal const val SEND_TO_SELF_CLEANUP_MARKER: String = "tracker-send-to-self-cleanup-v1.done"
 
     /**
-     * H13 — one-time reset of `send_to_self` rows that the old merge of
-     * the unlocked signing wallet + its watch mirror wrote for EVERY tx.
+     * H13 — one-time reset of `send_to_self` rows that an older build's
+     * merge of a signing wallet + its watch mirror wrote for EVERY tx.
      * See [staleSendToSelfTags] for which rows qualify (the registry does
      * not record whether a kind was auto- or user-set, so only certain
      * artefacts are reset). The marker is written only after the dump
@@ -881,7 +915,7 @@ public object TrackerCache {
             .getOrNull() ?: return
         if (marker.exists()) return
         val rows = runCatching { registry.dumpCryptoEventKinds() }.getOrNull() ?: return
-        val toReset = staleSendToSelfTags(rows, wallets, canonical, dedupedEvents)
+        val toReset = staleSendToSelfTags(rows, canonical, dedupedEvents)
         val resetKeys = HashSet<Pair<String, String>>()
         for ((walletId, txid) in toReset) {
             // AUTO path: never clears a user-pinned row (and
@@ -909,7 +943,6 @@ public object TrackerCache {
     private data class Snapshot(
         val wallets: List<WalletRecordFfi>,
         val watchBalances: Map<String, ULong>,
-        val signingBalance: ULong?,
         val bitcoinAssetSat: ULong,
         val investmentsAssetSat: ULong,
         val investmentsPricingAvailable: Boolean,
@@ -936,6 +969,8 @@ public object TrackerCache {
         val rules: List<TrackingRuleFfi>,
         val recurringCandidates: List<RecurringCandidate>,
         val perWalletTxs: Map<String, List<TransactionRecord>>,
+        val eventLegs: List<PaymentEvent> = emptyList(),
+        val costBasisInputs: Map<String, io.bhodl.ffi.EventCostBasisFfi> = emptyMap(),
     )
 
     /** Test-only seam: prime the cache so a Compose UI test can render
@@ -943,7 +978,6 @@ public object TrackerCache {
     internal fun seedForTest(
         wallets: List<WalletRecordFfi> = emptyList(),
         watchBalances: Map<String, ULong> = emptyMap(),
-        signingBalance: ULong? = null,
         // Phase 7.3 — tests can seed each layer independently. For
         // back-compat the legacy single `totalAssetSat` is interpreted
         // as `bitcoinAssetSat` when the new params are left at their
@@ -969,10 +1003,16 @@ public object TrackerCache {
         perWalletTxs: Map<String, List<TransactionRecord>> = emptyMap(),
         staleWalletIds: Set<String> = emptySet(),
         lastSyncUnix: Long? = System.currentTimeMillis() / 1000L,
+        lastError: String? = null,
+        eventLegs: List<PaymentEvent> = emptyList(),
+        refreshing: Boolean = false,
     ) {
+        _lastError.value = lastError
+        lastErrorIsSync = lastError != null
+        _eventLegs.value = eventLegs
+        _refreshing.value = refreshing
         _wallets.value = wallets
         _watchBalances.value = watchBalances
-        _signingBalance.value = signingBalance
         _bitcoinAssetSat.value = bitcoinAssetSat
         _investmentsAssetSat.value = investmentsAssetSat
         _investmentsPricingAvailable.value = investmentsPricingAvailable
@@ -997,3 +1037,19 @@ public object TrackerCache {
         _hasLoadedOnce.value = true
     }
 }
+
+/**
+ * One event per txid out of the per-wallet legs: prefer the leg carrying
+ * a user category, then the one that knows the fee (the debit leg, so an
+ * internal transfer can count its fee as the only outflow), else the
+ * first. Newest first, mempool (no timestamp) on top.
+ */
+internal fun mergeEventLegs(legs: List<PaymentEvent>): List<PaymentEvent> = legs
+    .groupBy { it.txidOrPaymentId }
+    .values
+    .map { group ->
+        group.firstOrNull { it.category != null }
+            ?: group.firstOrNull { it.feeSat != null }
+            ?: group.first()
+    }
+    .sortedWith(compareByDescending<PaymentEvent> { it.timestampUnix ?: ULong.MAX_VALUE })

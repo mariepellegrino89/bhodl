@@ -34,7 +34,6 @@ import io.bhodl.desktop.ui.rememberAmountFormatter
 import io.bhodl.shared.resources.Res
 import io.bhodl.shared.resources.wallet_tab_addresses
 import io.bhodl.shared.resources.wallet_tab_receive
-import io.bhodl.shared.resources.wallet_tab_send
 import io.bhodl.shared.resources.wallet_tab_settings
 import io.bhodl.shared.resources.wallet_tab_transactions
 import io.bhodl.shared.resources.wallet_tab_utxos
@@ -46,7 +45,7 @@ import org.jetbrains.compose.resources.stringResource
  * UX review 2026-10 (§4 item 5) — building blocks of the full-width,
  * Sparrow-style wallet workspace: the sub-tab strip, dense table cells
  * and the semantic amount / status renderers shared by the
- * Transactions, Addresses and UTXOs tabs (and the watch-only view).
+ * Transactions, Addresses and UTXOs tabs.
  */
 
 /**
@@ -55,7 +54,6 @@ import org.jetbrains.compose.resources.stringResource
  */
 public enum class WalletTab(public val wire: String, internal val title: StringResource) {
     TRANSACTIONS("transactions", Res.string.wallet_tab_transactions),
-    SEND("send", Res.string.wallet_tab_send),
     RECEIVE("receive", Res.string.wallet_tab_receive),
     ADDRESSES("addresses", Res.string.wallet_tab_addresses),
     UTXOS("utxos", Res.string.wallet_tab_utxos),

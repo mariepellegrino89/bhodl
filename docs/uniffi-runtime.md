@@ -2,6 +2,11 @@
 
 > **Status**: workaround applied (May 2026). The upstream bugs are not
 > fixed; if/when they are, see "Removing the workaround" below.
+>
+> **2026-10-23**: with the watch-only refactor `WalletHandle` was removed.
+> `WatchHandle` is now the first `#[uniffi::Object]` in `lib.rs` and carries
+> the `Result<String, _>` methods; the throwaway-`WalletHandle` mnemonic
+> workaround described in the original log no longer exists.
 
 ## TL;DR
 
@@ -15,7 +20,7 @@ fork has two distinct ABI hazards on Windows MSVC. Both surface as
 | Code shape                                                | Status   |
 |-----------------------------------------------------------|----------|
 | Free function returning `String`                          | ✅ works |
-| Method on `WalletHandle` returning `Result<String, _>`    | ✅ works |
+| Method on the **first** `#[uniffi::Object]` (`WatchHandle`) returning `Result<String, _>` | ✅ works |
 | **Free function** returning `Result<String, _>`           | ❌ crash |
 | Method on **any other** `#[uniffi::Object]` returning `Result<String, _>` | ❌ crash |
 
@@ -34,13 +39,14 @@ against a heap it does not own — `EXCEPTION_ACCESS_VIOLATION` follows.
 `.cargo/config.toml`. Both cdylibs end up routing their allocations
 through the same UCRT-static path; cross-DLL frees stop crashing.
 
-### Hazard 2 — Bindgen-side ABI bug for non-`WalletHandle` Object methods
+### Hazard 2 — Bindgen-side ABI bug for Object methods other than the first Object's
 
 After Hazard 1 is fixed, free functions and methods on `#[uniffi::Object]`
 types **other than** the first one in declaration order still crash. The
 crash is in the same `RustBuffer.free` site, but the buffer arrives in a
 shape the runtime cannot deallocate. We have not narrowed this further:
-we tried adding non-ZST fields, mirroring `WalletHandle`'s `Mutex<...>`
+we tried adding non-ZST fields, mirroring `WalletHandle`'s (then the first
+Object) `Mutex<...>`
 layout, returning `Result<Arc<Self>, _>` from the constructor, adding
 dummy method args — none of those moved the needle. The bug is reachable
 from a minimal repro (a `MnemonicGenerator` Object with a
@@ -48,34 +54,34 @@ from a minimal repro (a `MnemonicGenerator` Object with a
 literal) so it is not specific to anything in our wallet code.
 
 **Workaround**: expose any function that returns `Result<String, _>` as
-a **method on `WalletHandle`**. The call site can construct a throwaway
-`WalletHandle` from a public placeholder mnemonic, invoke the method, and
-discard the handle — see `apps/desktop/.../screens/GenerateMnemonicScreen.kt`
-for the pattern.
+a **method on the first `#[uniffi::Object]` declared in `lib.rs`**. Until
+2026-10-23 that was `WalletHandle`, and `generate_random_mnemonic` lived
+on it: the desktop wizard built a throwaway `WalletHandle` from a public
+test-vector mnemonic just to call it. Both are gone with the watch-only
+refactor. Today the first Object is `WatchHandle` (receive addresses,
+labels JSONL export and other `Result<String, _>` methods live there), and
+the crate docs say it must stay first.
 
 ## What is in the tree because of this
 
 - `.cargo/config.toml` — `+crt-static` rustflags for the MSVC target.
-- `crates/bhodl-uniffi/src/commonMain/rust/lib.rs` — `generate_random_mnemonic`
-  is a method on `WalletHandle` rather than a free function.
-- `apps/desktop/.../screens/GenerateMnemonicScreen.kt` — uses a throwaway
-  `WalletHandle` to host the mnemonic-generation FFI call. The
-  `PLACEHOLDER_MNEMONIC` is the canonical BIP86 test vector
-  (`abandon abandon ... about`); it never reaches disk because the
-  throwaway handle is built via in-memory `WalletHandle.fromMnemonic`,
-  not the persistent `create_or_load_persistent` constructor.
+- `crates/bhodl-uniffi/src/commonMain/rust/lib.rs` — `WatchHandle` is
+  declared before `RegistryHandle`, with a comment on both the crate docs
+  and the struct saying it must stay the first `#[uniffi::Object]`.
+  Methods returning `Result<String, _>` (`peek_address_at`,
+  `next_receive_address`, `next_unused_receive_address`,
+  `export_labels_jsonl`) are on `WatchHandle`.
 - `shared/src/jvmTest/kotlin/io/bhodl/ffi/UniffiSmokeTest.kt` — JVM smoke
-  harness that exercises the three FFI shapes above. Run it via
+  harness for the FFI shapes above. Run it via
   `./gradlew :shared:jvmTest --tests "io.bhodl.ffi.UniffiSmokeTest"`.
 
 ## Removing the workaround
 
 When upstream uniffi-rs / Ubique fixes either hazard:
 
-1. Re-run `UniffiSmokeTest`. If it passes with `generate_mnemonic` reinstated
-   as a free function, you can roll back the workaround.
+1. Re-run `UniffiSmokeTest` with a free function (or a method on
+   `RegistryHandle`) returning `Result<String, _>`. If it passes, the
+   declaration-order constraint on `WatchHandle` can be dropped.
 2. Drop `+crt-static` from `.cargo/config.toml` only if Hazard 1 is fixed
    on the runtime side (likely needs a new Maven release). Keep it
    otherwise — static-CRT is a marginal hardening, not a regression.
-3. Delete the throwaway `WalletHandle` block in `GenerateMnemonicScreen.kt`
-   and replace with the direct free-function call.

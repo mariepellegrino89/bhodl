@@ -32,7 +32,6 @@ class LocalWipeTrashTest {
     @AfterTest
     fun tearDown() {
         PinAttemptTracker.reset()
-        SetupSecrets.wipeAll()
         tmp.deleteRecursively()
         trash.deleteRecursively()
     }
@@ -55,7 +54,6 @@ class LocalWipeTrashTest {
     fun `move to trash empties the data dir and keeps every file restorable`() {
         val files = seed()
         File(tmp, PinAttemptTracker.PIN_FAILURES_FILE_NAME).writeText("{}")
-        SetupSecrets.put("abandon ".repeat(11) + "about")
         val now = Instant.parse("2026-10-21T08:09:10Z")
 
         val result = LocalWipe.moveAllToTrash(tmp, trash, now)
@@ -69,12 +67,11 @@ class LocalWipeTrashTest {
             assertTrue(moved.isFile, "$moved missing")
             assertEquals(f.name, moved.readText(), "content preserved")
         }
-        // Boot guard sees a fresh install; PIN history and parked seeds are gone.
+        // Boot guard sees a fresh install; the PIN history is gone.
         val view = WalletPaths.from(tmp)
         assertFalse(view.registryExists())
-        assertFalse(view.walletExists())
+        assertFalse(view.legacySigningDataExists())
         assertFalse(File(tmp, PinAttemptTracker.PIN_FAILURES_FILE_NAME).exists())
-        assertEquals(0, SetupSecrets.size())
         // Databases are still moved before their KDF descriptors.
         val names = result.deleted.map { it.name }
         assertTrue(

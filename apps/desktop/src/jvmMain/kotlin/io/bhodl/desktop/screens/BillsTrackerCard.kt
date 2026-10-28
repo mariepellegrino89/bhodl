@@ -140,10 +140,7 @@ private fun BillRow(
     onEdit: () -> Unit,
     onTogglePaid: (Boolean) -> Unit,
 ) {
-    val paidThisMonth = bill.lastPaidUnix?.let {
-        val date = Instant.ofEpochSecond(it).atZone(zoneId).toLocalDate()
-        YearMonth.from(date) == currentMonth
-    } ?: false
+    val paidThisMonth = isPaidInMonth(bill.lastPaidUnix, currentMonth, zoneId)
     val statusColor = if (paidThisMonth) BhodlTheme.colors.financialPositive
     else BhodlTheme.colors.financialPending
     Row(
@@ -293,6 +290,10 @@ internal fun BillEditDialog(
         },
     )
 }
+
+/** A bill counts as paid when its last payment falls in [month] (in [zone]). */
+internal fun isPaidInMonth(lastPaidUnix: Long?, month: YearMonth, zone: ZoneId): Boolean =
+    lastPaidUnix?.let { YearMonth.from(Instant.ofEpochSecond(it).atZone(zone)) == month } ?: false
 
 internal object BillTags {
     const val ADD: String = "bill.add"

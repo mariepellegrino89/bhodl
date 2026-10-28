@@ -65,12 +65,9 @@ import io.bhodl.shared.resources.tracker_refresh_balances
 import io.bhodl.shared.resources.tracker_refreshing
 import io.bhodl.shared.resources.trk_wallet_excluded
 import io.bhodl.shared.resources.trk_wallet_included
-import io.bhodl.shared.resources.trk_wallet_kind_signing
-import io.bhodl.shared.resources.trk_wallet_kind_signing_tracked
 import io.bhodl.shared.resources.trk_wallet_kind_watch_addresses
 import io.bhodl.shared.resources.trk_wallet_kind_watch_hd
 import io.bhodl.shared.resources.trk_wallet_kind_watch_xpub
-import io.bhodl.shared.resources.trk_wallet_not_active_hint
 import io.bhodl.shared.resources.trk_wallets_across_many
 import io.bhodl.shared.resources.trk_wallets_across_one
 import io.bhodl.shared.resources.trk_wallets_total_nw
@@ -126,107 +123,54 @@ private fun TotalBalanceCard(
 }
 
 /**
- * One logical wallet's representation on the Tracking surface.
- * The same xpub may live across multiple registry rows (a signing
- * row + its watch mirror, or several watch rows pointing at the
- * same xpub); from the tracker's viewpoint they are ONE wallet.
+ * One logical wallet of the tracker. The same xpub may live across
+ * several registry rows (e.g. a former signing wallet's mirror plus a
+ * later manual add); from the tracker's viewpoint they are ONE wallet.
  */
 internal data class GroupedWallet(
     val displayLabel: String,
     val kindLabel: String,
     val network: String,
     val balanceSat: ULong?,
-    val showNotActiveHint: Boolean,
-    /** Phase 3.x — UUIDs of every registry row that collapsed into
-     *  this logical wallet (signing + its mirrors). Lets tabular
-     *  views aggregate `PaymentEvent`s by group instead of by raw
-     *  registry row, eliminating the duplicate-rows bug found
-     *  on 2026-05-16 (signing wallet + its mirror appearing as
-     *  two distinct entries in the Reports → "By wallet" table). */
+    /** UUIDs of every registry row that collapsed into this logical
+     *  wallet, so tabular views aggregate `PaymentEvent`s by group
+     *  instead of by raw registry row (no duplicate rows). */
     val memberIds: Set<String>,
-    /** True when the group is a signing wallet observed through its
-     *  watch-only mirror. */
-    val isSigning: Boolean = false,
     /** UX review 2026-10 (rec 3) — localized form of [kindLabel] for display
      *  ([kindDisplay]); [kindLabel] stays the stable English fallback. */
     val kindLabelRes: StringResource? = null,
 )
 
 /**
- * Group registry rows by their account xpub so a signing wallet
- * and its watch mirror render as a single tracker row. Address-list
- * watch wallets dedup by id only (they have no xpub).
- *
- * Display rules per group:
- *  - If a signing row exists in the group, its label wins. The kind
- *    reads "Signing (tracked)" when a mirror is also present (the
- *    user opted in to cross-wallet visibility), otherwise plain
- *    "Signing" — the inactive-signing hint still surfaces because
- *    without a mirror the balance is unknown when locked.
- *  - Watch-only groups carry the watch's label and its kind variant.
- *
- * Balance preference (decoupled tracker):
- *  - Signing WITH mirror → the mirror's last-synced balance (the mirror
- *    IS how the tracker observes this wallet, locked or unlocked).
- *  - Signing WITHOUT mirror → not listed (not tracked).
- *  - Watch-only group → its own `watchBalances` entry.
- *
- * [signingBalance] / [activeSigningId] are kept for call-site
- * compatibility but no longer influence the result.
+ * Group registry rows by their account xpub so duplicates render as a
+ * single tracker row; the first row's label, kind and balance win.
+ * Address-list watch wallets dedup by id only (they have no xpub).
  */
-@Suppress("UNUSED_PARAMETER")
 internal fun groupWalletsByXpub(
     wallets: List<WalletRecordFfi>,
     watchBalances: Map<String, ULong>,
-    signingBalance: ULong?,
-    activeSigningId: String?,
 ): List<GroupedWallet> {
     val groups = wallets.groupBy { record ->
         if (record.kind == WalletKindFfi.WATCH_ADDRESSES) {
-            // Address-list rows are not xpub-based; group by row id.
             record.id
         } else {
             io.bhodl.ffi.extractAccountXpub(record.descriptorPub) ?: record.id
         }
     }
-    return groups.values.mapNotNull { members ->
-        val signing = members.firstOrNull { it.kind == WalletKindFfi.SIGNING }
-        val watches = members.filter { it.kind != WalletKindFfi.SIGNING }
-        val memberIds = members.map { it.id }.toSet()
-        if (signing != null) {
-            // Decoupling signing<->tracker (2026-05-18): the tracker sees
-            // a signing wallet ONLY through its watch-only mirror. An
-            // unpaired signing wallet is not part of the tracker at all,
-            // and the balance always comes from the mirror (never from
-            // the unlocked WalletStore), so it's identical locked or not.
-            if (watches.isEmpty()) return@mapNotNull null
-            GroupedWallet(
-                displayLabel = signing.label,
-                kindLabel = "Signing (tracked)",
-                kindLabelRes = Res.string.trk_wallet_kind_signing_tracked,
-                network = signing.network,
-                balanceSat = watches.firstNotNullOfOrNull { watchBalances[it.id] },
-                showNotActiveHint = false,
-                memberIds = memberIds,
-                isSigning = true,
-            )
-        } else {
-            val w = members.first()
-            GroupedWallet(
-                displayLabel = w.label,
-                kindLabel = watchKindLabel(w.kind),
-                kindLabelRes = watchKindLabelRes(w.kind),
-                network = w.network,
-                balanceSat = watchBalances[w.id],
-                showNotActiveHint = false,
-                memberIds = memberIds,
-            )
-        }
+    return groups.values.map { members ->
+        val w = members.first()
+        GroupedWallet(
+            displayLabel = w.label,
+            kindLabel = watchKindLabel(w.kind),
+            kindLabelRes = watchKindLabelRes(w.kind),
+            network = w.network,
+            balanceSat = members.firstNotNullOfOrNull { watchBalances[it.id] },
+            memberIds = members.map { it.id }.toSet(),
+        )
     }
 }
 
 private fun watchKindLabelRes(kind: WalletKindFfi): StringResource = when (kind) {
-    WalletKindFfi.SIGNING -> Res.string.trk_wallet_kind_signing
     WalletKindFfi.WATCH_XPUB -> Res.string.trk_wallet_kind_watch_xpub
     WalletKindFfi.WATCH_ADDRESSES -> Res.string.trk_wallet_kind_watch_addresses
     WalletKindFfi.WATCH_HD -> Res.string.trk_wallet_kind_watch_hd
@@ -237,7 +181,6 @@ internal val GroupedWallet.kindDisplay: String
     @Composable get() = kindLabelRes?.let { stringResource(it) } ?: kindLabel
 
 private fun watchKindLabel(kind: WalletKindFfi): String = when (kind) {
-    WalletKindFfi.SIGNING -> "Signing"
     WalletKindFfi.WATCH_XPUB -> "Watch (xpub)"
     WalletKindFfi.WATCH_ADDRESSES -> "Watch (addresses)"
     WalletKindFfi.WATCH_HD -> "Watch (HD)"
@@ -272,9 +215,7 @@ internal fun GroupedWalletRow(
         // Phase 3.14.b — vertical color band that grows with the row.
         // `IntrinsicSize.Min` on the Row + `fillMaxHeight()` on the
         // band makes the stripe match whatever the tallest child is
-        // (text, hint, balance). Replaces the fixed 40dp from 3.14
-        // which left a visible gap when `showNotActiveHint` rendered
-        // an extra line of text.
+        // (text, balance). Replaces the fixed 40dp from 3.14.
         Box(
             modifier = Modifier
                 .background(walletColor)
@@ -297,13 +238,6 @@ internal fun GroupedWalletRow(
                 style = BhodlTheme.typography.bodyMedium,
                 color = BhodlTheme.colors.textTertiary,
             )
-            if (group.showNotActiveHint) {
-                Text(
-                    text = stringResource(Res.string.trk_wallet_not_active_hint),
-                    style = BhodlTheme.typography.bodyMedium,
-                    color = BhodlTheme.colors.textTertiary,
-                )
-            }
         }
         Text(
             text = group.balanceSat?.let { displayAmount(it) } ?: "—",

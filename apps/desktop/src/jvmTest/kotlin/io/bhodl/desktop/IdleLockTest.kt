@@ -73,27 +73,6 @@ class IdleLockTest {
     }
 
     @Test
-    fun `the setup wizard arms the lock even with nothing open`() {
-        // Fresh install: no registry, no wallet, no wizard.
-        assertFalse(IdleLock.sessionArmed(false, false, setupSecretsParked = 0, onSetupRoute = false))
-        // GenerateMnemonic shows the seed before it is parked.
-        assertTrue(IdleLock.sessionArmed(false, false, setupSecretsParked = 0, onSetupRoute = true))
-        // ConfirmMnemonic / PinSetup: seed parked in SetupSecrets.
-        assertTrue(IdleLock.sessionArmed(false, false, setupSecretsParked = 1, onSetupRoute = false))
-        assertTrue(IdleLock.sessionArmed(true, false, 0, false))
-        assertTrue(IdleLock.sessionArmed(false, true, 0, false))
-
-        // Armed by the wizard alone, an idle session past the timeout locks.
-        val armed = IdleLock.sessionArmed(false, false, setupSecretsParked = 1, onSetupRoute = true)
-        assertTrue(
-            IdleLock.shouldLock(
-                sessionOpen = armed, registryOpen = false, devicePinExpired = true,
-                nowNanos = t0, lastActivity = t0 - IdleLock.IDLE_TIMEOUT_MS * ms, minimizedSince = null,
-            ),
-        )
-    }
-
-    @Test
     fun `repeated minimise events keep the first timestamp`() {
         IdleLock.touch(nowNanos = t0)
         IdleLock.setMinimized(true, nowNanos = t0)

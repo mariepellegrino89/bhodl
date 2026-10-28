@@ -43,7 +43,6 @@ import io.bhodl.desktop.ui.bhodlCard
 import io.bhodl.ffi.TrackingInvestmentFfi
 import io.bhodl.ffi.TrackingManualAssetFfi
 import io.bhodl.ffi.TrackingSavingsGoalFfi
-import io.bhodl.ffi.WalletKindFfi
 import io.bhodl.ffi.WalletRecordFfi
 import io.bhodl.ui.theme.BhodlTheme
 import kotlin.math.roundToInt

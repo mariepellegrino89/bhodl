@@ -23,8 +23,8 @@ import io.bhodl.ffi.WalletRecordFfi
  * registry rows tracking the same account (e.g. a WatchHd mirror and a
  * WatchXpub of the same xpub) must count as ONE wallet, otherwise every
  * transaction of that account would look like a transfer between "two"
- * wallets. (That was audit finding H13: the unlocked signing wallet's
- * events were merged with its paired watch mirror, so every tx was
+ * wallets. (That was audit finding H13: an older build merged a signing
+ * wallet's events with its paired watch mirror, so every tx was
  * persisted as send_to_self.)
  *
  * ## Rule
@@ -91,20 +91,16 @@ internal fun isInternalTransfer(legs: List<PaymentEvent>): Boolean {
 }
 
 /**
- * Map every non-signing wallet id to the CANONICAL id of the account it
+ * Map every wallet id to the CANONICAL id of the account it
  * tracks. Rows whose [accountKey] (the account xpub, or the descriptor
  * itself when no xpub can be extracted) match are aliases of the same
  * wallet; the oldest row (createdAt, then id) is canonical.
- *
- * Signing rows are excluded: the tracker only sees a signing wallet
- * through its watch-only mirror (decoupling decision 2026-05-18).
  */
 internal fun canonicalWalletIds(
     wallets: List<WalletRecordFfi>,
     accountKey: (WalletRecordFfi) -> String?,
 ): Map<String, String> {
-    val watch = wallets.filter { it.kind != WalletKindFfi.SIGNING }
-    val groups = watch.groupBy { w ->
+    val groups = wallets.groupBy { w ->
         if (w.kind == WalletKindFfi.WATCH_ADDRESSES) {
             "addr:" + w.descriptorPub.trim()
         } else {
@@ -137,8 +133,6 @@ internal fun dropAliasedEvents(
  * stricter detector would never have produced. User-pinned rows
  * ([CryptoEventKindRow.userSet], registry schema v3) are never touched.
  * Among auto rows we only reset those that are certainly artefacts:
- *  - rows keyed by a SIGNING wallet id (signing events are no longer part
- *    of the tracker stream — those rows came from the old merge),
  *  - rows keyed by an alias (non-canonical) watch row,
  *  - rows whose txid, after alias dedup, appears in a single real wallet
  *    (a transfer between "two" wallets needs two wallets).
@@ -147,11 +141,9 @@ internal fun dropAliasedEvents(
  */
 internal fun staleSendToSelfTags(
     rows: List<CryptoEventKindRow>,
-    wallets: List<WalletRecordFfi>,
     canonical: Map<String, String>,
     dedupedEvents: List<PaymentEvent>,
 ): List<Pair<String, String>> {
-    val signingIds = wallets.filter { it.kind == WalletKindFfi.SIGNING }.map { it.id }.toSet()
     val walletsPerTxid = HashMap<String, MutableSet<String>>()
     for (ev in dedupedEvents) {
         if (ev.kind != PaymentKind.ON_CHAIN) continue
@@ -161,7 +153,6 @@ internal fun staleSendToSelfTags(
         .filter { it.kind == SEND_TO_SELF && !it.userSet }
         .filter { row ->
             when {
-                row.walletId in signingIds -> true
                 canonical[row.walletId]?.let { it != row.walletId } == true -> true
                 canonical.containsKey(row.walletId) ->
                     (walletsPerTxid[row.txidOrPaymentId]?.size ?: 0) <= 1

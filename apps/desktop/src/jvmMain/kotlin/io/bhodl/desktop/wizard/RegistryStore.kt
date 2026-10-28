@@ -66,6 +66,10 @@ public object RegistryStore {
         // would couple the wizard layer to the data layer; the public
         // reset() call below is cheap and idempotent.
         io.bhodl.desktop.data.TrackerCache.reset()
+        // GAP-015 — the net-worth history and price caches belong to the
+        // session being closed (their keys carry no registry identity).
+        kotlinx.coroutines.runBlocking { io.bhodl.desktop.prices.NetWorthHistoryClient.clearCache() }
+        io.bhodl.desktop.prices.PriceCache.clearSessionCaches()
         // R5 — cancel any in-flight Phase 8.2 backfill BEFORE closing
         // the session below. Without this, the background job could still be
         // mid-run against a device PIN we are about to invalidate,

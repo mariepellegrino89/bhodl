@@ -168,16 +168,12 @@ class TableColumnHidingTest {
         address = "tb1qexampleaddressxxxxxxxxxxxxxxxxxxxxxxxx",
         isChange = true,
         confirmed = true,
-        frozen = true,
     )
 
     @Composable
     private fun UtxoFixture() = UtxoTable(
         utxos = listOf(utxo),
         amounts = rememberColumnAmountFormat(listOf(21_000L)),
-        isSelected = { false },
-        onSelect = { _, _ -> },
-        onFreeze = { _, _ -> },
     )
 
     @Test
@@ -187,11 +183,10 @@ class TableColumnHidingTest {
     }
 
     @Test
-    fun `utxo table keeps status, amount and freeze when narrow`() = runDesktopComposeUiTest {
+    fun `utxo table keeps status and amount when narrow`() = runDesktopComposeUiTest {
         renderAt(400) { UtxoFixture() }
         assertHeader(UTXO_TABLE, listOf(UtxoCol.STATUS, UtxoCol.AMOUNT))
-        onNodeWithTag(WalletTabTags.utxoFrozen(utxo.outpoint), useUnmergedTree = true).assertExists()
-        onNodeWithTag(WalletTabTags.utxoFreeze(utxo.outpoint), useUnmergedTree = true).assertExists()
+        onNodeWithTag(WalletTabTags.utxoRow(utxo.outpoint), useUnmergedTree = true).assertExists()
     }
 
     @Composable
@@ -204,12 +199,10 @@ class TableColumnHidingTest {
                 descriptorPub = "wpkh(xpub.../0/*)",
                 network = "signet",
                 createdAtUnix = 0,
-                pinsWarned = false,
             ),
         ),
         watchBalances = mapOf("w1" to 50_000uL),
-        onSigningTap = {},
-        onWatchTap = {},
+        onOpenWallet = {},
     )
 
     @Test

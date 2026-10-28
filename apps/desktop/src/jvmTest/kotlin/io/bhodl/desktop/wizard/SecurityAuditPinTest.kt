@@ -11,7 +11,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-/** Audit 2026-10 — PIN lockout, error classification, setup secrets, idle lock, wipe. */
+/** Audit 2026-10 — PIN lockout, error classification, idle lock, wipe. */
 class SecurityAuditPinTest {
 
     private lateinit var tmp: File
@@ -21,14 +21,12 @@ class SecurityAuditPinTest {
     fun setUp() {
         tmp = kotlin.io.path.createTempDirectory("bhodl-audit-").toFile()
         PinAttemptTracker.reset()
-        SetupSecrets.wipeAll()
     }
 
     @AfterTest
     fun tearDown() {
         tmp.deleteRecursively()
         PinAttemptTracker.reset()
-        SetupSecrets.wipeAll()
     }
 
     @Test
@@ -116,16 +114,6 @@ class SecurityAuditPinTest {
         val msg = PinErrors.messageFor(PinFailureKind.NewerVersion)
         assertTrue("newer version of BHODL" in msg, msg)
         assertTrue("not counted" in msg, msg)
-    }
-
-    @Test
-    fun `setup secrets are wiped`() {
-        val id = SetupSecrets.put("abandon about", "pw")
-        assertEquals("abandon about", SetupSecrets.mnemonic(id))
-        assertEquals("pw", SetupSecrets.passphrase(id))
-        SetupSecrets.wipeAll()
-        assertNull(SetupSecrets.mnemonic(id))
-        assertEquals(0, SetupSecrets.size())
     }
 
     @Test

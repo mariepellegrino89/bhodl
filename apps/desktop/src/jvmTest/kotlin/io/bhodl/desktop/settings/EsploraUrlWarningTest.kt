@@ -73,6 +73,11 @@ class EsploraUrlWarningTest {
         assertNull(SettingsStore.esploraUrlWarning("https://localhost/api"))
     }
 
+    @Test
+    fun `http to an onion host returns null like the Settings banner`() {
+        assertNull(SettingsStore.esploraUrlWarning("http://abcdefghij.onion/api"))
+    }
+
     // ---- edge cases -----------------------------------------------------
 
     @Test

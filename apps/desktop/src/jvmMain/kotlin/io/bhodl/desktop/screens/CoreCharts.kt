@@ -1,5 +1,8 @@
 package io.bhodl.desktop.screens
 
+import io.bhodl.desktop.domain.externalInflowSat
+import io.bhodl.desktop.domain.externalOutflowSat
+
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -380,9 +383,16 @@ private fun ChartHeader(title: String, showTable: Boolean, onToggle: () -> Unit)
     }
 }
 
-internal fun computeMonthlyFlows(events: List<PaymentEvent>): List<MonthlyFlow> {
+/**
+ * Monthly external inflow / outflow (GAP-010): months are UTC calendar
+ * months like every other tracker aggregate, and internal transfers are
+ * neither income nor spending (a send_to_self counts only its fee).
+ */
+internal fun computeMonthlyFlows(
+    events: List<PaymentEvent>,
+    zone: ZoneId = java.time.ZoneOffset.UTC,
+): List<MonthlyFlow> {
     if (events.isEmpty()) return emptyList()
-    val zone = ZoneId.systemDefault()
     val byMonth = events
         .filter { it.timestampUnix != null }
         .groupBy { ev ->
@@ -392,8 +402,8 @@ internal fun computeMonthlyFlows(events: List<PaymentEvent>): List<MonthlyFlow> 
     if (byMonth.isEmpty()) return emptyList()
     val sorted = byMonth.toSortedMap()
     return sorted.map { (ym, evs) ->
-        val incoming = evs.filter { it.direction == PaymentDirection.INCOMING }.sumOf { it.amountSat }
-        val outgoing = evs.filter { it.direction == PaymentDirection.OUTGOING }.sumOf { it.amountSat }
+        val incoming = evs.sumOf { it.externalInflowSat() }
+        val outgoing = evs.sumOf { it.externalOutflowSat() }
         MonthlyFlow(
             label = "${ym.month.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.getDefault())} ${ym.year % 100}",
             incomingSat = incoming,

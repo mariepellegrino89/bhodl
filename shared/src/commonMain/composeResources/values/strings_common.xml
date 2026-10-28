@@ -12,7 +12,6 @@
     <string name="common_delete">Delete</string>
     <string name="common_edit">Edit</string>
     <string name="common_add">Add</string>
-    <string name="common_confirm">Confirm</string>
     <string name="common_retry">Retry</string>
     <string name="common_copy">Copy</string>
     <string name="common_copied">Copied</string>
@@ -50,4 +49,20 @@
     <string name="tracker_reports_col_out">Out</string>
     <string name="tracker_reports_col_net">Net</string>
     <string name="tracker_reports_col_last">Last</string>
+    <string name="app_already_running">BHODL is already open. Switch to the existing window.</string>
+    <string name="err_unexpected">Unexpected error.</string>
+    <string name="err_kind_bip32">Key derivation (BIP32) failed</string>
+    <string name="err_kind_invalid_address">Invalid address</string>
+    <string name="err_kind_invalid_argument">Invalid value</string>
+    <string name="err_kind_esplora_sync">Esplora sync failed</string>
+    <string name="err_esplora_connection_dropped">the server closed the connection; it is retried at the next sync</string>
+    <string name="err_kind_storage">Storage error</string>
+    <string name="err_kind_wallet_create">Wallet creation failed</string>
+    <string name="err_kind_derivation_path">Invalid derivation path</string>
+    <string name="err_kind_key_derivation">Key derivation failed</string>
+    <string name="err_kind_io">File system error</string>
+    <string name="err_kind_invalid_salt">Invalid salt file: expected %1$d bytes, got %2$d</string>
+    <string name="err_kind_rate_currency">Price: currency not supported (%1$s)</string>
+    <string name="err_kind_rate_network">Price: network unavailable</string>
+    <string name="err_kind_rate_all_failed">Price: every source failed</string>
 </resources>

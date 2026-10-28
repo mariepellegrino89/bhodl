@@ -155,6 +155,37 @@ class BackfillRunnerTest {
     }
 
     @Test
+    fun `a failure after cancel stays Idle instead of Failed`() = runBlocking {
+        val started = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val finished = CountDownLatch(1)
+        BackfillRunner.setTargetForTest { _, _ ->
+            started.countDown()
+            release.await()
+            try {
+                // The registry was closed by the lock: the FFI call fails.
+                throw IllegalStateException("registry closed")
+            } finally {
+                finished.countDown()
+            }
+        }
+        BackfillRunner.runIfNeeded(
+            scope = this,
+            registryProvider = { fakeRegistry },
+            proxyProvider = { null },
+        )
+        assertTrue(started.await(5, TimeUnit.SECONDS))
+        BackfillRunner.cancel()
+        release.countDown()
+        assertTrue(finished.await(5, TimeUnit.SECONDS))
+        Thread.sleep(100)
+        assertTrue(
+            BackfillRunner.state.value is BackfillRunner.State.Idle,
+            "a failure of the closed session must not surface as Failed",
+        )
+    }
+
+    @Test
     fun `cancel is a no-op when idle`() {
         BackfillRunner.resetTargetForTest() // state = Idle
         BackfillRunner.cancel()

@@ -1,17 +1,13 @@
 use thiserror::Error;
 
-/// Failure modes of the on-chain wallet primitives.
+/// Failure modes of the watch-only wallet primitives and the registry.
 ///
-/// `bip39` and `bitcoin` errors are wrapped with `#[from]` so callers can
-/// use `?` directly. The variants are `#[non_exhaustive]` so adding new
-/// failure cases (e.g. for PSBT building in future commits) does not break
-/// downstream `match` arms.
+/// `bitcoin` BIP-32 errors are wrapped with `#[from]` so callers can use
+/// `?` directly. The enum is `#[non_exhaustive]` so adding new failure
+/// cases does not break downstream `match` arms.
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum OnchainError {
-    #[error("invalid BIP39 mnemonic: {0}")]
-    Mnemonic(#[from] bip39::Error),
-
     #[error("BIP32 derivation failed: {0}")]
     Bip32(#[from] bitcoin::bip32::Error),
 
@@ -32,33 +28,6 @@ pub enum OnchainError {
 
     #[error("invalid address: {0}")]
     InvalidAddress(String),
-
-    #[error("invalid PSBT: {0}")]
-    InvalidPsbt(String),
-
-    #[error("invalid fee rate: {0}")]
-    InvalidFeeRate(String),
-
-    #[error("transaction build failed: {0}")]
-    TxBuild(String),
-
-    #[error("PSBT signing failed: {0}")]
-    Sign(String),
-
-    #[error("broadcast failed: {0}")]
-    Broadcast(String),
-
-    /// The built transaction pays a fee above the absolute-fee guard
-    /// (`max(50 000 sat, 5% of the amount sent)`). Rebuild with the
-    /// explicit `allow_high_fee` confirmation only after the user
-    /// confirmed the fee a second time.
-    #[error("fee of {fee_sat} sat exceeds the {limit_sat} sat safety limit")]
-    FeeTooHigh { fee_sat: u64, limit_sat: u64 },
-
-    /// The fee estimator returned nothing usable (empty, garbage or
-    /// implausibly high). The UI must ask for a manual fee rate.
-    #[error("fee estimate unavailable: {0}")]
-    FeeEstimateUnavailable(String),
 
     /// Caller supplied a value that violates a domain constraint
     /// (e.g. `due_day` outside 1..=31, an unrecognised `asset_type`,

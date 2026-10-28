@@ -1,6 +1,23 @@
 package io.bhodl.desktop.ui
 
+import io.bhodl.desktop.wizard.localizedText
 import io.bhodl.ffi.WalletException
+import io.bhodl.shared.resources.Res
+import io.bhodl.shared.resources.err_esplora_connection_dropped
+import io.bhodl.shared.resources.err_kind_bip32
+import io.bhodl.shared.resources.err_kind_derivation_path
+import io.bhodl.shared.resources.err_kind_esplora_sync
+import io.bhodl.shared.resources.err_kind_invalid_address
+import io.bhodl.shared.resources.err_kind_invalid_argument
+import io.bhodl.shared.resources.err_kind_invalid_salt
+import io.bhodl.shared.resources.err_kind_io
+import io.bhodl.shared.resources.err_kind_key_derivation
+import io.bhodl.shared.resources.err_kind_rate_all_failed
+import io.bhodl.shared.resources.err_kind_rate_currency
+import io.bhodl.shared.resources.err_kind_rate_network
+import io.bhodl.shared.resources.err_kind_storage
+import io.bhodl.shared.resources.err_kind_wallet_create
+import io.bhodl.shared.resources.err_unexpected
 
 /**
  * Security review — sanitised, user-facing error messages.
@@ -38,9 +55,32 @@ private const val MAX_USER_MESSAGE_LENGTH: Int = 200
  * [MAX_USER_MESSAGE_LENGTH] characters. [fallback] is returned when
  * the throwable carries no message at all.
  */
-public fun Throwable.userMessage(fallback: String = "Unexpected error."): String {
-    val raw = (this as? WalletException)?.message ?: message
-    return sanitizeErrorDetail(raw, fallback)
+public fun Throwable.userMessage(fallback: String = localizedText(Res.string.err_unexpected)): String {
+    val we = this as? WalletException ?: return sanitizeErrorDetail(message, fallback)
+    // FFI errors: a localized kind ("Storage error") plus the technical
+    // detail, instead of the generated "detail=…" message.
+    val (kind, detail) = we.kindAndDetail()
+    val shownDetail = sanitizeErrorDetail(detail, fallback = "")
+    return sanitizeErrorDetail(if (shownDetail.isEmpty()) kind else "$kind: $shownDetail", fallback)
+}
+
+private fun WalletException.kindAndDetail(): Pair<String, String?> = when (this) {
+    is WalletException.Bip32 -> localizedText(Res.string.err_kind_bip32) to detail
+    is WalletException.InvalidAddress -> localizedText(Res.string.err_kind_invalid_address) to detail
+    is WalletException.InvalidArgument -> localizedText(Res.string.err_kind_invalid_argument) to detail
+    is WalletException.EsploraSync -> localizedText(Res.string.err_kind_esplora_sync) to
+        if (isDroppedConnection(detail)) localizedText(Res.string.err_esplora_connection_dropped) else detail
+    is WalletException.Storage -> localizedText(Res.string.err_kind_storage) to detail
+    is WalletException.WalletCreate -> localizedText(Res.string.err_kind_wallet_create) to detail
+    is WalletException.DerivationPath -> localizedText(Res.string.err_kind_derivation_path) to detail
+    is WalletException.KeyDerivation -> localizedText(Res.string.err_kind_key_derivation) to detail
+    is WalletException.Io -> localizedText(Res.string.err_kind_io) to detail
+    is WalletException.InvalidSalt ->
+        localizedText(Res.string.err_kind_invalid_salt, expected.toInt(), actual.toInt()) to null
+    is WalletException.RateCurrencyNotSupported ->
+        localizedText(Res.string.err_kind_rate_currency, currency) to null
+    is WalletException.RateNetworkUnavailable -> localizedText(Res.string.err_kind_rate_network) to null
+    is WalletException.RateAllSourcesFailed -> localizedText(Res.string.err_kind_rate_all_failed) to detail
 }
 
 /**
@@ -48,9 +88,25 @@ public fun Throwable.userMessage(fallback: String = "Unexpected error."): String
  * filesystem paths and truncate. Shared by [userMessage] and the
  * non-Throwable call sites (e.g. stderr logging in the price clients).
  */
+/**
+ * Transport errors where the server (or a proxy) dropped the connection
+ * mid-request, e.g. minreq's `IoError(Kind(UnexpectedEof))`. Temporary:
+ * the next sync retries, so the raw Rust debug text is replaced.
+ */
+internal fun isDroppedConnection(detail: String?): Boolean =
+    detail != null && DROPPED_CONNECTION_MARKERS.any { detail.contains(it) }
+
+private val DROPPED_CONNECTION_MARKERS = listOf(
+    "UnexpectedEof",
+    "ConnectionReset",
+    "ConnectionAborted",
+    "BrokenPipe",
+    "TimedOut",
+)
+
 public fun sanitizeErrorDetail(
     raw: String?,
-    fallback: String = "Unexpected error.",
+    fallback: String = localizedText(Res.string.err_unexpected),
 ): String {
     val msg = raw?.takeIf { it.isNotBlank() } ?: return fallback
     val redacted = msg

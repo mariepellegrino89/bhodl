@@ -39,9 +39,13 @@ internal enum class CostBasisMethod(public val wireValue: String) {
  * one lot, the lots are the canonical source; otherwise we fall back
  * to the legacy single-row `costBasisFiat` from Phase 5.1.
  *
- * Σ(quantity × pricePerUnit + feesFiat) — fees are added in because
- * they are part of the cost basis (broker spreads, commissions etc.)
- * which is what gets compared to the sell price at disposal time.
+ * Σ quantity × (pricePerUnit + fee per unit) — fees are part of the
+ * cost basis (broker spreads, commissions etc.) which is what gets
+ * compared to the sell price at disposal time. Only the UNSOLD share of
+ * a lot's purchase fees counts ([lotFeePerUnit] over the remaining
+ * quantity): after a partial sell the sold share already sits in the
+ * disposal's basis, so counting the whole fee made value − cost
+ * disagree with [unrealizedPnl].
  */
 internal fun effectiveCostBasis(
     inv: TrackingInvestmentFfi,
@@ -51,9 +55,40 @@ internal fun effectiveCostBasis(
     var total = 0.0
     for (l in lots) {
         if (!l.quantity.isFinite() || !l.pricePerUnit.isFinite()) continue
-        total += l.quantity * l.pricePerUnit + (l.feesFiat.takeIf { it.isFinite() } ?: 0.0)
+        total += l.quantity * (l.pricePerUnit + lotFeePerUnit(l))
     }
     return total
+}
+
+/**
+ * PRT-002 — a new position saved from the edit dialog gets its first lot
+ * seeded from the aggregate only when it carries both a quantity and a cost.
+ */
+internal fun shouldSeedLotOnCreate(quantity: Double, costBasis: Double): Boolean =
+    quantity > 0.0 && costBasis > 0.0
+
+/** New (quantity, pricePerUnit) for the single lot of an edited position. */
+internal data class SingleLotResync(val quantity: Double, val pricePerUnit: Double)
+
+/**
+ * PRT-009 — editing QTY / COST of a position with exactly one lot rewrites
+ * that lot so the row's cost ([effectiveCostBasis]) equals [costBasis]:
+ * the lot's fees are spread over the purchased size the save implies
+ * (remaining [quantity] + the units already sold), so only their unsold
+ * share sits in the remaining cost. Null when nothing must change
+ * ([lots] is not exactly one lot, or [quantity] is not positive).
+ */
+internal fun singleLotResync(
+    lots: List<TrackingInvestmentLotFfi>,
+    quantity: Double,
+    costBasis: Double,
+): SingleLotResync? {
+    if (lots.size != 1 || !(quantity > 0.0) || !quantity.isFinite()) return null
+    val lot = lots.first()
+    val sold = ((lot.originalQuantity ?: lot.quantity) - lot.quantity).coerceAtLeast(0.0)
+    val feePerUnit = lot.feesFiat / (quantity + sold)
+    val pricePerUnit = (costBasis / quantity - feePerUnit).coerceAtLeast(0.0)
+    return SingleLotResync(quantity, pricePerUnit)
 }
 
 /**

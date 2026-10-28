@@ -23,54 +23,54 @@ class WalletPathsTest {
         tmp.deleteRecursively()
     }
 
+    // --- Watch-only: detection of leftover signing data ----------------------
+
     @Test
-    fun walletExists_returns_false_for_empty_dir() {
-        val view = WalletPaths.from(tmp)
-        assertFalse(view.walletExists())
+    fun legacySigningDataExists_is_false_for_empty_dir() {
+        assertFalse(WalletPaths.from(tmp).legacySigningDataExists())
     }
 
     @Test
-    fun walletExists_returns_true_when_salt_file_present() {
-        File(tmp, WalletPaths.SALT_FILE_NAME).writeBytes(ByteArray(16) { 0x42 })
-        val view = WalletPaths.from(tmp)
-        assertTrue(view.walletExists())
+    fun legacySigningDataExists_is_false_for_nonexistent_dir() {
+        assertFalse(WalletPaths.from(File(tmp, "does-not-exist")).legacySigningDataExists())
     }
 
     @Test
-    fun walletExists_returns_false_when_salt_path_is_a_directory() {
-        // Defensive: a directory named wallet.salt is not a salt file.
-        File(tmp, WalletPaths.SALT_FILE_NAME).mkdir()
-        val view = WalletPaths.from(tmp)
-        assertFalse(view.walletExists())
+    fun legacySigningDataExists_ignores_registry_and_watch_state() {
+        File(tmp, WalletPaths.REGISTRY_FILE_NAME).writeBytes(ByteArray(10))
+        File(tmp, WalletPaths.REGISTRY_KDF_FILE_NAME).writeText("{}")
+        val watch = File(tmp, WalletPaths.WATCH_STATE_SUBDIR).apply { mkdirs() }
+        File(watch, "abc.sqlite").writeBytes(ByteArray(10))
+        File(tmp, WalletPaths.WALLETS_SUBDIR).mkdirs() // empty dir is not signing data
+        assertFalse(WalletPaths.from(tmp).legacySigningDataExists())
     }
 
     @Test
-    fun walletExists_returns_true_when_only_kdf_file_present() {
-        // Wallets created via the KDF migration framework only have
-        // wallet.kdf.json (no standalone wallet.salt) — the boot guard
-        // must still recognise them as existing wallets.
-        File(tmp, WalletPaths.KDF_FILE_NAME).writeText(
-            """{"version":1,"salt_hex":"00112233445566778899aabbccddeeff","kdf":{"m_cost_kib":65536,"t_cost":3,"p_cost":4}}""",
+    fun legacySigningDataExists_detects_each_root_artifact() {
+        val names = listOf(
+            WalletPaths.WALLET_DB_FILE_NAME,
+            WalletPaths.SALT_FILE_NAME,
+            WalletPaths.KDF_FILE_NAME,
+            WalletPaths.NETWORK_FILE_NAME,
+            WalletPaths.KDF_PENDING_FILE_NAME,
+            WalletPaths.KDF_SEALED_MARKER_NAME,
+            WalletPaths.MIGRATION_LOCK_NAME,
+            "${WalletPaths.ORPHAN_DB_PREFIX}1700000000",
         )
-        val view = WalletPaths.from(tmp)
-        assertTrue(view.walletExists())
+        for (name in names) {
+            val f = File(tmp, name).apply { writeText("x") }
+            assertTrue(WalletPaths.from(tmp).legacySigningDataExists(), "$name must be detected")
+            f.delete()
+        }
+        File(tmp, WalletPaths.MIGRATION_BACKUP_SUBDIR).mkdirs()
+        assertTrue(WalletPaths.from(tmp).legacySigningDataExists(), "migration backup must be detected")
     }
 
     @Test
-    fun walletExists_returns_true_when_both_salt_and_kdf_present() {
-        // Mid-migration state: legacy salt file still around, modern
-        // kdf.json was just written. Either signal alone is sufficient.
-        File(tmp, WalletPaths.SALT_FILE_NAME).writeBytes(ByteArray(16) { 0x42 })
-        File(tmp, WalletPaths.KDF_FILE_NAME).writeText("""{"version":1}""")
-        val view = WalletPaths.from(tmp)
-        assertTrue(view.walletExists())
-    }
-
-    @Test
-    fun walletExists_returns_false_for_nonexistent_dir() {
-        val missing = File(tmp, "does-not-exist")
-        val view = WalletPaths.from(missing)
-        assertFalse(view.walletExists())
+    fun legacySigningDataExists_detects_a_per_wallet_signing_dir() {
+        val walletDir = File(tmp, "${WalletPaths.WALLETS_SUBDIR}/abc").apply { mkdirs() }
+        File(walletDir, WalletPaths.WALLET_DB_FILE_NAME).writeBytes(ByteArray(100) { 0x55 })
+        assertTrue(WalletPaths.from(tmp).legacySigningDataExists())
     }
 
     @Test
@@ -114,12 +114,8 @@ class WalletPathsTest {
         // We simulate a full pre-wipe state (every file present),
         // run reset(), and assert two invariants:
         //   1. Both boot-guard markers (salt + kdf) end up gone.
-        //   2. At any earlier point in the deletion sequence,
-        //      `walletExists()` would have flipped to `false` BEFORE
-        //      `wallet.sqlite` was touched. (We can't observe the
-        //      mid-flight state from outside `reset()`, but we can
-        //      assert the contract by inspecting the deletion order
-        //      in `deleted`.)
+        //   2. `wallet.sqlite` is deleted BEFORE the KDF descriptors
+        //      (asserted through the deletion order in `deleted`).
         File(tmp, WalletPaths.SALT_FILE_NAME).writeBytes(ByteArray(16) { 0x42 })
         File(tmp, WalletPaths.KDF_FILE_NAME).writeText("""{"version":1}""")
         File(tmp, "wallet.sqlite").writeBytes(ByteArray(100) { 0x55 })
@@ -149,93 +145,82 @@ class WalletPathsTest {
             "sqlite must be deleted before kdf (order was $deletedNames)",
         )
 
-        // Post-reset: walletExists() must be false (boot routes to
-        // Welcome), no orphan markers, no orphan DB.
-        assertFalse(view.walletExists())
+        // Post-reset: no legacy key material, no orphan DB.
+        assertFalse(view.legacySigningDataExists())
         assertFalse(File(tmp, "wallet.sqlite").exists())
     }
 
     @Test
     fun reset_only_sqlite_present_leaves_boot_in_clean_state() {
         // The state reported from a real install: `{sqlite}` only.
-        // walletExists() must return false so the boot guard routes
-        // to Welcome, never to Unlock-without-key-material.
         File(tmp, "wallet.sqlite").writeBytes(ByteArray(100) { 0x55 })
         val view = WalletPaths.from(tmp)
-        assertFalse(view.walletExists())
         // A subsequent reset() picks up the orphan.
         val deleted = view.reset()
         assertEquals(listOf("wallet.sqlite"), deleted.map { it.name })
     }
 
-    // --- Audit 2026-10 (M2 follow-up): legacy `wallet.salt` installs ---
+    // --- Watch-only: purge of leftover signing data --------------------------
 
     @Test
-    fun legacy_salt_only_install_needs_migration_and_unlocks_from_root() {
-        // Pre-descriptor single-wallet install: wallet.salt + wallet.sqlite,
-        // no wallet.kdf.json. Must reach the Phase 3.0 migration (Rust
-        // upgrades the salt) instead of being ignored.
-        File(tmp, WalletPaths.SALT_FILE_NAME).writeBytes(ByteArray(16) { 0x42 })
-        File(tmp, WalletPaths.WALLET_DB_FILE_NAME).writeBytes(ByteArray(100) { 0x55 })
-        val view = WalletPaths.from(tmp)
-        assertTrue(view.legacyRootWalletExists())
-        assertTrue(view.migrationNeeded())
-        assertEquals(tmp, view.activeWalletDir())
-    }
-
-    @Test
-    fun legacy_pending_kdf_only_install_is_recognised() {
-        // Crash between rekey and rename: only `wallet.kdf.json.next`.
-        File(tmp, WalletPaths.KDF_PENDING_FILE_NAME).writeText("""{"version":1}""")
-        File(tmp, WalletPaths.WALLET_DB_FILE_NAME).writeBytes(ByteArray(100) { 0x55 })
-        val view = WalletPaths.from(tmp)
-        assertTrue(view.migrationNeeded())
-        assertEquals(tmp, view.activeWalletDir())
-    }
-
-    @Test
-    fun legacy_salt_install_with_registry_does_not_need_migration() {
-        File(tmp, WalletPaths.SALT_FILE_NAME).writeBytes(ByteArray(16) { 0x42 })
-        File(tmp, WalletPaths.WALLET_DB_FILE_NAME).writeBytes(ByteArray(100) { 0x55 })
-        File(tmp, WalletPaths.REGISTRY_FILE_NAME).writeBytes(ByteArray(10))
-        assertFalse(WalletPaths.from(tmp).migrationNeeded())
-    }
-
-    @Test
-    fun wallet_broken_by_old_migration_is_routable_for_rust_repair() {
-        // Pre-fix migration moved wallet.sqlite into wallets/<uuid>/ but
-        // left wallet.salt at the data-dir root. unlock_persistent copies
-        // it back (repair_migrated_legacy_salt), so the boot guard must
-        // pick that dir.
-        File(tmp, WalletPaths.SALT_FILE_NAME).writeBytes(ByteArray(16) { 0x42 })
-        File(tmp, WalletPaths.REGISTRY_FILE_NAME).writeBytes(ByteArray(10))
+    fun purgeLegacySigningData_removes_every_signing_artifact_and_keeps_watch_data() {
+        val rootNames = listOf(
+            WalletPaths.WALLET_DB_FILE_NAME,
+            "${WalletPaths.WALLET_DB_FILE_NAME}-wal",
+            WalletPaths.SALT_FILE_NAME,
+            WalletPaths.KDF_FILE_NAME,
+            WalletPaths.NETWORK_FILE_NAME,
+            WalletPaths.KDF_PENDING_FILE_NAME,
+            WalletPaths.KDF_SEALED_MARKER_NAME,
+            WalletPaths.MIGRATION_LOCK_NAME,
+            "${WalletPaths.ORPHAN_DB_PREFIX}1700000000",
+        )
+        rootNames.forEach { File(tmp, it).writeText("x") }
+        val backup = File(tmp, WalletPaths.MIGRATION_BACKUP_SUBDIR).apply { mkdirs() }
+        File(backup, WalletPaths.WALLET_DB_FILE_NAME).writeText("x")
+        File(backup, WalletPaths.SALT_FILE_NAME).writeText("x")
         val walletDir = File(tmp, "${WalletPaths.WALLETS_SUBDIR}/abc").apply { mkdirs() }
-        File(walletDir, WalletPaths.WALLET_DB_FILE_NAME).writeBytes(ByteArray(100) { 0x55 })
+        File(walletDir, WalletPaths.WALLET_DB_FILE_NAME).writeText("x")
+        File(walletDir, WalletPaths.KDF_FILE_NAME).writeText("x")
+        // Watch-only data that must survive.
+        val registry = File(tmp, WalletPaths.REGISTRY_FILE_NAME).apply { writeText("r") }
+        val registryKdf = File(tmp, WalletPaths.REGISTRY_KDF_FILE_NAME).apply { writeText("{}") }
+        val watchState = File(tmp, "${WalletPaths.WATCH_STATE_SUBDIR}/abc.sqlite")
+            .apply { parentFile.mkdirs(); writeText("w") }
 
         val view = WalletPaths.from(tmp)
-        assertFalse(view.migrationNeeded())
-        assertTrue(view.anyMigratedWalletExists())
-        assertEquals(walletDir, view.activeWalletDir())
+        val result = view.purgeLegacySigningData()
+
+        assertTrue(result.ok, "purge failed: $result")
+        rootNames.forEach { assertFalse(File(tmp, it).exists(), "$it survived the purge") }
+        assertFalse(backup.exists(), "migration backup survived the purge")
+        assertFalse(File(tmp, WalletPaths.WALLETS_SUBDIR).exists())
+        assertFalse(view.legacySigningDataExists())
+        assertTrue(registry.exists() && registryKdf.exists() && watchState.exists())
+        assertTrue(view.registryExists())
     }
 
     @Test
-    fun migrated_wallet_with_own_salt_is_recognised() {
-        val walletDir = File(tmp, "${WalletPaths.WALLETS_SUBDIR}/abc").apply { mkdirs() }
-        File(walletDir, WalletPaths.SALT_FILE_NAME).writeBytes(ByteArray(16) { 0x42 })
-        File(walletDir, WalletPaths.WALLET_DB_FILE_NAME).writeBytes(ByteArray(100) { 0x55 })
-        val view = WalletPaths.from(tmp)
-        assertTrue(view.anyMigratedWalletExists())
-        assertEquals(walletDir, view.activeWalletDir())
+    fun purgeLegacySigningData_deletes_databases_before_kdf_descriptors() {
+        File(tmp, WalletPaths.SALT_FILE_NAME).writeBytes(ByteArray(16) { 0x42 })
+        File(tmp, WalletPaths.KDF_FILE_NAME).writeText("""{"version":1}""")
+        File(tmp, WalletPaths.WALLET_DB_FILE_NAME).writeBytes(ByteArray(100) { 0x55 })
+
+        val deletedNames = WalletPaths.from(tmp).purgeLegacySigningData().deleted.map { it.name }
+
+        val sqliteIdx = deletedNames.indexOf(WalletPaths.WALLET_DB_FILE_NAME)
+        assertTrue(sqliteIdx >= 0, "wallet.sqlite not deleted: $deletedNames")
+        assertTrue(sqliteIdx < deletedNames.indexOf(WalletPaths.SALT_FILE_NAME), "order was $deletedNames")
+        assertTrue(sqliteIdx < deletedNames.indexOf(WalletPaths.KDF_FILE_NAME), "order was $deletedNames")
     }
 
     @Test
-    fun migrated_db_without_any_salt_is_not_routable() {
-        // No KDF state anywhere: nothing can unlock it, don't route there.
-        val walletDir = File(tmp, "${WalletPaths.WALLETS_SUBDIR}/abc").apply { mkdirs() }
-        File(walletDir, WalletPaths.WALLET_DB_FILE_NAME).writeBytes(ByteArray(100) { 0x55 })
-        val view = WalletPaths.from(tmp)
-        assertFalse(view.anyMigratedWalletExists())
-        assertEquals(null, view.activeWalletDir())
+    fun purgeLegacySigningData_on_clean_dir_is_a_successful_no_op() {
+        File(tmp, WalletPaths.REGISTRY_FILE_NAME).writeText("r")
+        val result = WalletPaths.from(tmp).purgeLegacySigningData()
+        assertTrue(result.ok)
+        assertEquals(emptyList(), result.deleted)
+        assertEquals(listOf(WalletPaths.REGISTRY_FILE_NAME), tmp.listFiles()!!.map { it.name })
     }
 
     @Test

@@ -17,8 +17,6 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import io.bhodl.shared.resources.Res
 import io.bhodl.shared.resources.tracker_add_wallet
-import io.bhodl.shared.resources.tracker_add_watch_xpub
-import io.bhodl.shared.resources.tracker_create_signing_wallet
 import io.bhodl.shared.resources.tracker_refresh_balances
 import io.bhodl.shared.resources.tracker_refreshing
 import io.bhodl.shared.resources.tracker_wallets_header
@@ -54,6 +52,9 @@ import io.bhodl.desktop.settings.SettingsStore
 import io.bhodl.desktop.wizard.RegistryStore
 import io.bhodl.desktop.wizard.WalletPaths
 import io.bhodl.desktop.domain.externalSignedNetSat
+import io.bhodl.desktop.domain.computeFinanceKpis
+import io.bhodl.desktop.domain.forecastCashFlow
+import io.bhodl.desktop.domain.illiquidManualAssetsSat
 import io.bhodl.ffi.PaymentEvent
 import io.bhodl.ffi.PaymentEventLiteFfi
 import io.bhodl.ui.theme.BhodlTheme
@@ -62,8 +63,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * Phase 6.0 → 9.0 — Tracker home content, accessible immediately
- * after the device-PIN gate without ever unlocking a signing wallet.
+ * Phase 6.0 → 9.0 — Tracker home content, shown right after the
+ * device-PIN gate; its wallet table is the wallet picker.
  *
  * Phase 9.0 (IA restructure): no longer a standalone route. The old
  * `TrackerHomeScreen` (own header rail, "Open Dashboard" CTA, own
@@ -85,10 +86,10 @@ import kotlinx.coroutines.withContext
  */
 @Composable
 internal fun TrackerHomeSection(
-    onUnlockWallet: (walletId: String) -> Unit,
-    onActivateWatch: (walletId: String) -> Unit,
+    onOpenWallet: (walletId: String) -> Unit,
     onAddWatch: () -> Unit,
-    onCreateWallet: () -> Unit,
+    /** The monthly-review banner's "Review" action (opens Reports). */
+    onOpenReports: () -> Unit = {},
     // Injection seam for Compose UI tests — lets a test point the
     // load path at a tempdir rather than the production data dir.
     // (No longer read since the NW history goes through the open
@@ -121,14 +122,12 @@ internal fun TrackerHomeSection(
     val recurringCandidates by TrackerCache.recurringCandidates
     val liabilities by TrackerCache.liabilities
     val refreshing by TrackerCache.refreshing
-    val lastError by TrackerCache.lastError
     val lastSyncUnix by TrackerCache.lastSyncUnix
     val hasLoadedOnce by TrackerCache.hasLoadedOnce
     // "loading" is shown only on the very first cold load. Once the
     // cache has data, subsequent refreshes happen silently in place.
     val loading = !hasLoadedOnce && refreshing
 
-    var addExpanded by remember { mutableStateOf(false) }
 
     // UX review 2026-10 (B1/B8) — the hero shows the SAME net worth as
     // Portfolio: tracked wallets (exclusion-aware) + investments +
@@ -148,6 +147,36 @@ internal fun TrackerHomeSection(
         liabilities = liabilities,
     )
     val netWorthSat = netWorth.netWorthSat
+
+    // Phase 7.6 — KPI strip (savings rate, burn, FIRE, runway, opportunity
+    // cost) and the 90-day cash-flow forecast, over the tracked wallets.
+    val trackedEvents = remember(events, excludedWalletIds) {
+        if (excludedWalletIds.isEmpty()) events else events.filter { it.walletId !in excludedWalletIds }
+    }
+    val kpis = remember(trackedEvents, netWorth, investments, investmentLots, manualAssets, liveBtcRate) {
+        val dashboardCode = SettingsStore.fiatCurrency.value.code
+        computeFinanceKpis(
+            events = trackedEvents,
+            totalAssetSat = netWorth.assetsSat,
+            nowUnix = System.currentTimeMillis() / 1000L,
+            investments = investments,
+            lotsByInvestment = investmentLots,
+            manualAssets = manualAssets,
+            currentBtcPerUnit = { ccy -> PriceCache.rateFor(ccy) },
+            illiquidAssetSat = illiquidManualAssetsSat(manualAssets) { a ->
+                computeLiveManualAssetsSat(listOf(a), liveBtcRate, dashboardCode).takeIf { it > 0UL }
+            },
+        )
+    }
+    val forecast = remember(trackedEvents, bills, recurringCandidates, walletSat) {
+        forecastCashFlow(
+            events = trackedEvents,
+            bills = bills,
+            recurring = recurringCandidates,
+            startBalanceSat = walletSat,
+            nowUnix = System.currentTimeMillis() / 1000L,
+        )
+    }
 
     // Phase 7.1 → 9.0 — net-worth time series. Recomputed when the
     // user picks a different window OR the fiat preference changes
@@ -174,9 +203,7 @@ internal fun TrackerHomeSection(
     // refresh() serialises through a mutex so a parallel bump from
     // dataVersion can't race with the cold load.
     LaunchedEffect(Unit) {
-        if (!TrackerCache.hasLoadedOnce.value) {
-            scope.launch { TrackerCache.refresh(syncEsplora = true) }
-        }
+        scope.launch { TrackerCache.coldLoad() }
     }
 
     // Phase 7.1 → UX review 2026-10 (B5) — fiat overlay series: today's
@@ -208,7 +235,8 @@ internal fun TrackerHomeSection(
     //
     // Failures inside the client return an empty list; the hero then
     // falls back to the Phase 8.3.2 flat-line placeholder.
-    LaunchedEffect(period, events, fiatCurrency) {
+    val registryDataVersion by RegistryStore.dataVersion
+    LaunchedEffect(period, events, fiatCurrency, excludedWalletIds, registryDataVersion) {
         if (fiatCurrency == io.bhodl.desktop.prices.FiatCurrency.NONE) {
             nwHistoryReconstructed = emptyList()
             return@LaunchedEffect
@@ -222,12 +250,14 @@ internal fun TrackerHomeSection(
         }
         val nowUnix = System.currentTimeMillis() / 1000L
         val fromUnix = nowUnix - period.days.toLong() * 86_400L
-        val eventLite = buildPaymentEventLite(events)
+        // Excluded wallets stay out of the history like they stay out of the hero.
+        val eventLite = netWorthHistoryEvents(events, excludedWalletIds)
         val result = NetWorthHistoryClient.netWorthHistory(
             fromUnix = fromUnix,
             toUnix = nowUnix,
             currency = fiatCurrency,
             events = eventLite,
+            dataVersion = registryDataVersion,
         )
         nwHistoryReconstructed = result
     }
@@ -246,13 +276,8 @@ internal fun TrackerHomeSection(
                     color = BhodlTheme.colors.textSecondary,
                 )
             }
-            if (lastError != null) {
-                Text(
-                    text = lastError!!,
-                    style = BhodlTheme.typography.labelMedium,
-                    color = BhodlTheme.colors.error,
-                )
-            }
+            // The sync / cache error is shown once, by the TrackingScreen
+            // shell above every section; repeating it here doubled it.
 
             // Phase 7.2 — tracker-stale banner. The 2-min background
             // poll usually keeps lastSyncUnix fresh; the banner shows
@@ -265,6 +290,11 @@ internal fun TrackerHomeSection(
                 refreshing = refreshing,
                 onRefresh = { scope.launch { TrackerCache.refresh(syncEsplora = true) } },
             )
+
+            // Phase 7.6 — first days of the month: nudge to review it.
+            if (hasLoadedOnce && trackedEvents.isNotEmpty()) {
+                MonthlyReviewBanner(onReview = onOpenReports)
+            }
 
             // B5 — the fiat line is net worth × spot rate; the tail is the
             // reconstructed history's fiat change (hidden when absent).
@@ -287,6 +317,11 @@ internal fun TrackerHomeSection(
                 periodDeltaFiat = fiatFigures.periodDeltaFiat,
             )
 
+            if (hasLoadedOnce) {
+                KpiStripV7(kpis = kpis)
+                CashFlowForecastCard(series = forecast, modifier = Modifier.fillMaxWidth())
+            }
+
             // Wallets list. B13 — refresh and "add wallet" are header
             // actions of the table, not free text / full-width buttons
             // under it.
@@ -297,16 +332,12 @@ internal fun TrackerHomeSection(
                 WalletsHeader(
                     refreshing = refreshing,
                     onRefresh = { scope.launch { TrackerCache.refresh(syncEsplora = true) } },
-                    addExpanded = addExpanded,
-                    onToggleAdd = { addExpanded = !addExpanded },
-                    onAddWatch = { addExpanded = false; onAddWatch() },
-                    onCreateWallet = { addExpanded = false; onCreateWallet() },
+                    onAddWatch = onAddWatch,
                 )
                 WalletListTable(
                     wallets = wallets,
                     watchBalances = watchBalances,
-                    onSigningTap = onUnlockWallet,
-                    onWatchTap = onActivateWatch,
+                    onOpenWallet = onOpenWallet,
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
@@ -318,8 +349,7 @@ internal fun TrackerHomeSection(
 /**
  * UX review 2026-10 (B13) — header of the HOME wallets table: the
  * section label plus its actions (refresh balances as an icon button
- * with a tooltip, "+ Add" with a menu for watch-only / new signing
- * wallet). Replaces the free-text "Refresh balances" row and the
+ * with a tooltip, "+ Add" opening the add-wallet form). Replaces the free-text "Refresh balances" row and the
  * full-width "+ Add wallet to tracker" button under the table.
  */
 @OptIn(ExperimentalFoundationApi::class)
@@ -327,10 +357,7 @@ internal fun TrackerHomeSection(
 private fun WalletsHeader(
     refreshing: Boolean,
     onRefresh: () -> Unit,
-    addExpanded: Boolean,
-    onToggleAdd: () -> Unit,
     onAddWatch: () -> Unit,
-    onCreateWallet: () -> Unit,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -367,33 +394,19 @@ private fun WalletsHeader(
                 )
             }
         }
-        Box {
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(BhodlTheme.colors.accentNeon.copy(alpha = 0.18f))
-                    .clickable(onClick = onToggleAdd)
-                    .padding(horizontal = 10.dp, vertical = 4.dp)
-                    .testTag(TrackerHomeTags.ADD_TOGGLE),
-            ) {
-                Text(
-                    text = "+ " + stringResource(Res.string.tracker_add_wallet),
-                    style = BhodlTheme.typography.labelMedium,
-                    color = BhodlTheme.colors.accentNeon,
-                )
-            }
-            DropdownMenu(expanded = addExpanded, onDismissRequest = onToggleAdd) {
-                DropdownMenuItem(
-                    text = { Text(stringResource(Res.string.tracker_add_watch_xpub)) },
-                    onClick = onAddWatch,
-                    modifier = Modifier.testTag(TrackerHomeTags.ADD_WATCH),
-                )
-                DropdownMenuItem(
-                    text = { Text(stringResource(Res.string.tracker_create_signing_wallet)) },
-                    onClick = onCreateWallet,
-                    modifier = Modifier.testTag(TrackerHomeTags.CREATE_WALLET),
-                )
-            }
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(6.dp))
+                .background(BhodlTheme.colors.accentNeon.copy(alpha = 0.18f))
+                .clickable(onClick = onAddWatch)
+                .padding(horizontal = 10.dp, vertical = 4.dp)
+                .testTag(TrackerHomeTags.ADD_WATCH),
+        ) {
+            Text(
+                text = "+ " + stringResource(Res.string.tracker_add_wallet),
+                style = BhodlTheme.typography.labelMedium,
+                color = BhodlTheme.colors.accentNeon,
+            )
         }
     }
 }
@@ -420,9 +433,7 @@ public object TrackerHomeTags {
     public const val SETTINGS: String = "tracker-home.settings"
     public const val LOCK: String = "tracker-home.lock"
     public const val OPEN_TRACKING: String = "tracker-home.open-tracking"
-    public const val ADD_TOGGLE: String = "tracker-home.add-toggle"
     public const val ADD_WATCH: String = "tracker-home.add-watch"
-    public const val CREATE_WALLET: String = "tracker-home.create-wallet"
     public const val REFRESH: String = "tracker-home.refresh"
     public const val STALE_BANNER: String = "tracker-home.stale-banner"
     public const val MODULES: String = "tracker-home.modules"

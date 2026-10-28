@@ -831,6 +831,8 @@ internal object InvestmentTags {
     fun lotRowTag(lotId: Long): String = "investment.lot.$lotId"
     /** Phase 7.8 — cost basis method picker chip in InvestmentEditDialog. */
     fun costBasisMethodTag(method: String): String = "investment.cost-basis-method.$method"
+    /** Asset-type chip in InvestmentEditDialog. */
+    fun assetTypeTag(type: String): String = "investment.asset-type.$type"
     /** Phase 7.9 — "− Sell" link in the lot expansion. */
     fun sellTag(investmentId: Long): String = "investment.sell.$investmentId"
     /** Phase 7.9 — per-sell row tap target in the Sells sub-section. */

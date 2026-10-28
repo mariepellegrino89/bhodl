@@ -9,7 +9,7 @@
     <!-- Shared -->
     <string name="set_toggle_on">On</string>
     <string name="set_toggle_off">Off</string>
-    <string name="set_wallet_not_unlocked">Wallet not unlocked.</string>
+    <string name="set_wallet_not_unlocked">No wallet open.</string>
 
     <!-- Appearance › Color convention -->
     <string name="set_color_convention_title">Color convention</string>
@@ -63,8 +63,6 @@
     <!-- System › Network / Debug / Modules -->
     <string name="set_network_title">Current network</string>
     <string name="set_network_hint">Locked at creation. To switch, wipe this wallet (below) then create or restore on the new network.</string>
-    <string name="set_debug_hint">Tools for testing pre-release features. Not for production use.</string>
-    <string name="set_debug_watch">Debug: Watch wallets</string>
     <string name="set_modules_title">Modules</string>
     <string name="set_modules_hint">Choose what you want to track beyond your Bitcoin.</string>
     <string name="set_module_investments">Investments</string>
@@ -74,11 +72,8 @@
     <string name="set_module_analytics_labs">Analytics Labs</string>
 
     <!-- Wallet › Switch / rename -->
-    <string name="set_switch_title">Switch wallet</string>
-    <string name="set_switch_hint">Pick another signing wallet. You will be prompted for that wallet’s PIN; the current wallet is logged out automatically.</string>
-    <string name="set_switch_to">Switch to “%1$s”</string>
     <string name="set_rename_title">Wallet name</string>
-    <string name="set_rename_hint">Shown in the Welcome wallet picker and the tracking screens. Renaming does not touch the wallet’s on-disk files — it only updates the registry label.</string>
+    <string name="set_rename_hint">Shown in the tracker wallet list and in the wallet header. Renaming only updates the registry label.</string>
     <string name="set_rename_field">Name</string>
     <string name="set_rename_read_failed">Failed to read current label.</string>
     <string name="set_rename_empty">Name cannot be empty.</string>
@@ -90,47 +85,14 @@
     <string name="set_rename_save">Save name</string>
 
     <!-- Wallet › Add to Tracker -->
-    <string name="set_tracker_title">Track in Tracker</string>
-    <string name="set_tracker_hint">Add this wallet to the Tracker as a watch-only mirror so the balance and history show up there without needing to unlock the signing PIN.</string>
-    <string name="set_tracker_checking">Checking pairing status…</string>
-    <string name="set_tracker_already">✓ This wallet is already tracked.</string>
-    <string name="set_tracker_adding">Adding…</string>
-    <string name="set_tracker_add">Add to Tracker</string>
-    <string name="set_tracker_added">Added to Tracker.</string>
-    <string name="set_tracker_add_failed">Add to Tracker failed.</string>
-    <string name="set_tracker_read_failed">Failed to read wallet info.</string>
-    <string name="set_tracker_notor_title">Mainnet sync without Tor</string>
-    <string name="set_tracker_notor_body">Adding the watch-only mirror will trigger an Esplora full-scan against a public server WITHOUT Tor. The server will see every receive + change address derived from this wallet’s xpub.\n\nRecommended: enable Tor in Settings → Tor first.</string>
-    <string name="set_tracker_notor_continue">Continue without Tor</string>
 
     <!-- Wallet › Encrypted backup -->
-    <string name="set_backup_title">Encrypted backup</string>
-    <string name="set_backup_hint">Export the seed (mnemonic + BIP-39 passphrase) into an age-encrypted ASCII blob. Use a separate password — not your unlock PIN. Save it to paper or a password manager.</string>
-    <string name="set_backup_password">Backup password</string>
-    <string name="set_backup_password_hint">A password of at least %1$d characters is required — Export stays disabled until you set one.</string>
-    <string name="set_backup_password_confirm">Confirm backup password</string>
-    <string name="set_backup_password_mismatch">Passwords do not match.</string>
-    <string name="set_backup_exporting">Exporting…</string>
-    <string name="set_backup_export">Export backup</string>
     <string name="set_backup_export_failed">export failed</string>
-    <string name="set_backup_save_prompt">Save to file or copy this and store it somewhere safe:</string>
-    <string name="set_backup_save_file">Save to file…</string>
-    <string name="set_backup_save_dialog_title">Save encrypted backup</string>
-    <string name="set_backup_file_filter">Text file (*.txt)</string>
-    <string name="set_backup_saved_to">Saved to %1$s</string>
     <string name="set_backup_save_failed">Save failed: %1$s</string>
 
     <!-- Wallet › Recovery phrase / descriptor -->
-    <string name="set_recovery_title">Show recovery phrase</string>
-    <string name="set_recovery_hint">Re-display the BIP-39 mnemonic for a paper backup. Anyone who can read this can spend your funds — only reveal it on a screen no one else is watching. Two-tap to confirm.</string>
-    <string name="set_recovery_tap_again">Tap again to reveal the recovery phrase.</string>
-    <string name="set_recovery_confirm">Confirm: reveal phrase</string>
-    <string name="set_recovery_word_count">%1$d-word recovery phrase</string>
-    <string name="set_recovery_passphrase">BIP-39 passphrase</string>
-    <string name="set_recovery_hide">Hide recovery phrase</string>
-    <string name="set_recovery_reveal_failed">reveal failed</string>
     <string name="set_watchdesc_title">Watch-only descriptor</string>
-    <string name="set_watchdesc_hint">Export the wallet’s public xpub and descriptor for import into Sparrow, Liana, Specter — or paste the xpub into the debug screen. Contains no secret material; anyone with this can see your balance but cannot spend.</string>
+    <string name="set_watchdesc_hint">Export the wallet’s public xpub and descriptor for import into Sparrow, Liana or Specter. Contains no secret material; anyone with it can see your balance and history but cannot spend.</string>
     <string name="set_watchdesc_show">Show watch-only descriptor</string>
     <string name="set_watchdesc_xpub_label">Account xpub (paste into debug screen)</string>
     <string name="set_watchdesc_copy_xpub">Copy xpub</string>
@@ -139,23 +101,17 @@
     <string name="set_watchdesc_hide">Hide watch-only descriptor</string>
 
     <!-- Wallet PIN re-auth purposes (completes “Re-enter this wallet’s PIN to …”) -->
-    <string name="set_reauth_purpose_backup">export an encrypted backup of the seed</string>
-    <string name="set_reauth_purpose_reveal">reveal the recovery phrase</string>
-    <string name="set_reauth_purpose_descriptor">show the watch-only descriptor</string>
-    <string name="set_reauth_purpose_delete">delete this wallet</string>
 
     <!-- Wallet › Delete / factory reset -->
-    <string name="set_delete_title">Delete this wallet</string>
-    <string name="set_delete_hint">Removes only the currently-active wallet from the registry and erases its encrypted database from disk. Other registered wallets (signing and watch-only) are left untouched. Recovery is only possible from this wallet’s BIP-39 seed phrase. Two-tap confirm, then your wallet PIN.</string>
-    <string name="set_delete_backup_first">Use the Backup section above (Export encrypted backup) before continuing.</string>
-    <string name="set_delete_tip">↑ Tip: export an encrypted backup first</string>
-    <string name="set_delete_no_active">No active wallet to delete.</string>
-    <string name="set_delete_tap_again">Tap again to permanently delete this wallet.</string>
-    <string name="set_delete_working">Deleting…</string>
-    <string name="set_delete_confirm">Confirm: delete this wallet</string>
-    <string name="set_delete_failed">Delete failed.</string>
+    <string name="set_delete_title">Remove this wallet</string>
+    <string name="set_delete_hint">Removes this watch-only wallet from BHODL: its registry entry, synced history, labels, contacts and tracker categories. Your bitcoin are not affected — you can add the wallet again from its xpub. Two-tap confirm.</string>
+    <string name="set_delete_no_active">No wallet open.</string>
+    <string name="set_delete_tap_again">Tap again to remove this wallet from BHODL.</string>
+    <string name="set_delete_working">Removing…</string>
+    <string name="set_delete_confirm">Confirm: remove this wallet</string>
+    <string name="set_delete_failed">Remove failed.</string>
     <string name="set_wipe_title">Factory reset</string>
-    <string name="set_wipe_hint">Deletes EVERY wallet (signing and watch-only), the registry, KDF descriptors, and all encrypted databases on this device. Recovery is only possible from each wallet’s BIP-39 seed phrase or its encrypted backup. To delete a single wallet without touching the others, use “Delete this wallet” above. Requires typing %1$s.</string>
+    <string name="set_wipe_hint">Deletes every wallet, the registry, the KDF descriptor and all encrypted databases on this device. Your bitcoin are not affected: wallets can be added again from their xpub. To remove a single wallet, use “Remove this wallet” in its Wallet settings. Requires typing %1$s.</string>
     <string name="set_wipe_button">Factory reset (all wallets)…</string>
 
     <!-- Labels (BIP-329) -->
@@ -180,4 +136,6 @@
     <string name="set_persist_corrupt_backup_tor">Your settings file could not be read, so default settings are in use (Tor kept ON). The original was saved as %1$s.</string>
     <string name="set_persist_corrupt_nobackup">Your settings file could not be read, so default settings are in use. The original file could not be backed up.</string>
     <string name="set_persist_corrupt_nobackup_tor">Your settings file could not be read, so default settings are in use (Tor kept ON). The original file could not be backed up.</string>
+    <string name="set_watchdesc_unavailable">Address-list wallets have no descriptor to export.</string>
+    <string name="set_rename_default_label">My Wallet</string>
 </resources>

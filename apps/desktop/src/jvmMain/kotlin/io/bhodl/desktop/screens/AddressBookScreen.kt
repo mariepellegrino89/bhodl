@@ -36,7 +36,6 @@ import io.bhodl.desktop.ui.BhodlTopBar
 import io.bhodl.desktop.wizard.WalletStore
 import io.bhodl.ffi.ContactRecord
 import io.bhodl.desktop.ui.userMessage
-import io.bhodl.ffi.WalletException
 import io.bhodl.ui.theme.BhodlTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -60,14 +59,11 @@ import io.bhodl.shared.resources.wsend_not_unlocked
 /**
  * Local address book.
  *
- * Reads / writes the `bhodl_contacts` table inside the SQLCipher
- * database via the FFI. The list is rendered in insertion order;
- * each row offers Delete. The form at the top is a simple
- * `(label, address)` capture — there is no validation of the address
- * here on purpose: BDK will reject malformed addresses at send time
- * via `WalletHandle.buildSendTx`, and a stricter validator on the
- * book screen would block legitimate cross-network entries (e.g.
- * saving a mainnet address from a signet test wallet for later use).
+ * Reads / writes the `bhodl_contacts` table inside the open wallet's
+ * SQLCipher database via the FFI. The list is rendered in insertion
+ * order; each row offers Delete. The form at the top is a simple
+ * `(label, address)` capture; the core validates the address against
+ * the wallet's network and stores it in canonical form.
  */
 @Composable
 public fun AddressBookScreen(

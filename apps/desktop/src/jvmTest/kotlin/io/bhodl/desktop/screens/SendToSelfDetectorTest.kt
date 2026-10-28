@@ -143,7 +143,6 @@ class SendToSelfDetectorTest {
     @Test
     fun `two rows of the same account collapse to one canonical id`() {
         val wallets = listOf(
-            wallet("sign", WalletKindFfi.SIGNING, "xpubA", createdAt = 1),
             wallet("hd", WalletKindFfi.WATCH_HD, "wpkh(xpubA/0/*)", createdAt = 2),
             wallet("x", WalletKindFfi.WATCH_XPUB, "wpkh(xpubA/<0;1>/*)", createdAt = 3),
             wallet("other", WalletKindFfi.WATCH_XPUB, "wpkh(xpubB/0/*)", createdAt = 4),
@@ -169,7 +168,6 @@ class SendToSelfDetectorTest {
     @Test
     fun `cleanup resets only certain artefacts`() {
         val wallets = listOf(
-            wallet("sign", WalletKindFfi.SIGNING, "xpubA", createdAt = 1),
             wallet("hd", WalletKindFfi.WATCH_HD, "xpubA", createdAt = 2),
             wallet("x", WalletKindFfi.WATCH_XPUB, "xpubA", createdAt = 3),
             wallet("b", WalletKindFfi.WATCH_XPUB, "xpubB", createdAt = 4),
@@ -184,7 +182,9 @@ class SendToSelfDetectorTest {
             canonical,
         )
         val rows = listOf(
-            CryptoEventKindRow("sign", "single", SEND_TO_SELF), // signing artefact
+            // Row of a wallet no longer in the registry (e.g. a purged
+            // legacy signing wallet): unknown → left untouched.
+            CryptoEventKindRow("sign", "single", SEND_TO_SELF),
             CryptoEventKindRow("x", "single", SEND_TO_SELF),    // alias artefact
             CryptoEventKindRow("hd", "single", SEND_TO_SELF),   // single real wallet
             CryptoEventKindRow("hd", "real", SEND_TO_SELF),     // genuine → keep
@@ -193,9 +193,9 @@ class SendToSelfDetectorTest {
             // user-pinned (schema v3) — never reset, even if it looks stale
             CryptoEventKindRow("sign", "pinned", SEND_TO_SELF, userSet = true),
         )
-        val reset = staleSendToSelfTags(rows, wallets, canonical, events).toSet()
+        val reset = staleSendToSelfTags(rows, canonical, events).toSet()
         assertEquals(
-            setOf("sign" to "single", "x" to "single", "hd" to "single"),
+            setOf("x" to "single", "hd" to "single"),
             reset,
         )
     }
@@ -233,6 +233,5 @@ class SendToSelfDetectorTest {
         descriptorPub = descriptor,
         network = "bitcoin",
         createdAtUnix = createdAt,
-        pinsWarned = false,
     )
 }

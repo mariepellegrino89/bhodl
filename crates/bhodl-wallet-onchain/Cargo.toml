@@ -1,6 +1,6 @@
 [package]
 name = "bhodl-wallet-onchain"
-description = "On-chain Bitcoin wallet primitives for BHODL: BIP86 taproot single-sig, descriptor-driven."
+description = "Watch-only Bitcoin wallet primitives for BHODL: xpub / descriptor / address watch wallets plus the tracker registry."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -13,7 +13,6 @@ publish = false
 [dependencies]
 bhodl-core = { path = "../bhodl-core" }
 bitcoin = { workspace = true }
-bip39 = { workspace = true }
 thiserror = { workspace = true }
 bdk_wallet = { workspace = true }
 bdk_esplora = { workspace = true }
@@ -22,13 +21,6 @@ rusqlite = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 rand = { workspace = true }
-# Password-based encrypted backup of the wallet seed (mnemonic +
-# passphrase). The age format is widely supported (CLI, libraries
-# in many languages) so the user can recover even if BHODL is gone.
-# Pinned to a minimum-feature subset — armor for ASCII output, no
-# OpenSSL / no SSH recipients (the wallet uses only password auth).
-age = { version = "0.11", default-features = false, features = ["armor"] }
-secrecy = "0.10"
 zeroize = { workspace = true }
 ureq = { workspace = true }
 url = { workspace = true }
@@ -36,15 +28,22 @@ url = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
+# Test fixtures derive BIP-86 public keys from the spec mnemonic.
+bip39 = { workspace = true }
 tempfile = { workspace = true }
 proptest = { workspace = true }
 
-# Regtest harness via bitcoind + electrs/esplora downloaded on first build.
-# Unix-only because the electrsd 0.28 build script uses
-# `std::os::unix::fs::PermissionsExt::from_mode`. Linux and macOS CI runners
-# pick this up; Windows hosts skip the integration tests automatically.
+# Regtest harness (bitcoind + electrs/esplora) for tests/regtest.rs.
+# The `download` feature is deliberately OFF: it made the bitcoind /
+# electrsd build scripts fetch and unpack the daemons with `zip` 0.6
+# (RUSTSEC-2026-0367/0368/0369, no fixed release reachable through
+# bdk_testenv 0.13 / electrsd 0.28 / bitcoind 0.36 / corepc-node 0.12).
+# The binaries are now supplied at run time via BITCOIND_EXE and
+# ELECTRS_EXE — `scripts/regtest-binaries.sh` downloads the same pinned
+# artifacts and verifies their sha256. Kept Unix-only: electrsd signals
+# electrs with SIGUSR1 (`trigger()`) and electrs ships no Windows build.
 [target.'cfg(unix)'.dev-dependencies]
-bdk_testenv = { version = "0.13", default-features = false, features = ["std", "download"] }
+bdk_testenv = { version = "0.13", default-features = false, features = ["std"] }
 
 [features]
 # Enable tests that hit real network endpoints (CoinGecko, blockchain.info,

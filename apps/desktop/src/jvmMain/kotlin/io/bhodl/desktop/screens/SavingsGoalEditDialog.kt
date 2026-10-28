@@ -46,7 +46,6 @@ import io.bhodl.desktop.ui.bhodlCard
 import io.bhodl.ffi.TrackingInvestmentFfi
 import io.bhodl.ffi.TrackingManualAssetFfi
 import io.bhodl.ffi.TrackingSavingsGoalFfi
-import io.bhodl.ffi.WalletKindFfi
 import io.bhodl.ffi.WalletRecordFfi
 import io.bhodl.ui.theme.BhodlTheme
 import kotlin.math.roundToInt
@@ -207,7 +206,7 @@ internal fun GoalEditDialog(
     var bucketWalletRef by remember(editing?.id) {
         mutableStateOf(
             editing?.bucketRef
-                ?: wallets.firstOrNull { it.kind != WalletKindFfi.SIGNING }?.id,
+                ?: wallets.firstOrNull()?.id,
         )
     }
     // Phase 7.4 — separate ref state for the MANUAL_ASSET sub-picker.
@@ -638,7 +637,7 @@ internal fun GoalEditDialog(
                         style = BhodlTheme.typography.labelMedium,
                         color = BhodlTheme.colors.textSecondary,
                     )
-                    val watchOnly = wallets.filter { it.kind != WalletKindFfi.SIGNING }
+                    val watchOnly = wallets
                     if (watchOnly.isEmpty()) {
                         Text(
                             text = stringResource(Res.string.trp_goal_no_wallets),

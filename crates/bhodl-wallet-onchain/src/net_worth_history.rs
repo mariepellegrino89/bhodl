@@ -40,7 +40,7 @@
 
 use crate::btc_rate_history::{BtcRateHistoryRepository, normalize_to_utc_midnight};
 use crate::error::OnchainError;
-use crate::registry::{Registry, TrackingInvestmentLot, TrackingManualAsset};
+use crate::registry::{Registry, TrackingInvestment, TrackingInvestmentLot, TrackingManualAsset};
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -173,7 +173,8 @@ pub fn reconstruct_net_worth_history<R: BtcRateHistoryRepository>(
     // Prefetch failures are soft: missing days read back as `None` from
     // the cache and contribute 0 for that day.
     let investments = registry.list_investments()?;
-    let lots = registry.list_all_investment_lots()?;
+    let lots = with_legacy_aggregate_lots(registry.list_all_investment_lots()?, &investments);
+    let sold_back = sold_quantities_by_lot(registry)?;
     let manual_assets = registry.list_manual_assets()?;
     let liabilities = registry.list_liabilities()?;
 
@@ -227,8 +228,9 @@ pub fn reconstruct_net_worth_history<R: BtcRateHistoryRepository>(
 
         let onchain = onchain_balance_at(events, t);
 
+        let lots_at_t = lots_as_of(&lots, &sold_back, t);
         let investments_btc =
-            investments_value_btc_at(&lots, &invest_price_map, t, currency, rate_repo);
+            investments_value_btc_at(&lots_at_t, &invest_price_map, t, currency, rate_repo);
         let investments_sat = btc_to_sat(investments_btc);
 
         let manual_btc = manual_assets_value_btc_at(&manual_assets, t, rate_repo);
@@ -262,6 +264,83 @@ pub fn reconstruct_net_worth_history<R: BtcRateHistoryRepository>(
 // ---------------------------------------------------------------------------
 // Sub-helpers
 // ---------------------------------------------------------------------------
+
+/// GAP-018 — a legacy investment (aggregate quantity / cost, no lot rows)
+/// enters the history as one synthetic lot bought at its `purchase_unix`,
+/// like the live net worth counts it. Synthetic ids are negative so they
+/// never match a disposal.
+fn with_legacy_aggregate_lots(
+    mut lots: Vec<TrackingInvestmentLot>,
+    investments: &[TrackingInvestment],
+) -> Vec<TrackingInvestmentLot> {
+    let with_lots: std::collections::HashSet<i64> = lots.iter().map(|l| l.investment_id).collect();
+    for inv in investments {
+        if with_lots.contains(&inv.id) || !inv.quantity.is_finite() || inv.quantity <= 0.0 {
+            continue;
+        }
+        let price_per_unit = if inv.cost_basis_fiat.is_finite() && inv.cost_basis_fiat > 0.0 {
+            inv.cost_basis_fiat / inv.quantity
+        } else {
+            0.0
+        };
+        lots.push(TrackingInvestmentLot {
+            id: -inv.id,
+            investment_id: inv.id,
+            quantity: inv.quantity,
+            price_per_unit,
+            fees_fiat: 0.0,
+            purchase_unix: inv.purchase_unix,
+            notes: None,
+            created_at_unix: inv.created_at_unix,
+            btc_per_unit_at_purchase: None,
+            original_quantity: inv.quantity,
+        });
+    }
+    lots
+}
+
+/// GAP-018 — `(sale_unix, qty)` consumed from each lot by recorded sells.
+fn sold_quantities_by_lot(
+    registry: &Registry,
+) -> Result<std::collections::HashMap<i64, Vec<(i64, f64)>>, OnchainError> {
+    let sale_unix: std::collections::HashMap<i64, i64> = registry
+        .list_all_investment_sells()?
+        .iter()
+        .map(|s| (s.id, s.sale_unix))
+        .collect();
+    let mut out: std::collections::HashMap<i64, Vec<(i64, f64)>> = std::collections::HashMap::new();
+    for d in registry.list_all_lot_disposals()? {
+        if !d.qty_consumed.is_finite() || d.qty_consumed <= 0.0 {
+            continue;
+        }
+        if let Some(&at) = sale_unix.get(&d.sell_id) {
+            out.entry(d.lot_id).or_default().push((at, d.qty_consumed));
+        }
+    }
+    Ok(out)
+}
+
+/// GAP-018 — the lots as they stood at `t`: units sold after `t` are
+/// still held that day (a lot's `quantity` is only the remainder today).
+fn lots_as_of(
+    lots: &[TrackingInvestmentLot],
+    sold_back: &std::collections::HashMap<i64, Vec<(i64, f64)>>,
+    t: i64,
+) -> Vec<TrackingInvestmentLot> {
+    lots.iter()
+        .map(|l| {
+            let back: f64 = sold_back
+                .get(&l.id)
+                .map(|v| v.iter().filter(|(at, _)| *at > t).map(|(_, q)| q).sum())
+                .unwrap_or(0.0);
+            let mut lot = l.clone();
+            if back > 0.0 {
+                lot.quantity += back;
+            }
+            lot
+        })
+        .collect()
+}
 
 /// Sum the signed `amount_sat` of all events confirmed at or before `t`.
 /// Unconfirmed events (`block_time_unix = None`) are excluded.

@@ -1,5 +1,10 @@
 # Phase 3 — UX research deep-dive
 
+> **Nota (2026-10-23):** dal 2026-10-23 BHODL è watch-only: non tiene chiavi private e
+> non può inviare bitcoin. Le parti di questo documento su seed, firma, invio, PayJoin,
+> backup o mirror signing↔tracker sono storiche; il design attuale è in
+> `docs/handbook.md`.
+
 Documento di reference per evolvere il Tracking dashboard di BHODL. Compilato 2026-05-16 da 6 ricerche parallele coprenti: chart types, dashboard layout, color systems, filters & customization, interaction patterns, Bitcoin-specific UX.
 
 Questo documento è la sintesi attionabile delle ricerche.

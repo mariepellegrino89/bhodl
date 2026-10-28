@@ -37,9 +37,7 @@ import io.bhodl.desktop.ui.BhodlTopBar
 import io.bhodl.desktop.settings.ThemeMode
 import io.bhodl.desktop.wizard.WalletPaths
 import io.bhodl.desktop.wizard.WalletStore
-import io.bhodl.ffi.Network
 import io.bhodl.desktop.ui.userMessage
-import io.bhodl.ffi.WalletException
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -55,22 +53,6 @@ import io.bhodl.shared.resources.Res
 import io.bhodl.shared.resources.wallet_settings_moved
 import io.bhodl.shared.resources.wallet_settings_open
 import io.bhodl.shared.resources.action_back
-import io.bhodl.shared.resources.action_save
-import io.bhodl.shared.resources.settings_esplora_active_default
-import io.bhodl.shared.resources.settings_esplora_active_override
-import io.bhodl.shared.resources.settings_esplora_description
-import io.bhodl.shared.resources.settings_esplora_field_label
-import io.bhodl.shared.resources.settings_esplora_reset
-import io.bhodl.shared.resources.settings_esplora_section
-import io.bhodl.shared.resources.settings_language_english
-import io.bhodl.shared.resources.settings_language_italian
-import io.bhodl.shared.resources.settings_language_section
-import io.bhodl.shared.resources.settings_language_system
-import io.bhodl.shared.resources.settings_theme_dark
-import io.bhodl.shared.resources.settings_theme_light
-import io.bhodl.shared.resources.settings_theme_neon
-import io.bhodl.shared.resources.settings_theme_section
-import io.bhodl.shared.resources.settings_theme_system
 import io.bhodl.shared.resources.settings_title
 import io.bhodl.desktop.prices.FiatCurrency
 import io.bhodl.desktop.prices.PriceCache
@@ -99,12 +81,6 @@ import org.jetbrains.compose.resources.stringResource
 public fun SettingsScreen(
     onBack: () -> Unit,
     onWalletWiped: () -> Unit = {},
-    // Navigation callback for the temporary Phase 3.1 debug entry.
-    // Default is a no-op so existing call sites and tests don't need
-    // to thread anything through. The actual navigation wiring lives
-    // in `App.kt` and only fires when `BHODL_DEBUG=1` is set so the
-    // entry is rendered at all.
-    onOpenDebugWatch: () -> Unit = {},
     /** Opens Wallet › Wallet settings; `null` hides the button. */
     onOpenWalletSettings: (() -> Unit)? = null,
     /** UX review 2026-10 (item 14) — opens the Security Hub; `null` hides the entry. */
@@ -287,16 +263,6 @@ public fun SettingsScreen(
 
             WipeSection(onWiped = onWalletWiped, dataDir = dataDir)
 
-            // Phase 3.1 debug entry — gated by the BHODL_DEBUG=1 env var
-            // so the section is invisible to anyone except contributors
-            // who explicitly opt in. Removed in Phase 3.2 when the
-            // proper wallet picker lands.
-            // Audit 2026-10 — also requires the dev-build flag so a
-            // packaged release never shows it (see DebugFlags).
-            if (io.bhodl.desktop.DebugFlags.debugToolsEnabled) {
-                DebugSection(onOpenDebugWatch = onOpenDebugWatch)
-            }
-
             OutlinedButton(
                 onClick = onBack,
                 modifier = Modifier
@@ -392,23 +358,12 @@ public object SettingsTags {
     public const val BITCOIN_LENS_FIAT_NW_CHART: String =
         "settings.bitcoin-lens.fiat.nw-chart"
 
-    public const val BACKUP_PASSWORD: String = "settings.backup.password"
-    /** Audit 2026-10 — confirmation field for the backup password. */
-    public const val BACKUP_PASSWORD_CONFIRM: String = "settings.backup.password-confirm"
-    /** Security review — helper text while the backup password is empty. */
-    public const val BACKUP_PASSWORD_HINT: String = "settings.backup.password-hint"
-    public const val BACKUP_EXPORT: String = "settings.backup.export"
-    public const val BACKUP_BLOB: String = "settings.backup.blob"
-    public const val BACKUP_SAVE_FILE: String = "settings.backup.save-file"
-    public const val BACKUP_ERROR: String = "settings.backup.error"
-
     public const val WIPE: String = "settings.wipe"
 
     /** Note + button pointing to Wallet › Wallet settings. */
     public const val WALLET_SETTINGS_POINTER: String = "settings.wallet-settings.pointer"
     public const val OPEN_WALLET_SETTINGS: String = "settings.wallet-settings.open"
 
-    public const val DEBUG_WATCH: String = "settings.debug.watch"
 
     public const val MODULE_INVESTMENTS: String = "settings.module.investments"
     public const val MODULE_BUDGET_BILLS: String = "settings.module.budget-bills"
@@ -421,22 +376,10 @@ public object SettingsTags {
     public const val LABELS_STATUS: String = "settings.labels.status"
     public const val LABELS_ERROR: String = "settings.labels.error"
 
-    public const val RECOVERY_REVEAL: String = "settings.recovery.reveal"
-    public const val RECOVERY_HIDE: String = "settings.recovery.hide"
-    public const val RECOVERY_PHRASE: String = "settings.recovery.phrase"
-    public const val RECOVERY_PASSPHRASE: String = "settings.recovery.passphrase"
-    public const val RECOVERY_ERROR: String = "settings.recovery.error"
-
     public const val WALLET_NAME_FIELD: String = "settings.wallet_name.field"
     public const val WALLET_NAME_SAVE: String = "settings.wallet_name.save"
 
-    /** Phase 6.0 — "Add to Tracker" action for the active signing wallet. */
-    public const val ADD_TO_TRACKER_BUTTON: String = "settings.add_to_tracker.button"
-    public const val ADD_TO_TRACKER_STATUS: String = "settings.add_to_tracker.status"
-
     public const val DELETE_THIS_WALLET: String = "settings.delete_this_wallet"
-
-    public const val SWITCH_WALLET_PREFIX: String = "settings.switch_wallet."
 
     public const val WATCH_DESC_REVEAL: String = "settings.watch_descriptor.reveal"
     public const val WATCH_DESC_HIDE: String = "settings.watch_descriptor.hide"

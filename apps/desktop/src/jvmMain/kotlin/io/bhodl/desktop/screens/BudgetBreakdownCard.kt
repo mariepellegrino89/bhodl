@@ -34,7 +34,6 @@ import io.bhodl.desktop.ui.SlideOverPanel
 import io.bhodl.desktop.ui.bhodlCard
 import io.bhodl.desktop.ui.displayAmount
 import io.bhodl.desktop.ui.displaySignedAmount
-import io.bhodl.ffi.PaymentDirection
 import io.bhodl.ffi.PaymentEvent
 import io.bhodl.ffi.TrackingBudgetFfi
 import io.bhodl.desktop.domain.externalInflowSat

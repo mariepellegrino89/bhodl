@@ -4,13 +4,13 @@ import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.runDesktopComposeUiTest
 import androidx.compose.ui.test.waitUntilAtLeastOneExists
 import androidx.compose.ui.semantics.SemanticsProperties
-import io.bhodl.desktop.screens.UnlockScreen
-import io.bhodl.desktop.screens.UnlockTags
-import io.bhodl.desktop.wallet.FakeWalletFactory
+import io.bhodl.desktop.screens.SettingsTags
+import io.bhodl.desktop.screens.WalletSettingsTab
+import io.bhodl.desktop.wallet.FakeWalletPort
 import io.bhodl.desktop.wizard.PinAttemptTracker
 import io.bhodl.desktop.wizard.WalletStore
 import io.bhodl.ffi.WalletException
@@ -47,6 +47,26 @@ class ErrorMessagesTest {
     }
 
     @Test
+    fun `a registry validation error is shown as an invalid value, not a storage error`() {
+        assertEquals(
+            "Invalid value: liability kind must be one of [...]",
+            WalletException.InvalidArgument("liability kind must be one of [...]").userMessage(),
+        )
+    }
+
+    @Test
+    fun `a dropped connection reads as a temporary failure, other sync errors keep their detail`() {
+        assertEquals(
+            "Esplora sync failed: the server closed the connection; it is retried at the next sync",
+            WalletException.EsploraSync("Minreq(IoError(Kind(UnexpectedEof)))").userMessage(),
+        )
+        assertEquals(
+            "Esplora sync failed: HttpResponse { status: 502 }",
+            WalletException.EsploraSync("HttpResponse { status: 502 }").userMessage(),
+        )
+    }
+
+    @Test
     fun `URLs are not mistaken for paths`() {
         val msg = "Esplora sync failed: https://mempool.space/signet/api returned 502"
         assertEquals(msg, sanitizeErrorDetail(msg))
@@ -62,22 +82,22 @@ class ErrorMessagesTest {
     }
 
     @Test
-    fun `an FFI error with a path reaches the Unlock screen redacted`() = runDesktopComposeUiTest {
-        val factory = FakeWalletFactory(
-            failUnlock = WalletException.WalletCreate(
-                detail = "failed to open C:\\Users\\alice\\.bhodl\\wallets\\abc\\wallet.sqlite",
-            ),
-        )
+    fun `an FFI error with a path reaches the wallet settings redacted`() = runDesktopComposeUiTest {
+        val fake = FakeWalletPort().apply {
+            failExportPublicDescriptor = WalletException.Storage(
+                detail = "failed to open C:\\Users\\alice\\.bhodl\\watch-state\\abc.sqlite",
+            )
+        }
+        WalletStore.set(fake)
         setContent {
             BhodlTheme {
-                UnlockScreen(onUnlocked = {}, onBack = {}, factory = factory, dbDirOverride = "/tmp/x")
+                WalletSettingsTab(onWalletRemoved = {})
             }
         }
-        waitUntilAtLeastOneExists(hasTestTag(UnlockTags.PIN))
-        onNodeWithTag(UnlockTags.PIN).performTextInput("123456")
-        onNodeWithTag(UnlockTags.UNLOCK).performClick()
-        waitUntilAtLeastOneExists(hasTestTag(UnlockTags.ERROR), timeoutMillis = 2_000)
-        val text = onNodeWithTag(UnlockTags.ERROR).fetchSemanticsNode().config[SemanticsProperties.Text]
+        waitUntilAtLeastOneExists(hasTestTag(SettingsTags.WATCH_DESC_REVEAL))
+        onNodeWithTag(SettingsTags.WATCH_DESC_REVEAL).performScrollTo().performClick()
+        waitUntilAtLeastOneExists(hasTestTag(SettingsTags.WATCH_DESC_ERROR), timeoutMillis = 2_000)
+        val text = onNodeWithTag(SettingsTags.WATCH_DESC_ERROR).fetchSemanticsNode().config[SemanticsProperties.Text]
             .joinToString(" ") { it.text }
         assertTrue("<path>" in text, text)
         assertFalse("alice" in text, text)

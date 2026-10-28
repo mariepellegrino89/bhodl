@@ -86,11 +86,10 @@ ignore = [
     { id = "RUSTSEC-2026-0374", reason = "basic-toml 0.1.10 unmaintained; only via askama_derive 0.12 <- uniffi_bindgen 0.28 (proc-macro/build). Review by 2026-12-31." },
     # --- unmaintained, compile-time only (proc-macros / bindgen) ---
     # Not linked into the shipped binary's runtime paths; removal depends
-    # on upstream (uniffi 0.28 -> newer uniffi; age -> newer i18n-embed-fl).
+    # on upstream (uniffi 0.28 -> newer uniffi).
     # REVIEW BY 2026-12-31 (uniffi upgrade is tracked separately).
     { id = "RUSTSEC-2025-0141", reason = "bincode 1.3 unmaintained; only via uniffi_macros 0.28 (proc-macro). Review by 2026-12-31." },
     { id = "RUSTSEC-2024-0436", reason = "paste unmaintained; only via uniffi_bindgen 0.28 (proc-macro/build). Review by 2026-12-31." },
-    { id = "RUSTSEC-2026-0173", reason = "proc-macro-error2 unmaintained; only via age -> i18n-embed-fl (proc-macro). Review by 2026-12-31." },
 ]
 
 [sources]

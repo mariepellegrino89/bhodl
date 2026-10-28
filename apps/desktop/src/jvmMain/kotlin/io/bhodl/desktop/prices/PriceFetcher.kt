@@ -281,7 +281,12 @@ public object PriceFetcher {
         )
     }
 
+    /** Test seam: when set, every request is answered by this instead of the network. */
+    @Volatile
+    internal var httpGetOverride: ((String) -> String)? = null
+
     private fun httpGet(url: String): String {
+        httpGetOverride?.let { return it(url) }
         if (SettingsStore.torEnabled.value) {
             val (proxyHost, proxyPort) = parseProxyHostPort(SettingsStore.torProxyUrl.value)
             return torHttpGet(url, proxyHost, proxyPort)

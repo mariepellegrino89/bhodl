@@ -3,6 +3,57 @@
 > Wallet bitcoin self-custodial multi-layer con tracking nativo di net worth e spese.
 > Documento di partenza, maggio 2026. Da rifinire iterativamente.
 > **Brand**: BHODL · **Licenza**: Open Source · **Lancio**: Globale
+>
+> **Dal 2026-10-23 BHODL è watch-only** (vedi la decisione qui sotto): le parti del
+> piano che presuppongono firma, invio o custodia di chiavi sono superate e marcate
+> come tali, non cancellate.
+
+---
+
+## Decisione 2026-10-23 — BHODL diventa watch-only
+
+**Decisione.** BHODL non tiene più chiavi private e non può inviare bitcoin. È un
+wallet watch-only con tracker di net worth e spese integrato; la firma resta nel wallet
+di firma dell'utente (hardware wallet, Sparrow, telefono…).
+
+**Rimosso dal codice**: generazione e restore del seed BIP-39, PIN per wallet,
+`WalletHandle` / `OnchainAccount`, costruzione / firma / broadcast di PSBT, schermate
+Send / ReviewSend / SendSuccess, coin control e freeze, stime fee, RBF / CPFP, PayJoin
+(BIP-78), backup cifrato del seed (age) e restore, "mostra frase di recupero",
+"promuovi watch a signing", accoppiamento mirror signing↔tracker, migrazione pre-3.0 del
+wallet singolo, schermata debug watch, controlli e promemoria di backup nel Security
+Hub. Moduli Rust eliminati: `account.rs`, `mnemonic.rs`, `backup.rs`, `payjoin.rs`,
+`send_policy.rs` (helper condivisi in `common.rs`). Dipendenze rimosse: `age`,
+`secrecy`; `bip39` solo dev-dependency.
+
+**Cosa resta**:
+- tre tipi di wallet watch-only: xpub (BIP-86/84/49, zpub/ypub SLIP-132 accettati),
+  descriptor HD (fingerprint + path + xpub, Sparrow/Specter), lista di indirizzi;
+  mainnet, signet, testnet4, regtest (Tor consigliato su mainnet);
+- per wallet: Transazioni, Ricevi (derivazione indirizzi, etichetta prima
+  dell'indirizzo), Indirizzi, UTXO in sola lettura, impostazioni (rinomina, etichette
+  BIP-329, export del descriptor pubblico, rimozione), rubrica locale;
+- tutto il tracker (net worth, investimenti e lotti, asset manuali, budget, bollette,
+  regole, obiettivi, forecast, report, Bitcoin Lens);
+- un solo segreto, il **PIN del dispositivo**: Argon2id avvolge la chiave SQLCipher che cifra
+  `registry.sqlite` e ogni `watch-state/<uuid>.sqlite`. Un codice di recupero facoltativo
+  avvolge la stessa chiave e permette di reimpostare un PIN dimenticato
+  (`docs/pin-recovery.md`).
+
+**Aggiornamento da build precedenti**: dopo lo sblocco, una schermata una tantum
+(LegacyCleanup) elenca i signing wallet ancora su disco e li cancella, chiavi incluse,
+solo dopo che l'utente conferma di avere le frasi di recupero; "Not now" li lascia. I
+wallet watch-only che li rispecchiavano restano come wallet normali.
+
+**Perché.** Tenere chiavi richiede un livello di audit, di UX di sicurezza e di
+responsabilità che il progetto non può sostenere ora; il valore distintivo è il
+tracker. Chi spende ha già un wallet di firma migliore per quel compito.
+
+**Effetto sul resto del piano.** Le feature di firma e invio (§4.1 coin control,
+RBF/CPFP, PSBT, hardware signing; §4.2 invii privati; §4.3 invii Lightning; §4.7; §4.8
+backup del seed; parte di §4.10) e le fasi di roadmap che le presuppongono (§10) sono
+**superate**. Lightning, Liquid, Cashu / Fedimint e Ark restano in roadmap ma **da
+ripensare come tracking in sola lettura** di saldi tenuti altrove.
 
 ---
 
@@ -142,6 +193,8 @@ Le feature sono raggruppate per area funzionale; priorità (P0 = MVP, P1 = post-
 
 ### 4.1 Wallet core (on-chain Bitcoin)
 
+> **Superato 2026-10-23 (watch-only)**: resta solo 4.1.3 (watch-only via xpub / descriptor), esteso alle liste di indirizzi; tutte le voci di firma, coin control, fee, PSBT, multisig e hardware non si applicano più a BHODL.
+
 | # | Feature | Priorità |
 |---|---|---|
 | 4.1.1 | Single-sig SegWit / Taproot (BIP86 default) | P0 |
@@ -162,6 +215,8 @@ Le feature sono raggruppate per area funzionale; priorità (P0 = MVP, P1 = post-
 
 ### 4.2 Privacy
 
+> **Superato in parte 2026-10-23**: gli invii (SP send, Payjoin, privacy score pre-broadcast, coinjoin) escono dallo scope; restano rilevanti Tor (fatto, SOCKS5) e, da ripensare per un watch-only, BIP324 e la ricezione Silent Payments.
+
 | # | Feature | Priorità |
 |---|---|---|
 | 4.2.1 | Silent Payments BIP352 receive (default) | P0 |
@@ -176,6 +231,8 @@ Le feature sono raggruppate per area funzionale; priorità (P0 = MVP, P1 = post-
 | 4.2.10 | Coinjoin opzionale via WabiSabi coordinator selectabile | P2 |
 
 ### 4.3 Lightning Network
+
+> **Da ripensare 2026-10-23**: BHODL non custodisce fondi, quindi i due path (Breez / LDK Node) con invio, ricezione e gestione canali sono superati. Resta l'obiettivo di 4.3.12: mostrare saldi ed eventi Lightning nel tracker, in sola lettura, tramite le interfacce view-only che ogni wallet offre.
 
 **Decisione architetturale**: il wallet espone **due path Lightning selezionabili** dall'utente in fase di setup (e cambiabili dopo):
 
@@ -201,6 +258,8 @@ Entrambi i path coesistono nello stesso codebase. L'utente può migrare A→B (s
 
 ### 4.4 Multi-asset & altri layer
 
+> **Da ripensare 2026-10-23**: questi layer restano in roadmap solo come tracking in sola lettura (saldi e storico), non come wallet che spendono.
+
 | # | Feature | Priorità |
 |---|---|---|
 | 4.4.1 | Liquid Network: L-BTC nativo via LWK | P0 |
@@ -225,7 +284,7 @@ Entrambi i path coesistono nello stesso codebase. L'utente può migrare A→B (s
 | 4.5.5 | Budget mensile per categoria (sats o fiat-pegged) | P1 |
 | 4.5.6 | Recurring detection (paga ogni mese a stesso destinatario) | P1 |
 | 4.5.7 | Sats-per-day spending velocity & savings rate | P1 |
-| 4.5.8 | DCA performance (cost basis medio vs prezzo attuale) | P1 |
+| 4.5.8 | DCA performance (cost basis medio vs prezzo attuale) — fatto 2026-10-24: costo medio ponderato, prezzo del giorno modificabile per transazione | P1 |
 | 4.5.9 | Cash flow chart (in/out per mese) | P1 |
 | 4.5.10 | Esportazione fiscale: 1099-DA, CSV per Koinly/CoinTracker | P1 |
 | 4.5.11 | Stack target & progress (% completion verso obiettivo) | P2 |
@@ -250,6 +309,8 @@ Entrambi i path coesistono nello stesso codebase. L'utente può migrare A→B (s
 
 ### 4.7 Hardware integration
 
+> **Superato 2026-10-23**: BHODL non firma. L'integrazione si riduce a importare l'xpub / descriptor esportato dal dispositivo (eventuale import via QR / file da valutare).
+
 | # | Feature | Priorità |
 |---|---|---|
 | 4.7.1 | COLDCARD Mk4 / Q (USB + SD + NFC + BBQr) | P0 |
@@ -263,6 +324,8 @@ Entrambi i path coesistono nello stesso codebase. L'utente può migrare A→B (s
 | 4.7.9 | Bitkey integrazione esterna (NFC + screen) | P2 |
 
 ### 4.8 Backup & recovery
+
+> **Superato in parte 2026-10-23**: niente seed, quindi niente backup del seed (4.8.1–4.8.3, 4.8.6), SCB, inheritance o recovery drill. Restano l'export del descriptor pubblico (4.8.4) e l'export delle etichette BIP-329 (4.8.5).
 
 | # | Feature | Priorità |
 |---|---|---|
@@ -289,6 +352,8 @@ Entrambi i path coesistono nello stesso codebase. L'utente può migrare A→B (s
 | 4.9.6 | NWC client (interagisci con wallet altrui via permessi) | P2 |
 
 ### 4.10 Merchant & advanced
+
+> **Superato 2026-10-23**: le voci di ricezione Lightning / LNURL presuppongono un wallet che riceve fondi propri; restano eventualmente l'import di metadati (4.10.5) come fonte per il tracker.
 
 | # | Feature | Priorità |
 |---|---|---|
@@ -609,6 +674,11 @@ Score 0-100 con suggerimenti concreti pre-broadcast.
 
 ## 10. Roadmap & milestone
 
+> **2026-10-23 — roadmap originale (maggio 2026), non più quella attiva.** Le voci marcate
+> *(superato)* presuppongono firma o custodia e non si faranno in BHODL; quelle marcate
+> *(da ripensare)* restano ma come tracking in sola lettura. Lo stato reale è nel README e
+> nel `docs/handbook.md` §8.
+
 ### Phase 0 — Fondamenta (mese 1-2)
 
 - Setup monorepo Rust + Tauri scaffold + Flutter scaffold.
@@ -620,10 +690,10 @@ Score 0-100 con suggerimenti concreti pre-broadcast.
 
 ### Phase 1 — MVP wallet on-chain (mese 3-5)
 
-- Single-sig SegWit/Taproot.
-- PSBT v2 import/export.
-- Coin control base.
-- Hardware integration: COLDCARD + Jade + BitBox02 (i 3 più diffusi).
+- Single-sig SegWit/Taproot. *(superato 2026-10-23)*
+- PSBT v2 import/export. *(superato 2026-10-23)*
+- Coin control base. *(superato 2026-10-23)*
+- Hardware integration: COLDCARD + Jade + BitBox02 (i 3 più diffusi). *(superato 2026-10-23)*
 - BIP329 labels base.
 - Output descriptor backup.
 - Esplora connection.
@@ -631,12 +701,12 @@ Score 0-100 con suggerimenti concreti pre-broadcast.
 
 ### Phase 2 — Privacy & Lightning (mese 6-8)
 
-- Silent Payments BIP352 send + receive.
-- Payjoin BIP77 send.
+- Silent Payments BIP352 send + receive. *(superato 2026-10-23)*
+- Payjoin BIP77 send. *(superato 2026-10-23)*
 - BIP324 transport.
-- Lightning via Breez SDK Liquid (path A).
-- Submarine swap Boltz.
-- LSPS1/LSPS2.
+- Lightning via Breez SDK Liquid (path A). *(da ripensare: sola lettura)*
+- Submarine swap Boltz. *(superato 2026-10-23)*
+- LSPS1/LSPS2. *(superato 2026-10-23)*
 
 ### Phase 3 — Tracking core (mese 9-11)
 
@@ -649,39 +719,39 @@ Score 0-100 con suggerimenti concreti pre-broadcast.
 
 ### Phase 4 — Multisig & Inheritance (mese 12-15)
 
-- Multisig N-of-M nativo.
-- Miniscript editor.
-- MuSig2.
-- Inheritance wizard.
-- Recovery drill.
-- Hardware integration estesa (Passport, Ledger, Trezor, SeedSigner).
+- Multisig N-of-M nativo. *(superato 2026-10-23)*
+- Miniscript editor. *(superato 2026-10-23)*
+- MuSig2. *(superato 2026-10-23)*
+- Inheritance wizard. *(superato 2026-10-23)*
+- Recovery drill. *(superato 2026-10-23)*
+- Hardware integration estesa (Passport, Ledger, Trezor, SeedSigner). *(superato 2026-10-23)*
 
 ### Phase 5 — Auto-categorize & advanced UX (mese 16-18)
 
 - Auto-categorization rules.
 - Recurring detection.
 - Sats-per-day, savings rate, DCA P&L.
-- NWC server lato wallet.
+- NWC server lato wallet. *(superato 2026-10-23)*
 - E2E sync labels via Nostr.
 - Spending Policies (sub-budget per app esterne).
 
 ### Phase 6 — Multi-asset (mese 19-22)
 
-- Liquid + USDt nativo.
-- Cashu (CDK) tasca eCash.
-- Auto-melt soglia.
-- Fedimint.
+- Liquid + USDt nativo. *(da ripensare: sola lettura)*
+- Cashu (CDK) tasca eCash. *(da ripensare: sola lettura)*
+- Auto-melt soglia. *(superato 2026-10-23)*
+- Fedimint. *(da ripensare: sola lettura)*
 
 ### Phase 7 — Frontier (mese 23+)
 
-- Ark/Arkade.
+- Ark/Arkade. *(da ripensare: sola lettura)*
 - Taproot Assets.
 - BTCPay merchant connection.
 - Open banking fiat side.
-- LNURL-pay self-hosted endpoint.
+- LNURL-pay self-hosted endpoint. *(superato 2026-10-23)*
 - BIP353 nome setup.
-- Proof of Reserves BIP-322.
-- LDK Node path B.
+- Proof of Reserves BIP-322. *(superato 2026-10-23)*
+- LDK Node path B. *(superato 2026-10-23)*
 - RGB v0.12 stable se mercato lo richiede.
 
 ### Beta & launch
@@ -785,5 +855,6 @@ Score 0-100 con suggerimenti concreti pre-broadcast.
 *Documento vivo. Versione 0.2 — maggio 2026.*
 
 **Changelog**:
+- v0.3 (2026-10-23): BHODL diventa watch-only — nuova sezione "Decisione 2026-10-23"; note di superamento in §4.1–4.4, 4.7, 4.8, 4.10; voci di roadmap §10 marcate come superate o da ripensare.
 - v0.2 (2026-05-04): pubblico target → mainstream + 3 tier; Lightning → dual path A/B; frontend → KMP + Compose Multiplatform; aggiornate sezioni 1.3, 4.3, 6.2 e le open questions (sezione poi rimossa).
 - v0.1 (2026-05-04): prima stesura completa.

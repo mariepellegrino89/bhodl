@@ -54,93 +54,6 @@ public fun txStatusOf(confirmationHeight: UInt?, tipHeight: UInt?): TxStatus {
     return if (confs >= FINAL_CONFIRMATIONS) TxStatus.Confirmed else TxStatus.Confirming(confs)
 }
 
-/** How a pending transaction can be accelerated, if at all. */
-public enum class SpeedUpKind {
-    /** Outgoing tx the wallet signed: replace it with a higher fee. */
-    Rbf,
-
-    /** Incoming tx: spend its output in a child that pays for both. */
-    CpfpIncoming,
-}
-
-/**
- * Speed-up affordance for [tx]. Keyed on the sign of `netSat`, never on
- * `feeSat` (Esplora fills `feeSat` for incoming txs too — see the
- * 2026-05-11 regression in HistoryScreenTest).
- */
-public fun speedUpKindOf(tx: TransactionRecord): SpeedUpKind? = when {
-    tx.confirmationHeight != null -> null
-    tx.netSat < 0 -> SpeedUpKind.Rbf
-    tx.netSat > 0 -> SpeedUpKind.CpfpIncoming
-    else -> null
-}
-
-/**
- * One top-level row of the Transactions table: a transaction plus the
- * transactions it replaced through fee bumps (oldest first), which are
- * rendered collapsed under it with a "Fee bumped" chip.
- */
-public data class TxGroup(
-    val tx: TransactionRecord,
-    val replaced: List<TransactionRecord> = emptyList(),
-) {
-    val feeBumped: Boolean get() = replaced.isNotEmpty()
-}
-
-/**
- * Group [txs] so every replaced transaction sits under the transaction
- * that finally replaced it.
- *
- * [replacedBy] maps an original txid to its replacement txid (a chain
- * A→B→C collapses A and B under C). [snapshots] are the originals as
- * they looked when they were bumped: BDK drops a replaced tx from its
- * canonical history, so the snapshot is the only record left of it.
- * A replacement that is no longer listed (itself dropped) leaves its
- * originals as ordinary rows.
- */
-public fun groupReplacements(
-    txs: List<TransactionRecord>,
-    replacedBy: Map<String, String>,
-    snapshots: Map<String, TransactionRecord> = emptyMap(),
-): List<TxGroup> {
-    val listed = txs.associateBy { it.txid }
-
-    // Follow the chain to the last replacement that is still listed.
-    fun finalReplacement(txid: String): String? {
-        var current = txid
-        var final: String? = null
-        val seen = mutableSetOf(txid)
-        while (true) {
-            val next = replacedBy[current] ?: break
-            if (!seen.add(next)) break // defensive: a cycle ends the walk
-            if (next in listed) final = next
-            current = next
-        }
-        return final
-    }
-
-    val children = mutableMapOf<String, MutableList<TransactionRecord>>()
-    val topLevel = mutableListOf<TransactionRecord>()
-    for (tx in txs) {
-        val parent = finalReplacement(tx.txid)
-        if (parent == null) topLevel += tx else children.getOrPut(parent) { mutableListOf() } += tx
-    }
-    // Originals BDK no longer lists, known only from the bump log.
-    for ((original, snapshot) in snapshots) {
-        if (original in listed) continue
-        val parent = finalReplacement(original) ?: continue
-        children.getOrPut(parent) { mutableListOf() } += snapshot
-    }
-    return topLevel.map { tx ->
-        TxGroup(
-            tx = tx,
-            replaced = children[tx.txid].orEmpty()
-                .distinctBy { it.txid }
-                .sortedBy { it.timestamp ?: ULong.MAX_VALUE },
-        )
-    }
-}
-
 /** Sortable columns of the Transactions table. */
 public enum class TxSortColumn { DATE, LABEL, AMOUNT, STATUS, CONFIRMATIONS }
 
@@ -148,46 +61,45 @@ public enum class TxSortColumn { DATE, LABEL, AMOUNT, STATUS, CONFIRMATIONS }
 public enum class TxFilter { ALL, INCOMING, OUTGOING, PENDING }
 
 /**
- * Sort [groups] by [column]. Pending transactions (no timestamp / no
+ * Sort [txs] by [column]. Pending transactions (no timestamp / no
  * height) count as the newest / least-confirmed so they surface first
  * in the default newest-first order. Ties fall back to the txid so the
  * order is stable across refreshes.
  */
-public fun sortTxGroups(
-    groups: List<TxGroup>,
+public fun sortTransactions(
+    txs: List<TransactionRecord>,
     column: TxSortColumn,
     ascending: Boolean,
     labelOf: (String) -> String = { "" },
     tipHeight: UInt? = null,
-): List<TxGroup> {
-    val comparator: Comparator<TxGroup> = when (column) {
-        TxSortColumn.DATE -> compareBy { it.tx.timestamp ?: ULong.MAX_VALUE }
-        TxSortColumn.LABEL -> compareBy<TxGroup> { labelOf(it.tx.txid).isBlank() }
-            .thenBy { labelOf(it.tx.txid).lowercase() }
-        TxSortColumn.AMOUNT -> compareBy { it.tx.netSat }
+): List<TransactionRecord> {
+    val comparator: Comparator<TransactionRecord> = when (column) {
+        TxSortColumn.DATE -> compareBy { it.timestamp ?: ULong.MAX_VALUE }
+        TxSortColumn.LABEL -> compareBy<TransactionRecord> { labelOf(it.txid).isBlank() }
+            .thenBy { labelOf(it.txid).lowercase() }
+        TxSortColumn.AMOUNT -> compareBy { it.netSat }
         TxSortColumn.STATUS, TxSortColumn.CONFIRMATIONS -> compareBy {
             // Pending = 0, unknown tip = "very confirmed".
-            confirmationsOf(it.tx.confirmationHeight, tipHeight) ?: Int.MAX_VALUE
+            confirmationsOf(it.confirmationHeight, tipHeight) ?: Int.MAX_VALUE
         }
     }
     val directed = if (ascending) comparator else comparator.reversed()
-    return groups.sortedWith(directed.thenBy { it.tx.txid })
+    return txs.sortedWith(directed.thenBy { it.txid })
 }
 
 /**
  * Apply the filter chip and the free-text [query] (matched against the
- * label, category and txid, case-insensitive) to [groups].
+ * label, category and txid, case-insensitive) to [txs].
  */
-public fun filterTxGroups(
-    groups: List<TxGroup>,
+public fun filterTransactions(
+    txs: List<TransactionRecord>,
     filter: TxFilter,
     query: String,
     labelOf: (String) -> String = { "" },
     categoryOf: (String) -> String? = { null },
-): List<TxGroup> {
+): List<TransactionRecord> {
     val q = query.trim().lowercase()
-    return groups.filter { g ->
-        val tx = g.tx
+    return txs.filter { tx ->
         val passesFilter = when (filter) {
             TxFilter.ALL -> true
             TxFilter.INCOMING -> tx.netSat > 0

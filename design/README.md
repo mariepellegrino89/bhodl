@@ -1,6 +1,6 @@
 # BHODL Design System v0
 
-Documentazione del design system per **BHODL** — wallet bitcoin self-custodial multi-layer.  
+Documentazione del design system per **BHODL** — wallet bitcoin watch-only con tracker di net worth e spese (dal 2026-10-23 non tiene chiavi e non invia).  
 Versione: `0.1.0` — Phase 0 Scaffolding  
 Stack target: Compose Multiplatform 1.8+ (Android, iOS via Skia, macOS, Windows, Linux)
 

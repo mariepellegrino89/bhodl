@@ -14,7 +14,6 @@ import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.runDesktopComposeUiTest
 import androidx.compose.ui.test.waitUntilAtLeastOneExists
 import androidx.compose.ui.test.waitUntilDoesNotExist
-import io.bhodl.desktop.DebugFlags
 import io.bhodl.desktop.settings.EsploraEndpoint
 import io.bhodl.desktop.settings.SettingsPersistence
 import io.bhodl.desktop.settings.SettingsStore
@@ -165,15 +164,6 @@ class SettingsNetworkSecurityTest {
         waitUntilDoesNotExist(hasTestTag(SettingsTags.TOR_PROXY_FIELD))
         assertFalse(SettingsStore.torEnabled.value)
         assertNull(EsploraEndpoint.currentProxy())
-    }
-
-    @Test
-    fun `debug watch entry is hidden outside a dev build`() = runDesktopComposeUiTest {
-        assertFalse(DebugFlags.debugToolsEnabled, "test JVM must not be a dev build")
-        WalletStore.set(FakeWalletPort())
-        showSettings()
-        onNodeWithTag(SettingsTags.BACK).performScrollTo()
-        assertTrue(onAllNodesWithTag(SettingsTags.DEBUG_WATCH).fetchSemanticsNodes().isEmpty())
     }
 
     @Test

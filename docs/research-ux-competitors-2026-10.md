@@ -1,5 +1,10 @@
 # BHODL — UX/UI Research: Bitcoin wallet + net-worth tracker
 
+> **Note (2026-10-23):** since 2026-10-23 BHODL is watch-only: it holds no private keys
+> and cannot send bitcoin. The parts of this document about seeds, signing, sending,
+> PayJoin, backups or signing↔tracker mirrors are historical; see `docs/handbook.md`
+> for the current design.
+
 **Date of research / access date for every URL below: 2026-10-10.**
 
 **Scope.** BHODL is a desktop-first (Compose Desktop) self-custodial Bitcoin wallet with a built-in net-worth and spending tracker. It takes an opinionated bitcoin-standard line: BTC/sats are the unit of account and fiat appears only on operational surfaces. Its chosen design direction is dense, dark, Bloomberg/Sparrow-like screens with Kubera-style tables, Material Symbols icons and a flat default theme in the Primer style, with a neon theme available as an opt-in.

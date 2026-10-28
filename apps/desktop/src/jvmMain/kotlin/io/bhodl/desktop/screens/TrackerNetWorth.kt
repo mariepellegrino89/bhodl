@@ -137,8 +137,8 @@ internal fun rememberTrackerNetWorth(
 
 /**
  * UX review 2026-10 (B8) — the tracked wallets, one entry per logical
- * wallet: a signing wallet and its watch-only mirror collapse into one
- * group, an unpaired signing wallet is not tracked at all. The HOME
+ * wallet: registry rows sharing an account xpub collapse into one
+ * group ([groupWalletsByXpub]). The HOME
  * wallet table, the PORTFOLIO "BTC Wallets (n)" row and the footer
  * count all derive from this list, so the counts agree.
  *
@@ -152,8 +152,6 @@ internal fun trackedWalletGroups(
 ): List<GroupedWallet> = groupWalletsByXpub(
     wallets = wallets,
     watchBalances = watchBalances,
-    signingBalance = null,
-    activeSigningId = null,
 ).filter { g -> g.memberIds.any { it !in excludedWalletIds } }
 
 /** On-chain BTC of the tracked (and included) wallets. */

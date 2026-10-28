@@ -51,7 +51,6 @@ import io.bhodl.ffi.AddressRecord
 import io.bhodl.ffi.UtxoRecord
 import io.bhodl.shared.resources.Res
 import io.bhodl.shared.resources.wview_err_load_failed
-import io.bhodl.shared.resources.wview_err_update_failed
 import io.bhodl.shared.resources.wallet_addr_change
 import io.bhodl.shared.resources.wallet_addr_col_address
 import io.bhodl.shared.resources.wallet_addr_col_index
@@ -72,14 +71,9 @@ import io.bhodl.shared.resources.wallet_utxo_col_type
 import io.bhodl.shared.resources.wallet_utxo_confirmed
 import io.bhodl.shared.resources.wallet_utxo_empty
 import io.bhodl.shared.resources.wallet_utxo_failed
-import io.bhodl.shared.resources.wallet_utxo_freeze
-import io.bhodl.shared.resources.wallet_utxo_frozen
-import io.bhodl.shared.resources.wallet_utxo_hint
 import io.bhodl.shared.resources.wallet_utxo_receive
-import io.bhodl.shared.resources.wallet_utxo_spend_selected
 import io.bhodl.shared.resources.wallet_utxo_summary
 import io.bhodl.shared.resources.wallet_utxo_unconfirmed
-import io.bhodl.shared.resources.wallet_utxo_unfreeze
 import io.bhodl.ui.theme.BhodlTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -273,48 +267,21 @@ private fun AddressTableRow(
 // ─── UTXOs ──────────────────────────────────────────────────────────────
 
 /**
- * The wallet's **UTXOs** tab: every coin with amount, type (receive /
- * change), status and its frozen flag. Freeze / Unfreeze writes a
- * BIP-329 `spendable` label; selecting coins and "Send selected" opens
- * the Send tab with coin control pinned to exactly those inputs.
- * Automatic coin selection stays the default everywhere else.
+ * The wallet's **UTXOs** tab: every coin held by the watched scripts
+ * with amount, type (receive / change) and confirmation status. Read
+ * only — BHODL never spends.
  */
 @Composable
-internal fun WalletUtxosTab(
-    refreshKey: Int,
-    onChanged: () -> Unit,
-    onSpendSelected: (outpoints: List<String>) -> Unit,
-) {
-    val scope = rememberCoroutineScope()
+internal fun WalletUtxosTab(refreshKey: Int) {
     val fmt = rememberAmountFormatter()
     var utxos by remember { mutableStateOf<List<UtxoRecord>?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
-    val selected = remember { mutableStateListOf<String>() }
-    var localVersion by remember { mutableStateOf(0) }
 
-    LaunchedEffect(refreshKey, localVersion) {
+    LaunchedEffect(refreshKey) {
         val wallet = WalletStore.current() ?: return@LaunchedEffect
         runCatching { withContext(Dispatchers.IO) { wallet.listUtxos() } }
-            .onSuccess { list ->
-                utxos = list.sortedByDescending { it.valueSat }
-                // A coin that got frozen / spent can't stay selected.
-                selected.retainAll(list.filter { !it.frozen }.map { it.outpoint }.toSet())
-            }
+            .onSuccess { list -> utxos = list.sortedByDescending { it.valueSat } }
             .onFailure { error = it.userMessage(getString(Res.string.wview_err_load_failed)) }
-    }
-
-    val failedTemplate = Res.string.wallet_utxo_failed
-    fun setFrozen(outpoint: String, frozen: Boolean) {
-        val wallet = WalletStore.current() ?: return
-        scope.launch {
-            runCatching { withContext(Dispatchers.IO) { wallet.setUtxoFrozen(outpoint, frozen) } }
-                .onSuccess {
-                    error = null
-                    localVersion++
-                    onChanged()
-                }
-                .onFailure { error = it.userMessage(getString(Res.string.wview_err_update_failed)) }
-        }
     }
 
     Column(
@@ -322,36 +289,19 @@ internal fun WalletUtxosTab(
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         val list = utxos.orEmpty()
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Text(
-                text = stringResource(
-                    Res.string.wallet_utxo_summary,
-                    list.size,
-                    fmt(list.sumOf { it.valueSat.toLong() }),
-                    selected.size,
-                    fmt(list.filter { it.outpoint in selected }.sumOf { it.valueSat.toLong() }),
-                ),
-                style = BhodlTheme.typography.labelMedium,
-                color = BhodlTheme.colors.textSecondary,
-                modifier = Modifier.weight(1f).testTag(WalletTabTags.UTXO_SUMMARY),
-            )
-            Button(
-                onClick = { onSpendSelected(selected.toList()) },
-                enabled = selected.isNotEmpty(),
-                modifier = Modifier.testTag(WalletTabTags.UTXO_SPEND_SELECTED),
-            ) { Text(stringResource(Res.string.wallet_utxo_spend_selected, selected.size)) }
-        }
         Text(
-            text = stringResource(Res.string.wallet_utxo_hint),
+            text = stringResource(
+                Res.string.wallet_utxo_summary,
+                list.size,
+                fmt(list.sumOf { it.valueSat.toLong() }),
+            ),
             style = BhodlTheme.typography.labelMedium,
-            color = BhodlTheme.colors.textTertiary,
+            color = BhodlTheme.colors.textSecondary,
+            modifier = Modifier.testTag(WalletTabTags.UTXO_SUMMARY),
         )
         error?.let {
             Text(
-                text = stringResource(failedTemplate, it),
+                text = stringResource(Res.string.wallet_utxo_failed, it),
                 style = BhodlTheme.typography.bodyMedium,
                 color = BhodlTheme.colors.error,
             )
@@ -361,9 +311,6 @@ internal fun WalletUtxosTab(
         UtxoTable(
             utxos = utxos,
             amounts = utxoAmounts,
-            isSelected = { it in selected },
-            onSelect = { outpoint, on -> if (on) selected.add(outpoint) else selected.remove(outpoint) },
-            onFreeze = ::setFrozen,
             modifier = Modifier.weight(1f).fillMaxWidth(),
         )
     }
@@ -371,23 +318,18 @@ internal fun WalletUtxosTab(
 
 /**
  * The UTXOs table. Item 17 — on a narrow window type, address, then
- * outpoint give way ([UTXO_TABLE]); the checkbox, status, amount and
- * the Freeze link always stay.
+ * outpoint give way ([UTXO_TABLE]); status and amount always stay.
  */
 @Composable
 internal fun UtxoTable(
     utxos: List<UtxoRecord>?,
     amounts: ColumnAmountFormat,
-    isSelected: (outpoint: String) -> Boolean,
-    onSelect: (outpoint: String, selected: Boolean) -> Unit,
-    onFreeze: (outpoint: String, frozen: Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     BoxWithConstraints(modifier = modifier) {
         val cols = UTXO_TABLE.visible(maxWidth.value.toInt())
         TablePanel(modifier = Modifier.fillMaxSize().testTag(WalletTabTags.UTXO_TABLE)) {
             TableHeaderRow {
-                Spacer(Modifier.width(40.dp))
                 for (c in cols) {
                     val label = when (c) {
                         UtxoCol.OUTPOINT -> stringResource(Res.string.wallet_utxo_col_outpoint)
@@ -404,7 +346,6 @@ internal fun UtxoTable(
                         testTag = UTXO_TABLE.headerTag(c),
                     )
                 }
-                Spacer(Modifier.width(96.dp))
             }
             val list = utxos.orEmpty()
             when {
@@ -412,7 +353,7 @@ internal fun UtxoTable(
                 list.isEmpty() -> EmptyTableLine(stringResource(Res.string.wallet_utxo_empty))
                 else -> LazyColumn(modifier = Modifier.fillMaxSize()) {
                     itemsIndexed(list, key = { _, u -> u.outpoint }) { index, u ->
-                        UtxoTableRow(u, index, cols, amounts, isSelected(u.outpoint), onSelect, onFreeze)
+                        UtxoTableRow(u, index, cols, amounts)
                     }
                 }
             }
@@ -426,33 +367,16 @@ private fun UtxoTableRow(
     index: Int,
     cols: List<UtxoCol>,
     amounts: ColumnAmountFormat,
-    isSelected: Boolean,
-    onSelect: (outpoint: String, selected: Boolean) -> Unit,
-    onFreeze: (outpoint: String, frozen: Boolean) -> Unit,
 ) {
-    val rowInteraction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .height(BhodlTheme.density.rowHeight)
-            .background(rowBackground(index, isSelected))
-            // Item 15 — focus ring distinct from the selection fill.
-            .tableRowFocusRing(rowInteraction)
-            .toggleable(
-                value = isSelected,
-                enabled = !u.frozen,
-                role = Role.Checkbox,
-                interactionSource = rowInteraction,
-                indication = androidx.compose.foundation.LocalIndication.current,
-                onValueChange = { on -> onSelect(u.outpoint, on) },
-            )
+            .background(rowBackground(index, false))
             .padding(horizontal = BhodlTheme.spacing.md)
             .testTag(WalletTabTags.utxoRow(u.outpoint)),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.width(40.dp)) {
-            Checkbox(checked = isSelected, onCheckedChange = null, enabled = !u.frozen)
-        }
         for (c in cols) when (c) {
             UtxoCol.OUTPOINT -> Text(
                 text = shortOutpoint(u.outpoint),
@@ -475,46 +399,21 @@ private fun UtxoTableRow(
                 style = BhodlTheme.typography.labelMedium,
                 color = BhodlTheme.colors.textSecondary,
             )
-            UtxoCol.STATUS -> Row(
+            UtxoCol.STATUS -> Text(
+                text = stringResource(
+                    if (u.confirmed) Res.string.wallet_utxo_confirmed
+                    else Res.string.wallet_utxo_unconfirmed,
+                ),
                 modifier = Modifier.tableCell(this, c),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                if (u.frozen) {
-                    WalletChip(
-                        text = stringResource(Res.string.wallet_utxo_frozen),
-                        color = BhodlTheme.colors.financialPending,
-                        modifier = Modifier.testTag(WalletTabTags.utxoFrozen(u.outpoint)),
-                    )
-                } else {
-                    Text(
-                        text = stringResource(
-                            if (u.confirmed) Res.string.wallet_utxo_confirmed
-                            else Res.string.wallet_utxo_unconfirmed,
-                        ),
-                        style = BhodlTheme.typography.labelMedium,
-                        color = BhodlTheme.colors.textTertiary,
-                    )
-                }
-            }
+                style = BhodlTheme.typography.labelMedium,
+                color = BhodlTheme.colors.textTertiary,
+            )
             UtxoCol.AMOUNT -> Text(
                 text = amounts.bare(u.valueSat.toLong()),
                 modifier = Modifier.tableCell(this, c),
                 style = BhodlTheme.typography.amountSmall,
                 color = BhodlTheme.colors.textPrimary,
                 textAlign = TextAlign.End,
-            )
-        }
-        Box(modifier = Modifier.width(96.dp), contentAlignment = Alignment.CenterEnd) {
-            Text(
-                text = stringResource(
-                    if (u.frozen) Res.string.wallet_utxo_unfreeze else Res.string.wallet_utxo_freeze,
-                ),
-                style = BhodlTheme.typography.labelMedium,
-                color = BhodlTheme.colors.brandPrimary,
-                modifier = Modifier
-                    .clickable { onFreeze(u.outpoint, !u.frozen) }
-                    .padding(horizontal = 4.dp, vertical = 2.dp)
-                    .testTag(WalletTabTags.utxoFreeze(u.outpoint)),
             )
         }
     }
@@ -540,17 +439,12 @@ private fun EmptyTableLine(text: String) {
 // ─── Wallet settings ────────────────────────────────────────────────────
 
 /**
- * The wallet's **Wallet settings** tab: every wallet-scoped section that
- * used to sit at the bottom of the app-wide Settings page (switch,
- * rename, add to tracker, encrypted backup, BIP-329 labels, recovery
- * phrase, watch-only descriptor, delete), in two columns. App-wide
- * preferences stay under the rail's Settings entry.
+ * The wallet's **Wallet settings** tab: rename, BIP-329 labels, public
+ * descriptor export and remove — in two columns. App-wide preferences
+ * stay under the rail's Settings entry.
  */
 @Composable
-internal fun WalletSettingsTab(
-    onWalletWiped: () -> Unit,
-    onSwitchSigningWallet: (walletId: String) -> Unit,
-) {
+internal fun WalletSettingsTab(onWalletRemoved: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxSize()
@@ -563,18 +457,14 @@ internal fun WalletSettingsTab(
             verticalArrangement = Arrangement.spacedBy(24.dp),
         ) {
             RenameWalletSection()
-            SwitchWalletSection(onSwitch = onSwitchSigningWallet)
-            AddToTrackerSection()
             LabelsSection()
-            ShowWatchOnlyDescriptorSection()
         }
         Column(
             modifier = Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(24.dp),
         ) {
-            BackupSection()
-            ShowRecoveryPhraseSection()
-            DeleteThisWalletSection(onDeleted = onWalletWiped)
+            ShowWatchOnlyDescriptorSection()
+            RemoveThisWalletSection(onRemoved = onWalletRemoved)
         }
     }
 }
@@ -590,10 +480,7 @@ public object WalletTabTags {
 
     public const val UTXO_TABLE: String = "wallet.utxos.table"
     public const val UTXO_SUMMARY: String = "wallet.utxos.summary"
-    public const val UTXO_SPEND_SELECTED: String = "wallet.utxos.spend-selected"
     public fun utxoRow(outpoint: String): String = "wallet.utxos.row.$outpoint"
-    public fun utxoFrozen(outpoint: String): String = "wallet.utxos.frozen.$outpoint"
-    public fun utxoFreeze(outpoint: String): String = "wallet.utxos.freeze.$outpoint"
 
     public const val SETTINGS: String = "wallet.settings"
 }

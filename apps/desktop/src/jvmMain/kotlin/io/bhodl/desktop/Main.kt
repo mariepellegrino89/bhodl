@@ -22,6 +22,8 @@ import io.bhodl.desktop.settings.ThemeMode
 import io.bhodl.desktop.ui.SettingsWarningBanner
 import io.bhodl.desktop.wizard.PinAttemptTracker
 import io.bhodl.desktop.wizard.WalletPaths
+import io.bhodl.shared.resources.Res
+import io.bhodl.shared.resources.app_already_running
 import io.bhodl.ui.theme.BhodlTheme
 import java.io.File
 import java.util.Locale
@@ -35,6 +37,20 @@ import java.util.Locale
  * composable without dragging desktop-specific window code with it.
  */
 fun main() {
+    // GAP-021 — refuse a second instance on the same data dir (held for
+    // the process lifetime; the OS releases it on exit or crash).
+    val instanceLock = SingleInstanceLock.tryAcquire(WalletPaths.defaultDataDir())
+    if (instanceLock == null) {
+        val message = kotlinx.coroutines.runBlocking {
+            org.jetbrains.compose.resources.getString(Res.string.app_already_running)
+        }
+        javax.swing.JOptionPane.showMessageDialog(
+            null, message, "BHODL", javax.swing.JOptionPane.INFORMATION_MESSAGE,
+        )
+        return
+    }
+    Runtime.getRuntime().addShutdownHook(Thread { instanceLock.close() })
+
     // T2-11 — settings persistence wiring. Rehydrate
     // `<dataDir>/settings.json` BEFORE the first composition so theme /
     // fiat currency / modules / Tor are correct on the first frame, then

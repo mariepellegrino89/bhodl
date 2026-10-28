@@ -38,7 +38,6 @@ import io.bhodl.desktop.ui.money.MoneyDensity
 import io.bhodl.desktop.ui.money.MoneyPrimary
 import io.bhodl.desktop.ui.money.MoneySemantic
 import io.bhodl.desktop.ui.money.MoneyValue
-import io.bhodl.ffi.TrackingInvestmentFfi
 import io.bhodl.ffi.TrackingInvestmentLotFfi
 import io.bhodl.ui.theme.BhodlTheme
 import kotlin.math.roundToInt
@@ -53,7 +52,7 @@ import io.bhodl.shared.resources.trp_inv_type_manual
 import io.bhodl.shared.resources.trp_inv_type_stock
 
 /**
- * Cost basis of the lots expressed in BTC: Σ (qty × price + fees) / lot
+ * Cost basis of the lots expressed in BTC: Σ qty × (price + fee/unit) / lot
  * rate, each lot at ITS OWN BTC rate at purchase.
  *
  * Code review 2026-10 — replaces `averageBtcRateAtPurchase`, which fed
@@ -74,7 +73,7 @@ internal fun lotsCostBtc(lots: List<TrackingInvestmentLotFfi>): Double? {
         if (!l.quantity.isFinite() || !l.pricePerUnit.isFinite()) continue
         val rate = l.btcPerUnitAtPurchase ?: return null
         if (!rate.isFinite() || rate <= 0.0) return null
-        sum += (l.quantity * l.pricePerUnit + (l.feesFiat.takeIf { it.isFinite() } ?: 0.0)) / rate
+        sum += l.quantity * (l.pricePerUnit + lotFeePerUnit(l)) / rate
     }
     return sum.takeIf { it > 0.0 }
 }

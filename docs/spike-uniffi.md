@@ -1,5 +1,10 @@
 # Spike Phase-0 — Rust + UniFFI + Kotlin Multiplatform + Compose Multiplatform
 
+> **Note (2026-10-23):** since 2026-10-23 BHODL is watch-only: it holds no private keys
+> and cannot send bitcoin. The parts of this document about seeds, signing, sending,
+> PayJoin, backups or signing↔tracker mirrors are historical; see `docs/handbook.md`
+> for the current design.
+
 > **Status**: completed (May 2026)
 > **Goal**: validate the frontend stack chosen in `PLAN.md` §6.2 — i.e. that
 > a Rust workspace can expose typed bindings via UniFFI, that a Kotlin

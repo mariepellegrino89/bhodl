@@ -46,7 +46,6 @@ import io.bhodl.desktop.ui.BhodlTopBar
 import io.bhodl.desktop.ui.userMessage
 import io.bhodl.desktop.ui.headerWithUnit
 import io.bhodl.desktop.ui.rememberColumnAmountFormat
-import io.bhodl.desktop.wallet.FeeBumpLog
 import io.bhodl.desktop.wallet.WalletPort
 import io.bhodl.desktop.wizard.RegistryStore
 import io.bhodl.desktop.wizard.WalletStore
@@ -62,7 +61,6 @@ import io.bhodl.shared.resources.wallet_tx_col_label
 import io.bhodl.shared.resources.wallet_tx_col_status
 import io.bhodl.shared.resources.wallet_tx_count
 import io.bhodl.shared.resources.wallet_tx_empty
-import io.bhodl.shared.resources.wallet_tx_fee_bumped
 import io.bhodl.shared.resources.wallet_tx_filter_all
 import io.bhodl.shared.resources.wallet_tx_filter_incoming
 import io.bhodl.shared.resources.wallet_tx_filter_outgoing
@@ -70,9 +68,7 @@ import io.bhodl.shared.resources.wallet_tx_filter_pending
 import io.bhodl.shared.resources.wallet_tx_loading
 import io.bhodl.shared.resources.wallet_tx_no_match
 import io.bhodl.shared.resources.wallet_tx_refreshing
-import io.bhodl.shared.resources.wallet_tx_replaced
 import io.bhodl.shared.resources.wallet_tx_search
-import io.bhodl.shared.resources.wallet_tx_speed_up
 import io.bhodl.shared.resources.wallet_tx_status_confirming
 import io.bhodl.shared.resources.wallet_tx_status_confirming_unknown
 import io.bhodl.shared.resources.wallet_tx_status_pending
@@ -96,24 +92,17 @@ import java.time.format.DateTimeFormatter
  * `TransactionDetails` route still exists for deep links.
  *
  * Transaction states follow the Bitcoin Design Guide: Pending →
- * Confirming n/6 → Confirmed (no badge). A transaction replaced by a
- * fee bump made from this device is collapsed under its replacement,
- * which carries a "Fee bumped" chip. Pending rows offer an inline
- * "Speed up" (RBF for outgoing, CPFP for incoming); the pane shows the
- * exact cost.
+ * Confirming n/6 → Confirmed (no badge).
  *
  * Inside the wallet workspace [syncOnEnter] is `false`: the workspace
  * owns the network sync and bumps [refreshKey] after it. Stand-alone
  * (tests / legacy route) the tab reconciles with Esplora itself on
- * entry and after every broadcast ([WalletStore.txEpoch]).
+ * entry.
  */
 @Composable
 public fun HistoryScreen(
     onTxClicked: (txid: String) -> Unit = {},
     onBack: (() -> Unit)? = null,
-    onBumpFee: (txid: String) -> Unit = {},
-    onCpfpIncoming: (txid: String) -> Unit = {},
-    onCpfpChangeRescue: (txid: String) -> Unit = {},
     syncOnEnter: Boolean = true,
     refreshKey: Int = 0,
     tipHeight: UInt? = null,
@@ -128,9 +117,7 @@ public fun HistoryScreen(
     var filter by remember { mutableStateOf(TxFilter.ALL) }
     var query by remember { mutableStateOf("") }
     var selectedTxid by remember { mutableStateOf<String?>(null) }
-    val expanded = remember { mutableStateMapOf<String, Boolean>() }
     var labelVersion by remember { mutableStateOf(0) }
-    val txEpoch by WalletStore.txEpoch
 
     // A label edited in the detail pane: re-read locally, no network.
     LaunchedEffect(labelVersion) {
@@ -138,7 +125,7 @@ public fun HistoryScreen(
         if (labelVersion > 0) state = readHistory(wallet, labels, categories) { ownTip = it }
     }
     val notUnlocked = stringResource(Res.string.wview_wallet_not_unlocked)
-    LaunchedEffect(txEpoch, refreshKey) {
+    LaunchedEffect(refreshKey) {
         val wallet = WalletStore.current()
         if (wallet == null) {
             state = HistoryState.Failed(notUnlocked)
@@ -172,14 +159,11 @@ public fun HistoryScreen(
         if (onBack != null) BhodlTopBar(title = stringResource(Res.string.wview_history_title), onBack = onBack)
 
         val all = (state as? HistoryState.Ready)?.transactions.orEmpty()
-        val groups = remember(all, FeeBumpLog.replacedBy(), FeeBumpLog.snapshots()) {
-            groupReplacements(all, FeeBumpLog.replacedBy(), FeeBumpLog.snapshots())
-        }
         // UX review 2026-10 (rec 2) — one unit for the amount column, in its header.
-        val txAmounts = rememberColumnAmountFormat(groups.map { it.tx.netSat })
+        val txAmounts = rememberColumnAmountFormat(all.map { it.netSat })
         val labelOf: (String) -> String = { labels[it].orEmpty() }
-        val visible = sortTxGroups(
-            groups = filterTxGroups(groups, filter, query, labelOf, { categories[it] }),
+        val visible = sortTransactions(
+            txs = filterTransactions(all, filter, query, labelOf, { categories[it] }),
             column = sortColumn,
             ascending = sortAscending,
             labelOf = labelOf,
@@ -192,7 +176,7 @@ public fun HistoryScreen(
             query = query,
             onQuery = { query = it },
             shown = visible.size,
-            total = groups.size,
+            total = all.size,
             refreshing = refreshing,
         )
 
@@ -233,41 +217,19 @@ public fun HistoryScreen(
                                 TableMessage(stringResource(Res.string.wallet_tx_no_match))
                             } else {
                                 LazyColumn(modifier = Modifier.fillMaxSize()) {
-                                    itemsIndexed(visible, key = { _, g -> g.tx.txid }) { index, group ->
-                                        val isExpanded = expanded[group.tx.txid] == true
-                                        Column {
-                                            TxTableRow(
-                                                tx = group.tx,
-                                                index = index,
-                                                label = labels[group.tx.txid].orEmpty(),
-                                                category = categories[group.tx.txid],
-                                                tipHeight = tip,
-                                                feeBumped = group.feeBumped,
-                                                selected = selectedTxid == group.tx.txid,
-                                                onClick = {
-                                                    selectedTxid = group.tx.txid
-                                                    onTxClicked(group.tx.txid)
-                                                },
-                                                onToggleReplaced = {
-                                                    expanded[group.tx.txid] = !isExpanded
-                                                },
-                                                onSpeedUp = { kind ->
-                                                    when (kind) {
-                                                        SpeedUpKind.Rbf -> onBumpFee(group.tx.txid)
-                                                        SpeedUpKind.CpfpIncoming -> onCpfpIncoming(group.tx.txid)
-                                                    }
-                                                },
-                                            )
-                                            if (isExpanded) {
-                                                group.replaced.forEach { old ->
-                                                    ReplacedTxRow(
-                                                        tx = old,
-                                                        selected = selectedTxid == old.txid,
-                                                        onClick = { selectedTxid = old.txid },
-                                                    )
-                                                }
-                                            }
-                                        }
+                                    itemsIndexed(visible, key = { _, tx -> tx.txid }) { index, tx ->
+                                        TxTableRow(
+                                            tx = tx,
+                                            index = index,
+                                            label = labels[tx.txid].orEmpty(),
+                                            category = categories[tx.txid],
+                                            tipHeight = tip,
+                                            selected = selectedTxid == tx.txid,
+                                            onClick = {
+                                                selectedTxid = tx.txid
+                                                onTxClicked(tx.txid)
+                                            },
+                                        )
                                     }
                                 }
                             }
@@ -277,20 +239,11 @@ public fun HistoryScreen(
 
                 val selected = selectedTxid
                 if (selected != null) {
-                    val group = groups.firstOrNull { g -> g.tx.txid == selected }
-                    val replacedSnapshot = groups.firstNotNullOfOrNull { g ->
-                        g.replaced.firstOrNull { it.txid == selected }
-                    }
                     TransactionDetailsPane(
                         txid = selected,
                         tipHeight = tip,
-                        replaced = group?.replaced.orEmpty(),
-                        replacedSnapshot = replacedSnapshot,
                         category = categories[selected],
                         onClose = { selectedTxid = null },
-                        onBumpFee = onBumpFee,
-                        onCpfpIncoming = onCpfpIncoming,
-                        onCpfpChangeRescue = onCpfpChangeRescue,
                         onLabelChanged = { labelVersion++ },
                         modifier = (if (paneOnly) Modifier.fillMaxWidth() else Modifier.width(DETAIL_PANE_WIDTH))
                             .fillMaxHeight(),
@@ -418,12 +371,8 @@ internal fun TxTableRow(
     label: String,
     category: String?,
     tipHeight: UInt?,
-    feeBumped: Boolean,
     selected: Boolean,
     onClick: () -> Unit,
-    onToggleReplaced: () -> Unit = {},
-    /** `null` = read-only (watch-only wallet): no inline Speed up. */
-    onSpeedUp: ((SpeedUpKind) -> Unit)?,
 ) {
     Row(
         modifier = Modifier
@@ -478,34 +427,8 @@ internal fun TxTableRow(
         if (TxCol.STATUS in cols) Row(
             modifier = colMod(TxCol.STATUS),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             TxStatusChip(tx = tx, tipHeight = tipHeight)
-            if (feeBumped) {
-                WalletChip(
-                    text = stringResource(Res.string.wallet_tx_fee_bumped),
-                    color = BhodlTheme.colors.accentNeon,
-                    onClick = onToggleReplaced,
-                    modifier = Modifier.testTag(HistoryTags.feeBumped(tx.txid)),
-                )
-            }
-            val speedUp = speedUpKindOf(tx)
-            if (speedUp != null && onSpeedUp != null) {
-                Text(
-                    text = stringResource(Res.string.wallet_tx_speed_up),
-                    style = BhodlTheme.typography.labelMedium,
-                    color = BhodlTheme.colors.brandPrimary,
-                    maxLines = 1,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(4.dp))
-                        .clickable { onSpeedUp(speedUp) }
-                        .padding(horizontal = 4.dp, vertical = 2.dp)
-                        .testTag(
-                            if (speedUp == SpeedUpKind.Rbf) HistoryTags.bumpFor(tx.txid)
-                            else HistoryTags.cpfpFor(tx.txid),
-                        ),
-                )
-            }
         }
         if (TxCol.CONFS in cols) Text(
             text = confirmationsOf(tx.confirmationHeight, tipHeight)?.let { formatCount(it) } ?: "—",
@@ -514,51 +437,6 @@ internal fun TxTableRow(
             color = BhodlTheme.colors.textSecondary,
             textAlign = TextAlign.End,
             maxLines = 1,
-        )
-    }
-}
-
-/** A transaction replaced by a fee bump, shown collapsed under its replacement. */
-@Composable
-private fun ReplacedTxRow(tx: TransactionRecord, selected: Boolean, onClick: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(BhodlTheme.density.rowHeight)
-            .background(rowBackground(0, selected))
-            .tableRowClickable(onClick = onClick)
-            .padding(start = BhodlTheme.spacing.md + 16.dp, end = BhodlTheme.spacing.md)
-            .testTag(HistoryTags.replacedRow(tx.txid)),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            text = "↳ " + (tx.timestamp?.let { formatTxDate(it.toLong()) } ?: "—"),
-            modifier = colMod(TxCol.DATE),
-            style = BhodlTheme.typography.amountSmall,
-            color = BhodlTheme.colors.textTertiary,
-            maxLines = 1,
-        )
-        Text(
-            text = shortTxid(tx.txid),
-            modifier = colMod(TxCol.LABEL),
-            style = BhodlTheme.typography.mono,
-            color = BhodlTheme.colors.textTertiary,
-            maxLines = 1,
-        )
-        SignedAmountText(netSat = tx.netSat, modifier = colMod(TxCol.AMOUNT), strikethrough = true)
-        Spacer(Modifier.width(16.dp))
-        Row(modifier = colMod(TxCol.STATUS)) {
-            WalletChip(
-                text = stringResource(Res.string.wallet_tx_replaced),
-                color = BhodlTheme.colors.textTertiary,
-            )
-        }
-        Text(
-            text = "—",
-            modifier = colMod(TxCol.CONFS),
-            style = BhodlTheme.typography.amountSmall,
-            color = BhodlTheme.colors.textTertiary,
-            textAlign = TextAlign.End,
         )
     }
 }
@@ -697,10 +575,6 @@ public object HistoryTags {
     public fun amount(txid: String): String = "history.amount.$txid"
     public fun status(txid: String): String = "history.status.$txid"
     public fun confirmations(txid: String): String = "history.confs.$txid"
-    public fun bumpFor(txid: String): String = "history.bump.$txid"
-    public fun cpfpFor(txid: String): String = "history.cpfp.$txid"
-    public fun feeBumped(txid: String): String = "history.fee-bumped.$txid"
-    public fun replacedRow(txid: String): String = "history.replaced.$txid"
     public fun filter(filter: TxFilter): String = "history.filter.${filter.name.lowercase()}"
     public fun sortHeader(column: TxSortColumn): String = "history.sort.${column.name.lowercase()}"
 }

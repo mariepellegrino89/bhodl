@@ -2,97 +2,75 @@ package io.bhodl.desktop.screens
 
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.runDesktopComposeUiTest
 import io.bhodl.ui.theme.BhodlTheme
+import java.io.File
+import kotlin.test.AfterTest
+import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 /**
  * Compose UI tests for [`WelcomeScreen`].
  *
  * The screen is intentionally state-light: it owns no FFI dependency,
  * so we can mount it directly in `runDesktopComposeUiTest` without
- * faking `WalletStore` / `WalletHandle`. The reset path mutates real
- * filesystem state through `WalletPathsView.reset()`; that branch is
- * covered by `WalletPathsTest` rather than here.
+ * faking `WalletStore`. The typed-DELETE reset path is covered by
+ * `SecretActionsUiTest`; here every mount still targets a temp dir so a
+ * stray click can never touch `~/.bhodl/`.
  */
 @OptIn(ExperimentalTestApi::class)
 class WelcomeScreenTest {
 
-    @Test
-    fun `tap create wallet invokes the create callback`() = runDesktopComposeUiTest {
-        var createCalled = 0
-        var unlockCalled = 0
-        var restoreCalled = 0
-        setContent {
-            BhodlTheme {
-                WelcomeScreen(
-                    onCreateWallet = { createCalled++ },
-                    onUnlock = { unlockCalled++ },
-                    onRestore = { restoreCalled++ },
-                    onResetComplete = {},
-                )
-            }
-        }
+    private lateinit var tmp: File
 
-        onNodeWithTag(WelcomeTags.CREATE_WALLET).assertIsDisplayed().performClick()
+    @BeforeTest
+    fun setUp() {
+        tmp = kotlin.io.path.createTempDirectory("bhodl-welcome-").toFile()
+    }
 
-        assertEquals(1, createCalled, "Create new wallet should fire exactly once")
-        assertEquals(0, unlockCalled, "Unlock callback must not be triggered")
-        assertEquals(0, restoreCalled, "Restore callback must not be triggered")
+    @AfterTest
+    fun tearDown() {
+        tmp.deleteRecursively()
     }
 
     @Test
-    fun `tap I already have a wallet invokes the unlock callback`() = runDesktopComposeUiTest {
-        var unlockCalled = 0
+    fun `tap get started invokes the callback and nothing else`() = runDesktopComposeUiTest {
+        var started = 0
+        var resetComplete = 0
         setContent {
             BhodlTheme {
                 WelcomeScreen(
-                    onCreateWallet = {},
-                    onUnlock = { unlockCalled++ },
-                    onRestore = {},
-                    onResetComplete = {},
+                    onGetStarted = { started++ },
+                    onResetComplete = { resetComplete++ },
+                    dataDir = tmp,
                 )
             }
         }
-        onNodeWithTag(WelcomeTags.UNLOCK_EXISTING).performClick()
-        assertEquals(1, unlockCalled)
+
+        onNodeWithTag(WelcomeTags.GET_STARTED).assertIsDisplayed().performClick()
+        waitForIdle()
+
+        assertEquals(1, started, "Get started should fire exactly once")
+        assertEquals(0, resetComplete, "Reset callback must not be triggered")
     }
 
     @Test
-    fun `tap restore invokes the restore callback`() = runDesktopComposeUiTest {
-        var restoreCalled = 0
+    fun `reset entry is offered but does not wipe without confirmation`() = runDesktopComposeUiTest {
+        val marker = File(tmp, "registry.sqlite").apply { writeText("x") }
+        var resetComplete = 0
         setContent {
             BhodlTheme {
-                WelcomeScreen(
-                    onCreateWallet = {},
-                    onUnlock = {},
-                    onRestore = { restoreCalled++ },
-                    onResetComplete = {},
-                )
+                WelcomeScreen(onGetStarted = {}, onResetComplete = { resetComplete++ }, dataDir = tmp)
             }
         }
-        onNodeWithTag(WelcomeTags.RESTORE).performClick()
-        assertEquals(1, restoreCalled)
-    }
-
-    @Test
-    fun `tap restore from encrypted backup invokes its callback`() = runDesktopComposeUiTest {
-        var backupCalled = 0
-        setContent {
-            BhodlTheme {
-                WelcomeScreen(
-                    onCreateWallet = {},
-                    onUnlock = {},
-                    onRestore = {},
-                    onRestoreBackup = { backupCalled++ },
-                    onResetComplete = {},
-                )
-            }
-        }
-        onNodeWithTag(WelcomeTags.RESTORE_BACKUP).performClick()
-        assertEquals(1, backupCalled)
+        onNodeWithTag(WelcomeTags.RESET).assertExists()
+        assertEquals(0, onAllNodes(hasTestTag(ConfirmWipeTags.FIELD)).fetchSemanticsNodes().size)
+        assertEquals(0, resetComplete)
+        assertTrue(marker.exists())
     }
 }

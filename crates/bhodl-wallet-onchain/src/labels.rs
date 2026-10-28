@@ -330,27 +330,6 @@ pub(crate) fn import_jsonl(conn: &Connection, jsonl: &str) -> Result<usize, Onch
     Ok(count)
 }
 
-/// Outpoints the user froze via a BIP-329 `output` label with
-/// `spendable: false`. Excluded from automatic coin selection and
-/// refused in manual selection. Unparseable targets are skipped (a
-/// label on something that is not an outpoint cannot match a UTXO).
-pub(crate) fn frozen_outpoints(conn: &Connection) -> Result<Vec<bitcoin::OutPoint>, OnchainError> {
-    let mut stmt = conn
-        .prepare("SELECT target FROM bhodl_labels WHERE label_type = 'output' AND spendable = 0")
-        .map_err(|e| OnchainError::Storage(e.to_string()))?;
-    let rows = stmt
-        .query_map([], |r| r.get::<_, String>(0))
-        .map_err(|e| OnchainError::Storage(e.to_string()))?;
-    let mut out = Vec::new();
-    for row in rows {
-        let target = row.map_err(|e| OnchainError::Storage(e.to_string()))?;
-        if let Ok(op) = target.parse::<bitcoin::OutPoint>() {
-            out.push(op);
-        }
-    }
-    Ok(out)
-}
-
 /// Convert a single `SQLite` row into a `Result<Label>`. Two layers of
 /// error: the rusqlite extraction itself can fail, and the `LabelKind`
 /// parser can reject an unknown discriminator.
@@ -588,21 +567,6 @@ mod tests {
         );
         assert!(import_jsonl(&conn, &big_cat).is_err());
         assert!(list_labels(&conn).unwrap().is_empty());
-    }
-
-    #[test]
-    fn frozen_outpoints_lists_only_unspendable_output_labels() {
-        let conn = fresh_conn();
-        let op = format!("{}:1", "ab".repeat(32));
-        let jsonl = format!(
-            "{{\"type\":\"output\",\"ref\":\"{op}\",\"label\":\"f\",\"spendable\":false}}\n\
-             {{\"type\":\"output\",\"ref\":\"{}:0\",\"label\":\"ok\",\"spendable\":true}}\n\
-             {{\"type\":\"output\",\"ref\":\"garbage\",\"label\":\"g\",\"spendable\":false}}\n",
-            "cd".repeat(32)
-        );
-        import_jsonl(&conn, &jsonl).unwrap();
-        let frozen = frozen_outpoints(&conn).unwrap();
-        assert_eq!(frozen, vec![op.parse::<bitcoin::OutPoint>().unwrap()]);
     }
 
     #[test]

@@ -1,8 +1,9 @@
 # Contributing to BHODL
 
-Thanks for considering a contribution. BHODL is a self-custodial Bitcoin wallet, so code
-in this repo will one day handle other people's money. It is alpha and runs on test
-networks only, which makes this a good time to shape it.
+Thanks for considering a contribution. BHODL is a watch-only Bitcoin wallet with a
+net-worth and spending tracker: it never holds private keys and cannot send bitcoin, but
+it stores people's xpubs and financial data and shows them the addresses they get paid
+to. It is alpha and unaudited, which makes this a good time to shape it.
 
 ## Quick links
 
@@ -57,7 +58,7 @@ Compose code yourself. Design work is credited in the pull request that implemen
 ```
 crates/
   bhodl-core/            Amount, Network, Argon2id KDF
-  bhodl-wallet-onchain/  BDK wallet engine, SQLCipher persistence, registry, PayJoin, Tor
+  bhodl-wallet-onchain/  BDK watch-only wallets, SQLCipher persistence, registry, Tor
   bhodl-uniffi/          FFI surface exposed to Kotlin
 shared/                  Kotlin Multiplatform module: theme, generated UniFFI bindings
 apps/
@@ -119,7 +120,7 @@ integration tests are pinned by digest and bumped deliberately (handbook section
 
 ## Pull request workflow
 
-1. Fork the repo and branch from `main` (`type/short-description`, e.g. `fix/fee-rounding`).
+1. Fork the repo and branch from `main` (`type/short-description`, e.g. `fix/label-import`).
 2. Keep changes small and focused: one logical change per pull request.
 3. Add tests for new behaviour. Minimum bar: a regression test that fails before the
    change and passes after. Bugs in amounts or balances always get a test.
@@ -173,6 +174,7 @@ commits with `git commit -s`.
 
 ## Reviewing pull requests
 
-Reviewers focus on correctness of key, signing and amount paths; test coverage of new
-behaviour; licence compatibility of new dependencies; and consistency with the design
+Reviewers focus on correctness of key-derivation, encryption, address-derivation, amount
+and privacy paths (anything that could leak data without the device PIN or over the
+network, or show a wrong receive address or balance); test coverage of new behaviour; licence compatibility of new dependencies; and consistency with the design
 direction for UI changes. Approval from a maintainer is required to merge.

@@ -74,13 +74,6 @@ public object SettingsPersistence {
         // field defaults to false so existing snapshots keep behaving
         // as before.
         val privacyAutoHide: Boolean = false,
-        // Phase 6.0 — wallet UUIDs the user dismissed via the one-shot
-        // Tracker-pairing banner on the Dashboard. Persisted so the
-        // banner does not nag on every restart. Backward-compatible:
-        // the field defaults to empty for snapshots written by older
-        // builds (kotlinx.serialization honours the default when
-        // `ignoreUnknownKeys = true` + the field is absent).
-        val trackerPairingSkipped: List<String> = emptyList(),
         // R4 (Phase 3.14 follow-up) — wallet UUIDs excluded from
         // cross-wallet totals and Tracker aggregations. Persisted so the
         // exclusion survives app restarts. Backward-compatible: absent in
@@ -127,14 +120,11 @@ public object SettingsPersistence {
         val bip177Notation: Boolean = false,
         // UX review 2026-10 — row density (a [BhodlDensity] name).
         val density: String = BhodlDensity.Compact.name,
-        // UX review 2026-10 (item 14) — Security Hub timestamps (unix
-        // seconds keyed by wallet UUID) and the spaced-reminder snooze.
-        // Non-sensitive by construction: dates only, no secrets.
-        val backupVerifiedAt: Map<String, Long> = emptyMap(),
-        val backupExportedAt: Map<String, Long> = emptyMap(),
+        // UX review 2026-10 (item 14) — Security Hub: last BIP-329 labels
+        // export (unix seconds keyed by wallet UUID). Dates only. Keys of
+        // the seed-era fields (backup dates, reminder snooze, tracker
+        // pairing) in older files are ignored (`ignoreUnknownKeys`).
         val labelsExportedAt: Map<String, Long> = emptyMap(),
-        val securityReminderSnoozedUntil: Map<String, Long> = emptyMap(),
-        val securityReminderDismissCount: Map<String, Int> = emptyMap(),
         // UX review 2026-10 (item 16) — units explainer acknowledged.
         val onboardingUnitsSeen: Boolean = false,
     )
@@ -177,7 +167,6 @@ public object SettingsPersistence {
         fiatCurrency = SettingsStore.fiatCurrency.value.name,
         autoFetchInvestmentPrices = SettingsStore.autoFetchInvestmentPrices.value,
         privacyAutoHide = SettingsStore.privacyAutoHide.value,
-        trackerPairingSkipped = SettingsStore.trackerPairingSkipped.value.toList(),
         excludedWalletIds = SettingsStore.excludedWalletIds.value.toList(),
         lastMonthlyReviewDismissedUnix = SettingsStore.lastMonthlyReviewDismissedUnix.value,
         unitFormat = SettingsStore.unitFormat.value.name,
@@ -195,11 +184,7 @@ public object SettingsPersistence {
         bitcoinUnit = SettingsStore.unitFormat.value.name,
         bip177Notation = SettingsStore.bip177Notation.value,
         density = SettingsStore.density.value.name,
-        backupVerifiedAt = SettingsStore.backupVerifiedAt.value,
-        backupExportedAt = SettingsStore.backupExportedAt.value,
         labelsExportedAt = SettingsStore.labelsExportedAt.value,
-        securityReminderSnoozedUntil = SettingsStore.securityReminderSnoozedUntil.value,
-        securityReminderDismissCount = SettingsStore.securityReminderDismissCount.value,
         onboardingUnitsSeen = SettingsStore.onboardingUnitsSeen.value,
     )
 
@@ -262,16 +247,9 @@ public object SettingsPersistence {
         // Use replace (not the public setter) to avoid triggering an
         // immediate persistIfEnabled() during rehydrate — the caller
         // arranges the persistence hook AFTER rehydrate by contract.
-        SettingsStore.replaceTrackerPairingSkipped(snapshot.trackerPairingSkipped.toSet())
         SettingsStore.replaceExcludedWalletIds(snapshot.excludedWalletIds.toSet())
         SettingsStore.replaceLastMonthlyReviewDismissedUnix(snapshot.lastMonthlyReviewDismissedUnix)
-        SettingsStore.replaceSecurityTimestamps(
-            backupVerifiedAt = snapshot.backupVerifiedAt,
-            backupExportedAt = snapshot.backupExportedAt,
-            labelsExportedAt = snapshot.labelsExportedAt,
-            reminderSnoozedUntil = snapshot.securityReminderSnoozedUntil,
-            reminderDismissCount = snapshot.securityReminderDismissCount.mapValues { it.value.coerceAtLeast(0) },
-        )
+        SettingsStore.replaceSecurityTimestamps(labelsExportedAt = snapshot.labelsExportedAt)
         SettingsStore.replaceOnboardingUnitsSeen(snapshot.onboardingUnitsSeen)
         // Phase 8.3.1 — Bitcoin Lens advanced preferences (the unit
         // format is applied above, merged with btcUnit).

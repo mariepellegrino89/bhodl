@@ -39,7 +39,6 @@ import io.bhodl.desktop.wizard.WalletPaths
 import io.bhodl.desktop.wizard.WalletStore
 import io.bhodl.ffi.Network
 import io.bhodl.desktop.ui.userMessage
-import io.bhodl.ffi.WalletException
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -52,12 +51,10 @@ import java.time.format.DateTimeFormatter
 import javax.swing.JFileChooser
 import javax.swing.filechooser.FileNameExtensionFilter
 import io.bhodl.shared.resources.Res
-import io.bhodl.shared.resources.action_back
 import io.bhodl.shared.resources.action_save
 import io.bhodl.shared.resources.settings_esplora_active_default
 import io.bhodl.shared.resources.settings_esplora_active_override
 import io.bhodl.shared.resources.settings_esplora_description
-import io.bhodl.shared.resources.settings_esplora_field_label
 import io.bhodl.shared.resources.settings_esplora_field_label_network
 import io.bhodl.shared.resources.settings_esplora_network
 import io.bhodl.shared.resources.settings_esplora_reset
@@ -66,12 +63,6 @@ import io.bhodl.shared.resources.settings_language_english
 import io.bhodl.shared.resources.settings_language_italian
 import io.bhodl.shared.resources.settings_language_section
 import io.bhodl.shared.resources.settings_language_system
-import io.bhodl.shared.resources.settings_theme_dark
-import io.bhodl.shared.resources.settings_theme_light
-import io.bhodl.shared.resources.settings_theme_neon
-import io.bhodl.shared.resources.settings_theme_section
-import io.bhodl.shared.resources.settings_theme_system
-import io.bhodl.shared.resources.settings_title
 import io.bhodl.desktop.prices.FiatCurrency
 import io.bhodl.desktop.prices.PriceCache
 import io.bhodl.desktop.ui.money.UnitFormat
@@ -80,8 +71,6 @@ import io.bhodl.ui.theme.BhodlTheme
 import io.bhodl.ui.theme.ColorConvention
 import org.jetbrains.compose.resources.getString
 import org.jetbrains.compose.resources.stringResource
-import io.bhodl.shared.resources.set_debug_hint
-import io.bhodl.shared.resources.set_debug_watch
 import io.bhodl.shared.resources.set_esplora_invalid_url
 import io.bhodl.shared.resources.set_esplora_plaintext_no_tor
 import io.bhodl.shared.resources.set_esplora_plaintext_tor
@@ -544,43 +533,6 @@ internal fun NetworkSection() {
             style = BhodlTheme.typography.bodyMedium,
             color = BhodlTheme.colors.textTertiary,
         )
-    }
-}
-
-/**
- * Phase 3.1 debug entry. Renders a single button that routes the user
- * to [`DebugWatchScreen`] for smoke-testing watch wallets before the
- * Phase 3.2 Welcome redesign lands. Visibility is gated upstream in
- * [`SettingsScreen`] by `System.getenv("BHODL_DEBUG") == "1"`.
- */
-@Composable
-internal fun DebugSection(onOpenDebugWatch: () -> Unit) {
-    androidx.compose.material3.Divider(
-        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-        color = BhodlTheme.colors.outline,
-    )
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Text(
-            text = "Debug",
-            style = BhodlTheme.typography.labelMedium,
-            color = BhodlTheme.colors.textSecondary,
-        )
-        Text(
-            text = stringResource(Res.string.set_debug_hint),
-            style = BhodlTheme.typography.bodyMedium,
-            color = BhodlTheme.colors.textTertiary,
-        )
-        OutlinedButton(
-            onClick = onOpenDebugWatch,
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag(SettingsTags.DEBUG_WATCH),
-        ) {
-            Text(stringResource(Res.string.set_debug_watch))
-        }
     }
 }
 

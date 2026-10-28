@@ -111,6 +111,8 @@ public fun ReceiveScreen(
     /** Addresses tab "Show": open step 2 directly on this address. */
     presetAddress: String? = null,
     onPresetConsumed: () -> Unit = {},
+    // Test seam: the protected clipboard copy.
+    copyText: (String) -> Unit = { io.bhodl.desktop.ui.SensitiveClipboard.copy(it) },
 ) {
     val wallet: WalletPort? = remember { WalletStore.current() }
     val scope = rememberCoroutineScope()
@@ -253,11 +255,11 @@ public fun ReceiveScreen(
                 copiedKind = copiedKind,
                 working = working,
                 onCopyAddress = {
-                    io.bhodl.desktop.ui.SensitiveClipboard.copy(shown)
+                    copyText(shown)
                     copiedKind = CopyKind.Address
                 },
                 onCopyUri = {
-                    io.bhodl.desktop.ui.SensitiveClipboard.copy(uri)
+                    copyText(uri)
                     copiedKind = CopyKind.Uri
                 },
                 onNewAddress = { resolve(fresh = true) },

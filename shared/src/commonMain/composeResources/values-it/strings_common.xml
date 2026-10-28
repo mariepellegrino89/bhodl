@@ -7,7 +7,6 @@
     <string name="common_delete">Elimina</string>
     <string name="common_edit">Modifica</string>
     <string name="common_add">Aggiungi</string>
-    <string name="common_confirm">Conferma</string>
     <string name="common_retry">Riprova</string>
     <string name="common_copy">Copia</string>
     <string name="common_copied">Copiato</string>
@@ -45,4 +44,20 @@
     <string name="tracker_reports_col_out">Uscite</string>
     <string name="tracker_reports_col_net">Netto</string>
     <string name="tracker_reports_col_last">Ultima</string>
+    <string name="app_already_running">BHODL è già aperto. Passa alla finestra esistente.</string>
+    <string name="err_unexpected">Errore imprevisto.</string>
+    <string name="err_kind_bip32">Derivazione della chiave (BIP32) non riuscita</string>
+    <string name="err_kind_invalid_address">Indirizzo non valido</string>
+    <string name="err_kind_invalid_argument">Valore non valido</string>
+    <string name="err_kind_esplora_sync">Sincronizzazione Esplora non riuscita</string>
+    <string name="err_esplora_connection_dropped">il server ha chiuso la connessione; si riprova al prossimo sync</string>
+    <string name="err_kind_storage">Errore di archiviazione</string>
+    <string name="err_kind_wallet_create">Creazione del wallet non riuscita</string>
+    <string name="err_kind_derivation_path">Percorso di derivazione non valido</string>
+    <string name="err_kind_key_derivation">Derivazione della chiave non riuscita</string>
+    <string name="err_kind_io">Errore del file system</string>
+    <string name="err_kind_invalid_salt">File salt non valido: attesi %1$d byte, trovati %2$d</string>
+    <string name="err_kind_rate_currency">Prezzo: valuta non supportata (%1$s)</string>
+    <string name="err_kind_rate_network">Prezzo: rete non disponibile</string>
+    <string name="err_kind_rate_all_failed">Prezzo: tutte le fonti hanno fallito</string>
 </resources>

@@ -43,7 +43,8 @@ import io.bhodl.shared.resources.tracker_reports_empty_period
 import io.bhodl.shared.resources.tracker_reports_empty_wallets
 import io.bhodl.shared.resources.tracker_reports_top_counterparties
 import org.jetbrains.compose.resources.stringResource
-import io.bhodl.ffi.PaymentDirection
+import io.bhodl.desktop.domain.externalInflowSat
+import io.bhodl.desktop.domain.externalOutflowSat
 import io.bhodl.ffi.PaymentEvent
 import io.bhodl.ui.theme.BhodlTheme
 import java.time.Instant
@@ -65,9 +66,8 @@ import java.time.format.DateTimeFormatter
 internal fun ReportsTabBody(
     events: List<PaymentEvent>,
     /** Phase 3.x — pre-grouped wallets so the "By wallet" table
-     *  collapses each signing wallet with its mirror into a single
-     *  row (manual testing, 2026-05-16: a wallet that's both signing and
-     *  tracked must not appear twice). */
+     *  collapses rows sharing an account xpub into a single row (manual
+     *  testing, 2026-05-16: the same wallet must not appear twice). */
     groupedWallets: List<GroupedWallet>,
     /** Phase 9.0 — the global period now scopes the report tables
      *  too (the caller pre-filters [events]); the label makes the
@@ -122,7 +122,7 @@ private fun SectionTitle(text: String) {
 private enum class CatSort { CATEGORY, COUNT, IN, OUT, NET, PERCENT, LAST }
 private enum class WalSort { LABEL, COUNT, BALANCE, IN, OUT, LAST }
 
-private data class CatRow(
+internal data class CatRow(
     val category: String,
     val count: Int,
     val inSat: ULong,
@@ -133,7 +133,7 @@ private data class CatRow(
     val volumeSat: ULong get() = inSat + outSat
 }
 
-private data class WalRow(
+internal data class WalRow(
     val groupKey: String,
     val label: String,
     val kindLabel: String,
@@ -144,28 +144,46 @@ private data class WalRow(
     val lastTs: Long?,
 )
 
+/**
+ * Reports "by category" rows (blank category = ""). In / out are
+ * EXTERNAL flows: an internal transfer is neither (a send_to_self
+ * counts only its fee), like every other tracker aggregate.
+ */
+internal fun categoryReportRows(events: List<PaymentEvent>): List<CatRow> =
+    events.groupBy { it.category?.takeIf(String::isNotBlank) ?: "" }
+        .map { (cat, evs) ->
+            CatRow(
+                category = cat,
+                count = evs.size,
+                inSat = evs.sumOf { it.externalInflowSat() },
+                outSat = evs.sumOf { it.externalOutflowSat() },
+                lastTs = evs.mapNotNull { it.timestampUnix?.toLong() }.maxOrNull(),
+            )
+        }
+
+/** Reports "by wallet" rows: one per wallet group, events of every member. */
+internal fun walletReportRows(events: List<PaymentEvent>, groupedWallets: List<GroupedWallet>): List<WalRow> =
+    groupedWallets.map { group ->
+        val evs = events.filter { it.walletId in group.memberIds }
+        WalRow(
+            // Stable key for sort ties.
+            groupKey = group.memberIds.sorted().joinToString(","),
+            label = group.displayLabel,
+            kindLabel = group.kindLabel,
+            count = evs.size,
+            balanceSat = group.balanceSat,
+            inSat = evs.sumOf { it.externalInflowSat() },
+            outSat = evs.sumOf { it.externalOutflowSat() },
+            lastTs = evs.mapNotNull { it.timestampUnix?.toLong() }.maxOrNull(),
+        )
+    }
+
 @Composable
 private fun CategoryReportTable(events: List<PaymentEvent>) {
     var sort by remember { mutableStateOf(CatSort.NET) }
     var asc by remember { mutableStateOf(false) }
 
-    val rows = remember(events) {
-        events.groupBy { it.category?.takeIf(String::isNotBlank) ?: "" }
-            .map { (cat, evs) ->
-                val inSat = evs.filter { it.direction == PaymentDirection.INCOMING }
-                    .sumOf { it.amountSat }
-                val outSat = evs.filter { it.direction == PaymentDirection.OUTGOING }
-                    .sumOf { it.amountSat }
-                val last = evs.mapNotNull { it.timestampUnix?.toLong() }.maxOrNull()
-                CatRow(
-                    category = cat,
-                    count = evs.size,
-                    inSat = inSat,
-                    outSat = outSat,
-                    lastTs = last,
-                )
-            }
-    }
+    val rows = remember(events) { categoryReportRows(events) }
     val totalVolume = rows.sumOf { it.volumeSat.toLong() }.coerceAtLeast(1L)
 
     val sorted = remember(rows, sort, asc) {
@@ -250,32 +268,9 @@ private fun WalletReportTable(
     var sort by remember { mutableStateOf(WalSort.BALANCE) }
     var asc by remember { mutableStateOf(false) }
 
-    val rows = remember(events, groupedWallets) {
-        groupedWallets.map { group ->
-            // Phase 3.x — aggregate events across every registry row
-            // in the group (signing + its mirror), so the row count
-            // reflects the logical wallet's activity rather than only
-            // the events emitted under one of the two UUIDs.
-            val evs = events.filter { it.walletId in group.memberIds }
-            val inSat = evs.filter { it.direction == PaymentDirection.INCOMING }
-                .sumOf { it.amountSat }
-            val outSat = evs.filter { it.direction == PaymentDirection.OUTGOING }
-                .sumOf { it.amountSat }
-            val last = evs.mapNotNull { it.timestampUnix?.toLong() }.maxOrNull()
-            WalRow(
-                // Stable key for sort ties — sorted view of the
-                // member UUIDs joined; cheap and unique.
-                groupKey = group.memberIds.sorted().joinToString(","),
-                label = group.displayLabel,
-                kindLabel = group.kindLabel,
-                count = evs.size,
-                balanceSat = group.balanceSat,
-                inSat = inSat,
-                outSat = outSat,
-                lastTs = last,
-            )
-        }
-    }
+    // Events of every registry row in the group (rows sharing an
+    // account xpub are one logical wallet).
+    val rows = remember(events, groupedWallets) { walletReportRows(events, groupedWallets) }
 
     val sorted = remember(rows, sort, asc) {
         val cmp = when (sort) {

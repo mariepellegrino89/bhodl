@@ -125,6 +125,8 @@ internal enum class TrackingTabMode { HOME, BUDGET, GOALS, PORTFOLIO, ANALYTICS 
 @Composable
 internal fun TrackingDashboardTab(
     events: List<PaymentEvent>,
+    /** Open the transaction editor (category, kind, BTC cost price). */
+    onEditEvent: (PaymentEvent) -> Unit = {},
     period: TrackingPeriod,
     onPeriodChange: (TrackingPeriod) -> Unit,
     currentBalanceSat: ULong,
@@ -490,6 +492,14 @@ internal fun TrackingDashboardTab(
                 // Item 9 — the change column follows the global period.
                 events = events,
                 period = period,
+            )
+
+            // BTC average cost of the tracked wallets — the bitcoin
+            // counterpart of the investments P&L below.
+            BtcCostBasisCard(
+                wallets = wallets,
+                excludedWalletIds = excludedWalletIds,
+                onEditEvent = onEditEvent,
             )
 
             // Detail cards below the sheet: lots / sells / P&L and the

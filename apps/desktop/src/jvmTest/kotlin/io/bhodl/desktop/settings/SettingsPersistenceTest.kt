@@ -272,54 +272,39 @@ class SettingsPersistenceTest {
         assertFalse(file.exists(), "reset should have dropped the persistence hook")
     }
 
-    // ---- Phase 6.0 — tracker pairing dismissals -----------------------
+    // ---- Watch-only: fields of removed features ------------------------
 
     @Test
-    fun `snapshot includes trackerPairingSkipped from the store`() {
-        SettingsStore.markTrackerPairingSkipped("wallet-a")
-        SettingsStore.markTrackerPairingSkipped("wallet-b")
-        val snap = SettingsPersistence.snapshot()
-        // Order doesn't matter on disk; assert as set.
-        assertEquals(setOf("wallet-a", "wallet-b"), snap.trackerPairingSkipped.toSet())
-    }
-
-    @Test
-    fun `save then rehydrate restores trackerPairingSkipped`() {
-        SettingsStore.markTrackerPairingSkipped("w-1")
-        SettingsStore.markTrackerPairingSkipped("w-2")
-        SettingsPersistence.save(file).getOrThrow()
-
-        SettingsStore.reset()
-        assertEquals(emptySet(), SettingsStore.trackerPairingSkipped.value)
-
-        SettingsPersistence.rehydrate(file).getOrThrow()
-        assertEquals(
-            setOf("w-1", "w-2"),
-            SettingsStore.trackerPairingSkipped.value,
-        )
-    }
-
-    @Test
-    fun `load tolerates absent trackerPairingSkipped (older snapshot)`() {
-        // Older builds wrote a version-1 file WITHOUT the new field —
-        // backward-compat requires defaulting to empty list silently.
+    fun `load ignores fields of removed signing features in older snapshots`() {
+        // Builds that could hold seeds wrote backup / reminder / tracker
+        // pairing state. The watch-only build must load such a file and
+        // keep only the labels export date.
         file.writeText(
             """{"version":1,"themeMode":"System","torEnabled":false,
                "torProxyUrl":"x","colorConvention":"WESTERN","btcUnit":"SAT",
-               "fiatCurrency":"NONE","autoFetchInvestmentPrices":false}""",
+               "fiatCurrency":"NONE","autoFetchInvestmentPrices":false,
+               "trackerPairingSkipped":["w-1"],
+               "backupVerifiedAt":{"w-1":100},"backupExportedAt":{"w-1":200},
+               "securityReminderSnoozedUntil":{"w-1":400},
+               "labelsExportedAt":{"w-1":300}}""",
             Charsets.UTF_8,
         )
         val snap = SettingsPersistence.load(file).getOrThrow()
         assertNotNull(snap)
-        assertEquals(emptyList(), snap.trackerPairingSkipped)
+        assertEquals(mapOf("w-1" to 300L), snap.labelsExportedAt)
+        SettingsPersistence.rehydrate(file).getOrThrow()
+        assertEquals(300L, SettingsStore.labelsExportedAt.value["w-1"])
     }
 
     @Test
-    fun `enablePersistence write-through persists tracker skip changes`() {
-        SettingsStore.enablePersistence(file)
-        SettingsStore.markTrackerPairingSkipped("zzz")
-        val snap = SettingsPersistence.load(file).getOrThrow()!!
-        assertEquals(listOf("zzz"), snap.trackerPairingSkipped)
+    fun `saved snapshot carries no field of removed signing features`() {
+        SettingsStore.markLabelsExported("w-1", 300L)
+        SettingsPersistence.save(file).getOrThrow()
+        val text = file.readText()
+        for (gone in listOf("trackerPairingSkipped", "backupVerifiedAt", "backupExportedAt", "securityReminder")) {
+            assertFalse(gone in text, "$gone must no longer be persisted")
+        }
+        assertTrue("labelsExportedAt" in text)
     }
 
     // ---- Phase 8.3.1 — Bitcoin Lens advanced preferences -------------

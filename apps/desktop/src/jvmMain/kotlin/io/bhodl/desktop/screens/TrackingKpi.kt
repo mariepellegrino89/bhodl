@@ -43,8 +43,6 @@ import io.bhodl.desktop.settings.SettingsStore
 import io.bhodl.desktop.ui.bhodlCard
 import io.bhodl.desktop.ui.displayAmount
 import io.bhodl.desktop.ui.displaySignedAmount
-import io.bhodl.ffi.PaymentDirection
-import io.bhodl.ffi.PaymentEvent
 import io.bhodl.shared.resources.Res
 import io.bhodl.shared.resources.common_last_sync
 import io.bhodl.shared.resources.common_never_synced

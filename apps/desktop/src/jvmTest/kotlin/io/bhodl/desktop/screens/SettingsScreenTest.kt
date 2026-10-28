@@ -16,7 +16,6 @@ import androidx.compose.ui.test.waitUntilAtLeastOneExists
 import io.bhodl.desktop.settings.EsploraEndpoint
 import io.bhodl.desktop.settings.SettingsStore
 import io.bhodl.desktop.settings.ThemeMode
-import androidx.compose.runtime.CompositionLocalProvider
 import io.bhodl.desktop.wallet.FakeWalletPort
 import io.bhodl.desktop.wizard.PinAttemptTracker
 import io.bhodl.desktop.wizard.WalletStore
@@ -50,12 +49,6 @@ class SettingsScreenTest {
         SettingsStore.reset()
         WalletStore.clear()
         PinAttemptTracker.reset()
-    }
-
-    /** Audit 2026-10 — fake wallet-PIN check: "123456" is correct. */
-    private val fakePinCheck = object : WalletPinCheck {
-        override fun scope(): String = "test-wallet"
-        override fun check(pin: String): Boolean = pin == "123456"
     }
 
     @Test
@@ -223,96 +216,6 @@ class SettingsScreenTest {
         }
 
     @Test
-    fun `Export backup is disabled when password is empty`() = runDesktopComposeUiTest {
-        WalletStore.set(FakeWalletPort())
-        setContent {
-            BhodlTheme {
-                WalletSettingsTab(onWalletWiped = {}, onSwitchSigningWallet = {})
-            }
-        }
-        waitUntilAtLeastOneExists(hasTestTag(SettingsTags.BACKUP_EXPORT))
-        onNodeWithTag(SettingsTags.BACKUP_EXPORT).assertIsNotEnabled()
-    }
-
-    @Test
-    fun `Export backup with a password calls the FFI and shows the blob`() =
-        runDesktopComposeUiTest {
-            val fake = FakeWalletPort().apply {
-                exportBackupBlobBuilder = {
-                    "-----BEGIN AGE ENCRYPTED FILE-----\nfaked-blob-content\n" +
-                        "-----END AGE ENCRYPTED FILE-----\n"
-                }
-            }
-            WalletStore.set(fake)
-            setContent {
-                BhodlTheme {
-                    CompositionLocalProvider(LocalWalletPinCheck provides fakePinCheck) {
-                        WalletSettingsTab(onWalletWiped = {}, onSwitchSigningWallet = {})
-                    }
-                }
-            }
-            waitUntilAtLeastOneExists(hasTestTag(SettingsTags.BACKUP_PASSWORD))
-            onNodeWithTag(SettingsTags.BACKUP_PASSWORD).performScrollTo().performTextInput("backup-password-long")
-            // Audit 2026-10 — confirmation required.
-            onNodeWithTag(SettingsTags.BACKUP_EXPORT).performScrollTo().assertIsNotEnabled()
-            onNodeWithTag(SettingsTags.BACKUP_PASSWORD_CONFIRM).performScrollTo()
-                .performScrollTo().performTextInput("backup-password-long")
-            onNodeWithTag(SettingsTags.BACKUP_EXPORT).performScrollTo().performClick()
-            // Audit 2026-10 — wallet PIN re-entry before the export.
-            waitUntilAtLeastOneExists(hasTestTag(WalletPinReauthTags.PIN))
-            assertEquals(0, fake.exportBackupCalls.size)
-            onNodeWithTag(WalletPinReauthTags.PIN).performTextInput("123456")
-            onNodeWithTag(WalletPinReauthTags.CONFIRM).performClick()
-            waitUntil(timeoutMillis = 2_000) { fake.exportBackupCalls.isNotEmpty() }
-            assertEquals(1, fake.exportBackupCalls.size)
-            assertEquals("backup-password-long", fake.exportBackupCalls.single())
-            // The blob output field exists once the FFI returns. It
-            // sits at the bottom of the scroll column, so we scroll
-            // to it before asserting visibility.
-            waitUntilAtLeastOneExists(hasTestTag(SettingsTags.BACKUP_BLOB))
-            onNodeWithTag(SettingsTags.BACKUP_BLOB).performScrollTo().assertIsDisplayed()
-        }
-
-    @Test
-    fun `Show recovery phrase is two-tap and renders the mnemonic`() = runDesktopComposeUiTest {
-        val fake = FakeWalletPort().apply {
-            peekMnemonicResult = io.bhodl.ffi.MnemonicReveal(
-                mnemonic = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu",
-                passphrase = "",
-            )
-        }
-        WalletStore.set(fake)
-        setContent {
-            BhodlTheme {
-                CompositionLocalProvider(LocalWalletPinCheck provides fakePinCheck) {
-                    WalletSettingsTab(onWalletWiped = {}, onSwitchSigningWallet = {})
-                }
-            }
-        }
-        waitUntilAtLeastOneExists(hasTestTag(SettingsTags.RECOVERY_REVEAL))
-        // First tap arms — does not call FFI yet.
-        onNodeWithTag(SettingsTags.RECOVERY_REVEAL).performScrollTo().performClick()
-        waitForIdle()
-        assertEquals(0, fake.peekMnemonicCalls.size)
-        // Second tap asks for the wallet PIN (audit 2026-10).
-        onNodeWithTag(SettingsTags.RECOVERY_REVEAL).performScrollTo().performClick()
-        waitUntilAtLeastOneExists(hasTestTag(WalletPinReauthTags.PIN))
-        // Wrong PIN: no reveal, error shown.
-        onNodeWithTag(WalletPinReauthTags.PIN).performTextInput("000000")
-        onNodeWithTag(WalletPinReauthTags.CONFIRM).performClick()
-        waitUntilAtLeastOneExists(hasTestTag(WalletPinReauthTags.ERROR))
-        assertEquals(0, fake.peekMnemonicCalls.size)
-        assertEquals(1, PinAttemptTracker.failureCount("test-wallet"))
-        // Correct PIN reveals.
-        onNodeWithTag(WalletPinReauthTags.PIN).performTextInput("123456")
-        onNodeWithTag(WalletPinReauthTags.CONFIRM).performClick()
-        waitUntil(timeoutMillis = 2_000) { fake.peekMnemonicCalls.isNotEmpty() }
-        assertEquals(1, fake.peekMnemonicCalls.size)
-        waitUntilAtLeastOneExists(hasTestTag(SettingsTags.RECOVERY_PHRASE))
-        onNodeWithTag(SettingsTags.RECOVERY_PHRASE).performScrollTo().assertIsDisplayed()
-    }
-
-    @Test
     fun `Wipe is two-tap and clears the WalletStore on confirm`() = runDesktopComposeUiTest {
         // CRITICAL: the wipe button hits `WalletPaths.reset()` against the
         // injected `dataDir` parameter, NOT the production
@@ -414,9 +317,9 @@ class SettingsScreenTest {
         var opened = 0
         setContent { BhodlTheme { SettingsScreen(onBack = {}, onOpenWalletSettings = { opened++ }) } }
         waitUntilAtLeastOneExists(hasTestTag(SettingsTags.WALLET_SETTINGS_POINTER))
-        // Backup / recovery phrase are no longer on the app-wide page.
-        assertEquals(0, onAllNodesWithTag(SettingsTags.BACKUP_EXPORT).fetchSemanticsNodes().size)
-        assertEquals(0, onAllNodesWithTag(SettingsTags.RECOVERY_REVEAL).fetchSemanticsNodes().size)
+        // Descriptor export / wallet removal are not on the app-wide page.
+        assertEquals(0, onAllNodesWithTag(SettingsTags.WATCH_DESC_REVEAL).fetchSemanticsNodes().size)
+        assertEquals(0, onAllNodesWithTag(SettingsTags.DELETE_THIS_WALLET).fetchSemanticsNodes().size)
         onNodeWithTag(SettingsTags.OPEN_WALLET_SETTINGS).performScrollTo().performClick()
         waitUntil(timeoutMillis = 1_000) { opened == 1 }
     }

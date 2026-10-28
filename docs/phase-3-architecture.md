@@ -1,5 +1,10 @@
 # Phase 3 — Tracking + Multi-wallet (read-only registry)
 
+> **Note (2026-10-23):** since 2026-10-23 BHODL is watch-only: it holds no private keys
+> and cannot send bitcoin. The parts of this document about seeds, signing, sending,
+> PayJoin, backups or signing↔tracker mirrors are historical; see `docs/handbook.md`
+> for the current design.
+
 > Architecture, scope, and execution plan. Authored 2026-05-12 after
 > the Phase 2 on-chain feature freeze and the post-K.2 UX redesign.
 > Living document — sub-phases tick to "done" as they land.

@@ -56,16 +56,16 @@ public object EsploraEndpoint {
     }
 
     /**
-     * Read the active endpoint for the loaded signing wallet — the user
-     * override for its network when set, otherwise the built-in default
-     * for that network.
+     * Read the active endpoint for the wallet open in the workspace — the
+     * user override for its network when set, otherwise the built-in
+     * default for that network.
      */
     public fun current(): String = current(WalletStore.network())
 
     /**
      * Endpoint for an explicit [network] (audit 2026-10): watch wallets
-     * and tracker syncs must use THEIR OWN network, not the loaded
-     * signing wallet's — a mainnet watch wallet must never be synced
+     * and tracker syncs must use THEIR OWN network, not the open
+     * wallet's — a mainnet watch wallet must never be synced
      * against a signet server (or vice versa).
      */
     public fun current(network: Network): String =

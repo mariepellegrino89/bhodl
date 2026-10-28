@@ -778,9 +778,9 @@ impl BtcRateRepo {
     /// the FFI layer in `bhodl-uniffi`.
     pub fn open(
         db_path: &std::path::Path,
-        encryption_key: &[u8; crate::account::ENCRYPTION_KEY_LEN],
+        encryption_key: &[u8; crate::common::ENCRYPTION_KEY_LEN],
     ) -> Result<Self, OnchainError> {
-        let conn = crate::account::open_encrypted_connection(db_path, encryption_key)?;
+        let conn = crate::common::open_encrypted_connection(db_path, encryption_key)?;
         Self::new(conn)
     }
 
