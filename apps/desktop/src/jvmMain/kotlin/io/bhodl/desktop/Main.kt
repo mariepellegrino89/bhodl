@@ -168,6 +168,13 @@ fun main() {
     // loop tick. Keyed on the flag, so it fires on the off→on transition
     // (and harmlessly on first composition / when the registry is still
     // locked, where refreshInvestmentPrices early-returns).
+    // Online prices off: the Rust rate cache stops fetching too; back on,
+    // prices refresh at once.
+    val onlinePrices by SettingsStore.onlinePrices
+    LaunchedEffect(onlinePrices) {
+        io.bhodl.ffi.setOnlineRates(onlinePrices)
+        if (onlinePrices) PriceCache.refreshNow()
+    }
     val autoFetchInvestments by SettingsStore.autoFetchInvestmentPrices
     LaunchedEffect(autoFetchInvestments) {
         if (autoFetchInvestments) {

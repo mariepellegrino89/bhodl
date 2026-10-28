@@ -118,6 +118,17 @@ class SettingsPersistenceTest {
         assertEquals(BtcUnit.BTC.name, snap.btcUnit)
     }
 
+    @Test
+    fun `online prices survive a restart and default to on`() {
+        assertEquals(true, SettingsPersistence.snapshot().onlinePrices)
+        SettingsStore.setOnlinePrices(false)
+        SettingsPersistence.save(file).getOrThrow()
+        SettingsStore.reset()
+        assertTrue(SettingsStore.onlinePrices.value)
+        assertTrue(SettingsPersistence.rehydrate(file).getOrThrow())
+        assertFalse(SettingsStore.onlinePrices.value)
+    }
+
     // ---- save / load round-trip --------------------------------------
 
     @Test

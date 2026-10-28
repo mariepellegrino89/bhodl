@@ -6,7 +6,9 @@ BHODL is a desktop app (Rust core + Kotlin/Compose) that follows your Bitcoin wa
 their public keys and turns them into a personal-finance tracker: net worth, budgets, bills,
 investments and goals, all measured in bitcoin first. Fiat only shows up where it is
 operational (rent, bills, tax cost basis). No account, no cloud, no telemetry: everything
-lives in an encrypted database on your machine.
+lives in an encrypted database on your machine. The only servers it contacts are the
+wallet-sync server and the price providers, and you can change or turn off both
+([privacy policy](PRIVACY.md)).
 
 **BHODL never holds private keys and cannot send bitcoin.** Wallets are added from their
 public keys (xpub); spending stays in your signing wallet (hardware wallet,
@@ -42,7 +44,7 @@ server cannot link your addresses to your IP address.
   set on an address are copied onto the payment that arrives), BIP-21 QR codes.
 - BIP-329 labels import / export, local address book, public descriptor export.
 - Optional Tor (SOCKS5) for all Esplora and price traffic, one circuit per wallet; custom
-  Esplora endpoint.
+  Esplora endpoint. "Online prices" off: no price request leaves the device.
 - Encryption at rest: SQLCipher, with the data key wrapped by an Argon2id key derived from a
   device PIN. An optional recovery code resets a forgotten PIN; without it, a forgotten PIN
   means erasing the local data and adding the wallets again from their xpubs.
@@ -104,6 +106,16 @@ Rendered from the app with demo data on signet.
 | Wallet: transactions with confirmation counts (light) | Tracker home: net worth in sats |
 | ![Portfolio balance sheet and investments](docs/screenshots/tracker-portfolio-dark.png) | ![Budget with price vs spending split](docs/screenshots/tracker-budget-dark.png) |
 | Portfolio: balance sheet and investments with cost in BTC | Budget: sats budgets with price vs spending split |
+
+## Download
+
+Windows installers (MSI) are published on
+[GitHub Releases](https://github.com/mariepellegrino89/bhodl/releases), built from source
+by CI. The installer shows the license and the privacy notice, and Windows' "Apps"
+settings uninstall it. Linux and macOS: build from source (below).
+
+[Code signing policy](CODE_SIGNING_POLICY.md) · [Privacy policy](PRIVACY.md) · how a
+release is cut: [docs/release-signing.md](docs/release-signing.md).
 
 ## Building
 
