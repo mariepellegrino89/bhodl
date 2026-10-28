@@ -9,7 +9,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -48,6 +51,22 @@ import io.bhodl.ui.theme.BhodlTheme
 import kotlin.math.roundToInt
 import io.bhodl.shared.resources.Res
 import org.jetbrains.compose.resources.stringResource
+import io.bhodl.shared.resources.gls_counts
+import io.bhodl.shared.resources.gls_filter_all
+import io.bhodl.shared.resources.gls_filter_savings
+import io.bhodl.shared.resources.gls_filter_sinking
+import io.bhodl.shared.resources.gls_filter_allocation
+import io.bhodl.shared.resources.gls_current
+import io.bhodl.shared.resources.gls_target
+import io.bhodl.shared.resources.gls_monthly
+import io.bhodl.shared.resources.gls_deadline
+import io.bhodl.shared.resources.gls_allocation
+import io.bhodl.shared.resources.gls_h_allocation
+import io.bhodl.shared.resources.gls_h_monthly
+import io.bhodl.shared.resources.gls_kind_savings
+import io.bhodl.shared.resources.gls_kind_sinking
+import io.bhodl.shared.resources.gls_kind_allocation
+import io.bhodl.shared.resources.gls_reached
 import io.bhodl.shared.resources.trp_add
 import io.bhodl.shared.resources.trp_goal_auto
 import io.bhodl.shared.resources.trp_goal_btc_unavailable
@@ -124,36 +143,58 @@ internal fun SavingsGoalsCard(
      *  legacy dashboard-currency conversion via [fiatToSat]. */
     rateFor: ((String) -> Double?)? = null,
 ) {
+    // Goals redesign 2026-10 (proposal A) — every goal's live numbers
+    // first, so the header can count them and the filter can pick.
+    val nowUnix = rememberTickingNowUnix()
+    val views = goals.map { g ->
+        goalView(
+            goal = g,
+            currentSat = computeGoalCurrentSat(
+                goal = g,
+                bitcoinAssetSat = bitcoinAssetSat,
+                watchBalances = watchBalances,
+                investments = investments,
+                manualAssets = manualAssets,
+                fiatToSat = fiatToSat,
+                lotsByInvestmentId = lotsByInvestmentId,
+                rateFor = rateFor,
+            ),
+            target = effectiveTargetSat(goal = g, totalNetWorthSat = totalNetWorthSat, rateFor = PriceCache::rateFor),
+            totalNetWorthSat = totalNetWorthSat,
+            nowUnix = nowUnix,
+        )
+    }
+    var filter by remember { mutableStateOf(GoalFilter.ALL) }
+    val badgeLabels = rememberGoalBucketBadgeLabels()
     Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .bhodlCard()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = stringResource(Res.string.trp_goals_title),
-                style = BhodlTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                color = BhodlTheme.colors.textSecondary,
-                modifier = Modifier.weight(1f),
-            )
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    text = stringResource(Res.string.trp_goals_title),
+                    style = BhodlTheme.typography.titleMedium,
+                    color = BhodlTheme.colors.textPrimary,
+                )
+                if (views.isNotEmpty()) {
+                    val c = goalCounts(views)
+                    Text(
+                        stringResource(Res.string.gls_counts, c.total, c.onTrack, c.behind, c.reached),
+                        style = BhodlTheme.typography.labelMedium,
+                        color = BhodlTheme.colors.textSecondary,
+                    )
+                }
+            }
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(8.dp))
                     .background(BhodlTheme.colors.accentNeon.copy(alpha = 0.18f))
                     .clickable(onClick = onAdd)
-                    .padding(horizontal = 10.dp, vertical = 4.dp)
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
                     .testTag(GoalTags.ADD),
             ) {
-                Text(
-                    text = stringResource(Res.string.trp_add),
-                    style = BhodlTheme.typography.labelMedium,
-                    color = BhodlTheme.colors.accentNeon,
-                )
+                Text(stringResource(Res.string.trp_add), style = BhodlTheme.typography.labelMedium, color = BhodlTheme.colors.accentNeon)
             }
         }
         if (goals.isEmpty()) {
@@ -164,309 +205,319 @@ internal fun SavingsGoalsCard(
             )
             return@Column
         }
-        goals.forEach { g ->
-            GoalRow(
-                goal = g,
-                bitcoinAssetSat = bitcoinAssetSat,
-                totalNetWorthSat = totalNetWorthSat,
-                watchBalances = watchBalances,
-                investments = investments,
-                wallets = wallets,
-                manualAssets = manualAssets,
-                fiatToSat = fiatToSat,
-                lotsByInvestmentId = lotsByInvestmentId,
-                rateFor = rateFor,
-                onClick = { onEdit(g) },
-            )
+        androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            GoalFilter.entries.forEach { f ->
+                val on = f == filter
+                Text(
+                    stringResource(f.label),
+                    style = BhodlTheme.typography.labelMedium,
+                    color = if (on) BhodlTheme.colors.brandPrimary else BhodlTheme.colors.textSecondary,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(999.dp))
+                        .border(1.dp, if (on) BhodlTheme.colors.brandPrimary else BhodlTheme.colors.outline, RoundedCornerShape(999.dp))
+                        .clickable { filter = f }
+                        .padding(horizontal = 12.dp, vertical = 5.dp)
+                        .testTag(GoalTags.filter(f)),
+                )
+            }
+        }
+        val shown = views.filter { filter == GoalFilter.ALL || it.kind == filter }
+        androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth()) {
+            val perRow = when {
+                maxWidth >= 1150.dp -> 3
+                maxWidth >= 720.dp -> 2
+                else -> 1
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                shown.chunked(perRow).forEach { rowViews ->
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        modifier = Modifier.height(androidx.compose.foundation.layout.IntrinsicSize.Min),
+                    ) {
+                        rowViews.forEach { v ->
+                            GoalCard(
+                                view = v,
+                                bucketBadge = goalBucketBadgeLabel(v.goal, wallets, manualAssets, badgeLabels),
+                                nowUnix = nowUnix,
+                                onClick = { onEdit(v.goal) },
+                                modifier = Modifier.weight(1f).fillMaxHeight(),
+                            )
+                        }
+                        repeat(perRow - rowViews.size) { Box(Modifier.weight(1f)) }
+                    }
+                }
+            }
         }
     }
 }
 
-@Composable
-private fun GoalRow(
-    goal: TrackingSavingsGoalFfi,
-    bitcoinAssetSat: ULong,
-    totalNetWorthSat: ULong,
-    watchBalances: Map<String, ULong>,
-    investments: List<TrackingInvestmentFfi>,
-    wallets: List<WalletRecordFfi>,
-    manualAssets: List<TrackingManualAssetFfi>,
-    fiatToSat: (Double) -> ULong?,
-    lotsByInvestmentId: Map<Long, List<io.bhodl.ffi.TrackingInvestmentLotFfi>>,
-    rateFor: ((String) -> Double?)?,
-    onClick: () -> Unit,
+/** Goals redesign 2026-10 — the type filter above the cards. */
+internal enum class GoalFilter(val label: org.jetbrains.compose.resources.StringResource) {
+    ALL(Res.string.gls_filter_all),
+    SAVINGS(Res.string.gls_filter_savings),
+    SINKING(Res.string.gls_filter_sinking),
+    ALLOCATION(Res.string.gls_filter_allocation),
+}
+
+/** One goal's live numbers, computed once for the counts and the card. */
+internal data class GoalView(
+    val goal: TrackingSavingsGoalFfi,
+    val currentSat: ULong,
+    val targetSat: ULong,
+    val targetAvailable: Boolean,
+    val ratio: Float,
+    val status: SinkingStatus?,
+    val driftPp: Int?,
+    val kind: GoalFilter,
 ) {
-    // Phase 7.2.4 — current_sat is auto-derived for bucket-bound
-    // goals; manual goals keep their hand-entered value.
-    val liveCurrentSat = computeGoalCurrentSat(
-        goal = goal,
-        bitcoinAssetSat = bitcoinAssetSat,
-        watchBalances = watchBalances,
-        investments = investments,
-        manualAssets = manualAssets,
-        fiatToSat = fiatToSat,
-        lotsByInvestmentId = lotsByInvestmentId,
-        rateFor = rateFor,
-    )
-    // Phase 7.2.4 + 7.3 — target_sat is recomputed live when the goal
-    // uses the PERCENT mode. The persisted `target_sat` is treated as
-    // the ABSOLUTE-mode fallback; in PERCENT mode the live NW × pct
-    // wins so "always keep 30% in investments" tracks the
-    // current NW instead of a stale snapshot taken at save time.
-    // Phase 7.3: the "NW" for the % conversion is the *total* (= BTC
-    // + investments), matching what the user sees on the hero — not
-    // just BTC. So if the user adds €5000 of stocks, a "30% NW" goal's
-    // target sat goes up accordingly.
-    //
-    // Phase 8.6 — when the goal is fiat-denominated, `target_sat` is
-    // ignored; we derive the effective sat target live from the rate
-    // for `target_fiat_currency`. When the cache has no rate for that
-    // currency (multi-currency PriceCache is out of scope), the helper
-    // returns null and the row renders "—" + a small "BTC equiv
-    // unavailable" chip instead of an amount.
-    val effectiveTarget: EffectiveTarget = effectiveTargetSat(
-        goal = goal,
-        totalNetWorthSat = totalNetWorthSat,
-        rateFor = PriceCache::rateFor,
-    )
-    val liveTargetSat: ULong = effectiveTarget.satOrZero
-    val targetAvailable: Boolean = effectiveTarget.available
+    val pct: Int get() = (ratio * 100f).coerceAtLeast(0f).roundToInt()
+    val reached: Boolean get() = targetAvailable && targetSat > 0UL && currentSat >= targetSat
+}
 
-    val ratio: Float = if (liveTargetSat > 0UL) {
-        (liveCurrentSat.toDouble() / liveTargetSat.toDouble()).toFloat()
-    } else 0f
-    val pct = (ratio * 100.0f).coerceAtLeast(0f).roundToInt()
-    val color = goalPaletteColor(goal.color)
-    val bucketBadge = goalBucketBadgeLabel(goal, wallets, manualAssets, rememberGoalBucketBadgeLabels())
+internal fun goalView(
+    goal: TrackingSavingsGoalFfi,
+    currentSat: ULong,
+    target: EffectiveTarget,
+    totalNetWorthSat: ULong,
+    nowUnix: Long,
+): GoalView {
+    val targetSat = target.satOrZero
+    val ratio = if (targetSat > 0UL) (currentSat.toDouble() / targetSat.toDouble()).toFloat() else 0f
+    val kind = when {
+        goal.targetPctOfNetWorth != null -> GoalFilter.ALLOCATION
+        GoalKind.fromWire(goal.goalKind) == GoalKind.SINKING -> GoalFilter.SINKING
+        else -> GoalFilter.SAVINGS
+    }
+    return GoalView(
+        goal = goal,
+        currentSat = currentSat,
+        targetSat = targetSat,
+        targetAvailable = target.available,
+        ratio = ratio,
+        status = if (target.available) sinkingScheduleStatus(goal, currentSat, nowUnix, targetSat = targetSat) else null,
+        driftPp = goalAllocationDriftPp(goal, currentSat, totalNetWorthSat),
+        kind = kind,
+    )
+}
 
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(vertical = 4.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        // Phase 7.3 — drift in pp (signed); null when not applicable.
-        val driftPp: Int? = goalAllocationDriftPp(goal, liveCurrentSat, totalNetWorthSat)
-        // Phase 7.7 — sinking-goal schedule status (ON TRACK / BEHIND
-        // / AHEAD / OVERDUE) computed live from current_sat and the
-        // deadline; null when the goal isn't sinking.
-        // Ticks at local midnight so countdown / OVERDUE stay current.
-        val nowUnix = rememberTickingNowUnix()
-        val scheduleStatus = if (targetAvailable) {
-            sinkingScheduleStatus(goal, liveCurrentSat, nowUnix, targetSat = liveTargetSat)
-        } else null
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = goal.name,
-                style = BhodlTheme.typography.bodyMedium,
-                color = BhodlTheme.colors.textPrimary,
-                modifier = Modifier.weight(1f),
+internal data class GoalCounts(val total: Int, val onTrack: Int, val behind: Int, val reached: Int)
+
+/** Header counts: on track = sinking on/ahead of schedule; behind = behind or overdue. */
+internal fun goalCounts(views: List<GoalView>): GoalCounts = GoalCounts(
+    total = views.size,
+    onTrack = views.count { !it.reached && (it.status == SinkingStatus.ON_TRACK || it.status == SinkingStatus.AHEAD) },
+    behind = views.count { !it.reached && (it.status == SinkingStatus.BEHIND || it.status == SinkingStatus.OVERDUE) },
+    reached = views.count { it.reached },
+)
+
+@Composable
+private fun ProgressRing(ratio: Float, color: Color, pct: Int) {
+    val track = BhodlTheme.colors.surfaceVariant
+    Box(contentAlignment = Alignment.Center, modifier = Modifier.size(72.dp)) {
+        androidx.compose.foundation.Canvas(Modifier.size(72.dp)) {
+            val stroke = androidx.compose.ui.graphics.drawscope.Stroke(
+                width = 8.dp.toPx(),
+                cap = androidx.compose.ui.graphics.StrokeCap.Round,
             )
-            // Phase 7.7 — schedule chip for sinking goals, between the
-            // name and (eventually) the DRIFT chip. The colour tells
-            // the user at a glance "am I on schedule?".
-            if (scheduleStatus != null) {
-                ScheduleStatusChip(scheduleStatus)
-            }
-            // Phase 7.3 — only show DRIFT chip when |drift| ≥ ±5pp.
-            // Sits between the name and the % progress so the user's
-            // eye lands on it before reading the bar.
-            if (driftPp != null && kotlin.math.abs(driftPp) >= GOAL_DRIFT_THRESHOLD_PP) {
-                Box(
-                    modifier = Modifier
-                        .padding(end = 8.dp)
-                        .clip(RoundedCornerShape(50))
-                        .background(BhodlTheme.colors.financialPending.copy(alpha = 0.18f))
-                        .padding(horizontal = 8.dp, vertical = 2.dp)
-                        .testTag(GoalTags.DRIFT_CHIP),
+            val inset = 4.dp.toPx()
+            val box = androidx.compose.ui.geometry.Size(size.width - inset * 2, size.height - inset * 2)
+            val tl = androidx.compose.ui.geometry.Offset(inset, inset)
+            drawArc(track, -90f, 360f, false, tl, box, style = stroke)
+            drawArc(color, -90f, 360f * ratio.coerceIn(0f, 1f), false, tl, box, style = stroke)
+        }
+        Text("$pct%", style = BhodlTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold), color = BhodlTheme.colors.textPrimary)
+    }
+}
+
+@Composable
+private fun GoalTile(label: String, modifier: Modifier, help: String? = null, content: @Composable () -> Unit) {
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(6.dp))
+            .background(BhodlTheme.colors.background)
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(label.uppercase(), style = BhodlTheme.typography.labelMedium, color = BhodlTheme.colors.textTertiary, maxLines = 1)
+            help?.let { io.bhodl.desktop.ui.HelpTip(it) }
+        }
+        content()
+    }
+}
+
+@Composable
+private fun GoalCard(
+    view: GoalView,
+    bucketBadge: String?,
+    nowUnix: Long,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val goal = view.goal
+    val color = goalPaletteColor(goal.color)
+    Column(
+        modifier = modifier
+            .bhodlCard()
+            .clickable(onClick = onClick)
+            .padding(16.dp)
+            .testTag(GoalTags.card(goal.id)),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            ProgressRing(view.ratio, color, view.pct)
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(goal.name, style = BhodlTheme.typography.titleMedium, color = BhodlTheme.colors.textPrimary)
+                Text(stringResource(view.kind.kindLabel()), style = BhodlTheme.typography.labelMedium, color = BhodlTheme.colors.textSecondary)
+                androidx.compose.foundation.layout.FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    val sign = if (driftPp > 0) "+" else ""
+                    if (view.reached) {
+                        ReachedChip()
+                    } else if (view.status != null) {
+                        ScheduleStatusChip(view.status)
+                    }
+                    val drift = view.driftPp
+                    if (drift != null && kotlin.math.abs(drift) >= GOAL_DRIFT_THRESHOLD_PP) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(50))
+                                .background(BhodlTheme.colors.financialPending.copy(alpha = 0.18f))
+                                .padding(horizontal = 8.dp, vertical = 2.dp)
+                                .testTag(GoalTags.DRIFT_CHIP),
+                        ) {
+                            val sign = io.bhodl.desktop.ui.amountSign(drift.toLong(), masked = false)
+                            Text(
+                                text = stringResource(Res.string.trp_goal_drift, sign + kotlin.math.abs(drift)),
+                                style = BhodlTheme.typography.labelMedium,
+                                color = BhodlTheme.colors.financialPending,
+                            )
+                        }
+                    }
+                    if (bucketBadge != null) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(50))
+                                .background(color.copy(alpha = 0.18f))
+                                .padding(horizontal = 8.dp, vertical = 2.dp)
+                                .testTag(GoalTags.AUTO_BADGE),
+                        ) {
+                            Text(stringResource(Res.string.trp_goal_auto, bucketBadge), style = BhodlTheme.typography.labelMedium, color = color)
+                        }
+                    }
+                }
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            GoalTile(stringResource(Res.string.gls_current), Modifier.weight(1f)) {
+                Money(
+                    value = MoneyValue.fromSat(view.currentSat.toLong(), semantic = MoneySemantic.AtNow),
+                    density = MoneyDensity.Compact,
+                    primary = MoneyPrimary.Btc,
+                    showSecondary = false,
+                    testTag = GoalTags.currentAmountTag(goal.id),
+                )
+            }
+            GoalTile(stringResource(Res.string.gls_target), Modifier.weight(1f)) {
+                if (!view.targetAvailable) {
                     Text(
-                        text = stringResource(Res.string.trp_goal_drift, "$sign$driftPp"),
-                        style = BhodlTheme.typography.labelMedium,
-                        color = BhodlTheme.colors.financialPending,
+                        "—",
+                        style = BhodlTheme.typography.bodyMedium,
+                        color = BhodlTheme.colors.textTertiary,
+                        modifier = Modifier.testTag(GoalTags.targetAmountTag(goal.id)),
+                    )
+                } else {
+                    Money(
+                        value = MoneyValue.fromSat(view.targetSat.toLong(), semantic = MoneySemantic.AtNow),
+                        density = MoneyDensity.Compact,
+                        primary = MoneyPrimary.Btc,
+                        showSecondary = false,
+                        testTag = GoalTags.targetAmountTag(goal.id),
                     )
                 }
             }
-            Text(
-                text = "$pct%",
-                style = BhodlTheme.typography.bodyMedium,
-                color = color,
-            )
         }
-        // Phase 7.2.4 — AUTO badge sits between the title and the bar
-        // when the goal is bound to a non-manual bucket. Single chip;
-        // colour follows the goal palette so it doesn't fight for
-        // attention with the progress bar.
-        if (bucketBadge != null) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            val monthly = if (view.kind == GoalFilter.SINKING && view.targetAvailable) {
+                sinkingMonthlyRateSat(goal, view.currentSat, nowUnix, targetSat = view.targetSat)
+            } else {
+                null
+            }
+            GoalTile(stringResource(Res.string.gls_monthly), Modifier.weight(1f), help = stringResource(Res.string.gls_h_monthly)) {
+                if (monthly != null) {
+                    Money(
+                        value = MoneyValue.fromSat(monthly.toLong(), semantic = MoneySemantic.AtNow),
+                        density = MoneyDensity.Compact,
+                        primary = MoneyPrimary.Btc,
+                        showSecondary = false,
+                    )
+                } else {
+                    Text("—", style = BhodlTheme.typography.bodyMedium, color = BhodlTheme.colors.textTertiary)
+                }
+            }
+            val lastLabel = if (view.kind == GoalFilter.ALLOCATION) Res.string.gls_allocation else Res.string.gls_deadline
+            val lastHelp = if (view.kind == GoalFilter.ALLOCATION) stringResource(Res.string.gls_h_allocation) else null
+            GoalTile(stringResource(lastLabel), Modifier.weight(1f), help = lastHelp) {
+                val deadline = goal.deadlineUnix
+                val text = when {
+                    view.kind == GoalFilter.ALLOCATION ->
+                        stringResource(Res.string.trp_goal_target_pct_nw, goal.targetPctOfNetWorth.toString())
+                    deadline != null -> formatYmd(deadline)
+                    else -> "—"
+                }
+                Text(text, style = BhodlTheme.typography.mono, color = BhodlTheme.colors.textPrimary)
+            }
+        }
+        if (!view.targetAvailable) {
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(50))
-                    .background(color.copy(alpha = 0.18f))
+                    .background(BhodlTheme.colors.surfaceVariant)
                     .padding(horizontal = 8.dp, vertical = 2.dp)
-                    .testTag(GoalTags.AUTO_BADGE),
+                    .testTag(GoalTags.BTC_EQUIV_UNAVAILABLE_CHIP),
             ) {
                 Text(
-                    text = stringResource(Res.string.trp_goal_auto, bucketBadge),
-                    style = BhodlTheme.typography.labelMedium,
-                    color = color,
-                )
-            }
-        }
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(8.dp)
-                .clip(RoundedCornerShape(4.dp))
-                .background(BhodlTheme.colors.surfaceVariant),
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth(ratio.coerceIn(0f, 1f))
-                    .height(8.dp)
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(color),
-            )
-        }
-        // Allocation target ("30% del net worth") surfaces alongside
-        // the absolute progress line when set. With 7.2.4's live
-        // recomputation this line now reflects the *current* sat
-        // value of the percentage at the *current* NW, not a frozen
-        // snapshot.
-        //
-        // Phase 8.3.4 — current and target sats now render via the
-        // canonical `<Money>` Medium composable so the BTC primary +
-        // fiat secondary stay consistent with NetWorthHero and the
-        // Investments table. The allocation suffix stays a plain
-        // [Text] because it carries metadata, not an amount.
-        val allocationLine = goal.targetPctOfNetWorth?.let { " · " + stringResource(Res.string.trp_goal_target_pct_nw, it.toString()) }.orEmpty()
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            Money(
-                value = MoneyValue.fromSat(liveCurrentSat.toLong(), semantic = MoneySemantic.AtNow),
-                density = MoneyDensity.Medium,
-                primary = MoneyPrimary.Btc,
-                showSecondary = true,
-                testTag = GoalTags.currentAmountTag(goal.id),
-            )
-            Text(
-                text = stringResource(Res.string.trp_goal_of),
-                style = BhodlTheme.typography.labelMedium,
-                color = BhodlTheme.colors.textTertiary,
-            )
-            // Phase 8.6 — when the fiat goal can't be converted to sat
-            // (no cached rate for `target_fiat_currency`), render "—"
-            // followed by a small chip explaining why. The progress
-            // bar above already shows 0% because `liveTargetSat = 0UL`
-            // in this case; the chip prevents the user from reading
-            // the row as "0 BTC progress against a 0 sat goal" — which
-            // would suggest a misconfigured goal rather than a
-            // transient cache miss.
-            if (!targetAvailable) {
-                Text(
-                    text = "—",
-                    style = BhodlTheme.typography.bodyMedium,
-                    color = BhodlTheme.colors.textTertiary,
-                    modifier = Modifier.testTag(GoalTags.targetAmountTag(goal.id)),
-                )
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(50))
-                        .background(BhodlTheme.colors.surfaceVariant)
-                        .padding(horizontal = 8.dp, vertical = 2.dp)
-                        .testTag(GoalTags.BTC_EQUIV_UNAVAILABLE_CHIP),
-                ) {
-                    Text(
-                        text = stringResource(Res.string.trp_goal_btc_unavailable),
-                        style = BhodlTheme.typography.labelMedium,
-                        color = BhodlTheme.colors.textTertiary,
-                    )
-                }
-            } else {
-                Money(
-                    value = MoneyValue.fromSat(
-                        liveTargetSat.toLong(),
-                        semantic = MoneySemantic.AtNow,
-                    ),
-                    density = MoneyDensity.Medium,
-                    primary = MoneyPrimary.Btc,
-                    showSecondary = true,
-                    testTag = GoalTags.targetAmountTag(goal.id),
-                )
-            }
-            if (allocationLine.isNotEmpty()) {
-                Text(
-                    text = allocationLine.removePrefix(" "),
+                    stringResource(Res.string.trp_goal_btc_unavailable),
                     style = BhodlTheme.typography.labelMedium,
                     color = BhodlTheme.colors.textTertiary,
                 )
             }
         }
-
-        // Phase 7.7 — sinking countdown + suggested monthly rate.
-        // Only renders for sinking goals; the SCHEDULE_TOLERANCE chip
-        // above already signals AHEAD/ON_TRACK/BEHIND/OVERDUE.
-        //
-        // Phase 8.3.4 — the monthly-rate line goes through the
-        // canonical `<Money>` Compact composable so the BTC primary
-        // stays consistent with the rest of the goal row. The split
-        // into two Text + one Money in a Row keeps the countdown
-        // textual context inline with the suggested rate.
-        if (GoalKind.fromWire(goal.goalKind) == GoalKind.SINKING) {
+        if (view.kind == GoalFilter.SINKING) {
             val daysLeft = sinkingDaysRemaining(goal, nowUnix)
-            val monthlyRate = if (targetAvailable) {
-                sinkingMonthlyRateSat(goal, liveCurrentSat, nowUnix, targetSat = liveTargetSat)
-            } else null
             val deadline = goal.deadlineUnix
-            if (deadline != null) {
+            if (deadline != null && daysLeft != null) {
                 val deadlineLabel = formatYmd(deadline)
-                val countdownLabel = when {
-                    daysLeft == null -> ""
-                    daysLeft < 0 -> stringResource(Res.string.trp_goal_past_deadline, -daysLeft, deadlineLabel)
-                    daysLeft == 0 -> stringResource(Res.string.trp_goal_due_today, deadlineLabel)
-                    else -> stringResource(Res.string.trp_goal_days_to, daysLeft, deadlineLabel)
-                }
-                if (monthlyRate != null) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        Text(
-                            text = "$countdownLabel · ~",
-                            style = BhodlTheme.typography.labelMedium,
-                            color = BhodlTheme.colors.textTertiary,
-                        )
-                        Money(
-                            value = MoneyValue.fromSat(
-                                monthlyRate.toLong(),
-                                semantic = MoneySemantic.AtNow,
-                            ),
-                            density = MoneyDensity.Compact,
-                            primary = MoneyPrimary.Btc,
-                            showSecondary = false,
-                        )
-                        Text(
-                            text = stringResource(Res.string.trp_goal_per_month_on_track),
-                            style = BhodlTheme.typography.labelMedium,
-                            color = BhodlTheme.colors.textTertiary,
-                        )
-                    }
-                } else {
-                    Text(
-                        text = countdownLabel,
-                        style = BhodlTheme.typography.labelMedium,
-                        color = BhodlTheme.colors.textTertiary,
-                    )
-                }
+                Text(
+                    when {
+                        daysLeft < 0 -> stringResource(Res.string.trp_goal_past_deadline, -daysLeft, deadlineLabel)
+                        daysLeft == 0 -> stringResource(Res.string.trp_goal_due_today, deadlineLabel)
+                        else -> stringResource(Res.string.trp_goal_days_to, daysLeft, deadlineLabel)
+                    },
+                    style = BhodlTheme.typography.labelMedium,
+                    color = BhodlTheme.colors.textTertiary,
+                )
             }
         }
+    }
+}
+
+private fun GoalFilter.kindLabel(): org.jetbrains.compose.resources.StringResource = when (this) {
+    GoalFilter.SINKING -> Res.string.gls_kind_sinking
+    GoalFilter.ALLOCATION -> Res.string.gls_kind_allocation
+    else -> Res.string.gls_kind_savings
+}
+
+@Composable
+private fun ReachedChip() {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(50))
+            .background(BhodlTheme.colors.financialPositive.copy(alpha = 0.18f))
+            .padding(horizontal = 8.dp, vertical = 2.dp),
+    ) {
+        Text(stringResource(Res.string.gls_reached), style = BhodlTheme.typography.labelMedium, color = BhodlTheme.colors.financialPositive)
     }
 }
 
@@ -518,6 +569,8 @@ internal fun goalPaletteColor(key: String): Color = when (key.lowercase()) {
 
 internal object GoalTags {
     const val ADD: String = "goal.add"
+    fun card(id: Long): String = "goal.card.$id"
+    fun filter(f: GoalFilter): String = "goal.filter.${f.name.lowercase()}"
     const val SAVE: String = "goal.save"
     const val DELETE: String = "goal.delete"
     const val INPUT_NAME: String = "goal.input-name"

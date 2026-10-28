@@ -133,6 +133,25 @@ class UcShellSecurityTest {
     }
 
     @Test
+    fun `the tracker header warns about mainnet over clearnet and shows the last sync`() = runDesktopComposeUiTest {
+        var mainnet by androidx.compose.runtime.mutableStateOf(true)
+        var showSync by androidx.compose.runtime.mutableStateOf(true)
+        setContent { BhodlTheme { TrackerHeaderStatus(mainnetWallets = mainnet, lastSyncUnix = null, showSync = showSync) } }
+        waitForIdle()
+        assertEquals(1, count(FooterStatusBarTags.HEADER_CLEARNET), "mainnet without Tor: warned")
+        assertEquals(1, count(FooterStatusBarTags.HEADER_SYNC))
+        SettingsStore.setTorEnabled(true)
+        waitForIdle()
+        assertEquals(0, count(FooterStatusBarTags.HEADER_CLEARNET), "Tor on: no warning")
+        SettingsStore.setTorEnabled(false)
+        mainnet = false
+        showSync = false
+        waitForIdle()
+        assertEquals(0, count(FooterStatusBarTags.HEADER_CLEARNET), "signet only: no warning")
+        assertEquals(0, count(FooterStatusBarTags.HEADER_SYNC))
+    }
+
+    @Test
     fun `SEC-154 one wallet is singular`() = runDesktopComposeUiTest {
         setContent { BhodlTheme { BhodlFooterStatusBar(network = Network.TESTNET4, walletCount = 1, lastSyncUnix = 0L) } }
         waitUntilAtLeastOneExists(hasTestTag(FooterStatusBarTags.ROOT))

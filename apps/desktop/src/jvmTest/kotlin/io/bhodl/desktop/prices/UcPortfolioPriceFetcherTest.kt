@@ -48,6 +48,16 @@ class UcPortfolioPriceFetcherTest {
     // ─── PRT-078 provider chain ───────────────────────────────────
 
     @Test
+    fun `PRT-078 with online prices off no price request leaves the device`() {
+        serve({ error("not expected") }, { error("not expected") })
+        SettingsStore.setOnlinePrices(false)
+        assertNull(PriceFetcher.fetchBtcPrice(FiatCurrency.EUR))
+        assertNull(PriceFetcher.fetchBtcPriceHistory(FiatCurrency.EUR, 30))
+        assertNull(PriceFetcher.fetchYahooQuote("VWCE.DE"))
+        assertEquals(emptyList<String>(), urls)
+    }
+
+    @Test
     fun `PRT-078 CoinGecko answers and mempool is not asked`() {
         serve({ """{"bitcoin":{"eur":61000.5}}""" }, { error("not expected") })
         assertEquals(61_000.5, PriceFetcher.fetchBtcPrice(FiatCurrency.EUR))

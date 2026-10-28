@@ -5,7 +5,7 @@
     <string name="privacy_show_amounts">Mostra importi</string>
     <string name="privacy_toggle_tooltip">%1$s (Ctrl+Maiusc+H)</string>
     <string name="privacy_section_title">Modalità privacy</string>
-    <string name="privacy_section_body">La modalità privacy maschera ogni importo dell’app: saldi, tabelle, assi e tooltip dei grafici, etichette del Sankey e della ciambella. Attivala con Ctrl+Maiusc+H o con l’icona a occhio nella barra di stato. Le conferme di pagamento mostrano sempre gli importi reali. Le esportazioni contengono comunque i valori reali e chiedono conferma prima di salvare.</string>
+    <string name="privacy_section_body">La modalità privacy maschera ogni importo dell’app: saldi, tabelle, assi e tooltip dei grafici, etichette del Sankey e della ciambella. Attivala con Ctrl+Maiusc+H o con l’icona a occhio in alto a destra. Le esportazioni contengono comunque i valori reali e chiedono conferma prima di salvare.</string>
     <string name="privacy_hidden_now">Nascondi gli importi ora</string>
     <string name="privacy_start_hidden">Avvia con i saldi nascosti</string>
     <string name="privacy_export_title">La modalità privacy è attiva</string>
@@ -66,4 +66,6 @@
     <string name="units_intro_got_it">Ho capito</string>
     <!-- /Privacy, Security Hub, accessibility, units onboarding -->
     <string name="security_action_wallets">Wallet</string>
+    <string name="hdr_clearnet_mainnet">Mainnet su clearnet</string>
+    <string name="hdr_clearnet_mainnet_help">I wallet mainnet si sincronizzano senza Tor: il server Esplora vede il tuo indirizzo IP insieme agli indirizzi che gli chiedi. Attiva Tor in Impostazioni → Rete.</string>
 </resources>

@@ -283,6 +283,49 @@ impl std::fmt::Debug for WatchHandle {
     }
 }
 
+impl WatchHandle {
+    /// Shared body of the two syncs. Audit M5 — the network phase runs
+    /// without the wallet mutex, so UI reads stay responsive during a slow
+    /// (Tor) scan. A transient server failure (timeout, 502 / 504) retries
+    /// the scan a couple of times instead of failing the wallet's sync.
+    fn sync_inner(
+        &self,
+        esplora_url: &str,
+        proxy_url: Option<&str>,
+        incremental: bool,
+    ) -> Result<(), WalletError> {
+        let mut attempt = 0u32;
+        let update = loop {
+            let pending = {
+                let guard = self.inner.lock().map_err(|_| WalletError::Storage {
+                    detail: "watch wallet mutex poisoned".into(),
+                })?;
+                if incremental {
+                    guard.start_esplora_scan_incremental()
+                } else {
+                    guard.start_esplora_scan()
+                }
+            };
+            match pending.fetch(esplora_url, proxy_url) {
+                Ok(update) => break update,
+                Err(e)
+                    if attempt < bhodl_wallet_onchain::ESPLORA_SYNC_RETRIES
+                        && bhodl_wallet_onchain::is_transient_esplora_error(&e) =>
+                {
+                    attempt += 1;
+                    std::thread::sleep(std::time::Duration::from_secs(u64::from(attempt) * 2));
+                }
+                Err(e) => return Err(e.into()),
+            }
+        };
+        let mut guard = self.inner.lock().map_err(|_| WalletError::Storage {
+            detail: "watch wallet mutex poisoned".into(),
+        })?;
+        guard.apply_esplora_scan(update)?;
+        Ok(())
+    }
+}
+
 #[uniffi::export]
 impl WatchHandle {
     /// Total wallet balance (confirmed + pending), in sat. Returns 0
@@ -314,20 +357,18 @@ impl WatchHandle {
         esplora_url: String,
         proxy_url: Option<String>,
     ) -> Result<(), WalletError> {
-        // Audit M5 — the network phase runs without the wallet mutex, so
-        // UI reads stay responsive during a slow (Tor) scan.
-        let pending = {
-            let guard = self.inner.lock().map_err(|_| WalletError::Storage {
-                detail: "watch wallet mutex poisoned".into(),
-            })?;
-            guard.start_esplora_scan()
-        };
-        let update = pending.fetch(&esplora_url, proxy_url.as_deref())?;
-        let mut guard = self.inner.lock().map_err(|_| WalletError::Storage {
-            detail: "watch wallet mutex poisoned".into(),
-        })?;
-        guard.apply_esplora_scan(update)?;
-        Ok(())
+        self.sync_inner(&esplora_url, proxy_url.as_deref(), false)
+    }
+
+    /// Incremental Esplora scan: the revealed scripts plus a short
+    /// lookahead (a few requests). For periodic refreshes; the full scan
+    /// stays for the first sync and manual refreshes.
+    pub fn sync_with_esplora_incremental(
+        &self,
+        esplora_url: String,
+        proxy_url: Option<String>,
+    ) -> Result<(), WalletError> {
+        self.sync_inner(&esplora_url, proxy_url.as_deref(), true)
     }
 
     /// Peek a receive address. For HD watch wallets, derives via BDK.
@@ -829,6 +870,64 @@ pub struct TrackingBillFfi {
     /// UI renders `amount_sat` via BtcUnit display preference.
     pub display_label: Option<String>,
     pub created_at_unix: i64,
+    /// Registry schema v7 — the amount varies; `amount_sat` is an
+    /// estimate. Defaulted so hand-built Kotlin fixtures keep compiling.
+    #[uniffi(default = false)]
+    pub variable: bool,
+    /// Registry schema v7 — what the last "paid" mark recorded.
+    #[uniffi(default = None)]
+    pub last_paid_amount_sat: Option<u64>,
+    /// Registry schema v8 — the budget category the bill's payments
+    /// count against.
+    #[uniffi(default = None)]
+    pub category: Option<String>,
+    /// Registry schema v8 — the transaction that paid it
+    /// (`<wallet_id>|<txid>`).
+    #[uniffi(default = None)]
+    pub paid_ref: Option<String>,
+}
+
+/// Registry schema v9 — a wallet transaction of a test-mode profile.
+#[derive(uniffi::Record)]
+pub struct DemoEventFfi {
+    pub wallet_id: String,
+    pub event_id: String,
+    /// `"in"` or `"out"`.
+    pub direction: String,
+    pub amount_sat: u64,
+    pub fee_sat: Option<u64>,
+    pub occurred_unix: i64,
+    /// `null` = unconfirmed.
+    pub block_height: Option<u32>,
+}
+
+/// Registry schema v8 — income or spending outside the wallets (cash,
+/// bank account, card). Its events carry `wallet_id` =
+/// `manual:<account_ref or "cash">` and id `manual-<id>`.
+#[derive(uniffi::Record)]
+pub struct ManualTxnFfi {
+    pub id: i64,
+    /// "in" or "out".
+    pub direction: String,
+    /// The value at the day's BTC rate, fixed when saved.
+    pub amount_sat: u64,
+    /// What the user typed, with its ISO 4217 currency; both null for
+    /// an amount entered in sat.
+    pub amount_fiat: Option<f64>,
+    pub currency: Option<String>,
+    pub occurred_unix: i64,
+    /// `asset:<id>`, `liability:<id>` or null (cash / other).
+    pub account_ref: Option<String>,
+    pub note: Option<String>,
+    pub created_at_unix: i64,
+    /// Schema v10 — the debt this entry pays, if any.
+    #[uniffi(default = None)]
+    pub liability_id: Option<i64>,
+    /// Schema v10 — "installment", "extra_term" (extra repayment, same
+    /// installment, shorter term) or "extra_payment" (same term, lower
+    /// installment).
+    #[uniffi(default = None)]
+    pub liability_payment: Option<String>,
 }
 
 /// Phase 4.5 — savings goal exposed across the FFI.
@@ -1072,6 +1171,26 @@ pub struct TrackingLiabilityFfi {
     pub kind: String,
     pub display_label: Option<String>,
     pub created_at_unix: i64,
+}
+
+/// The amortization plan of a mortgage or loan (see
+/// `RegistryHandle::loan_schedules`). Amounts in [`Self::currency`].
+#[derive(uniffi::Record)]
+pub struct LoanScheduleFfi {
+    pub liability_id: i64,
+    pub currency: String,
+    pub original_amount: f64,
+    pub start_unix: i64,
+    /// Principal outstanding today.
+    pub balance_now: f64,
+    /// The installment due next (lower after an "extra_payment").
+    pub payment_now: f64,
+    /// Null once repaid.
+    pub next_due_unix: Option<i64>,
+    /// Day of the last installment; null if the installment never
+    /// covers the interest.
+    pub payoff_unix: Option<i64>,
+    pub installments_left: u32,
 }
 
 /// Phase 5.1 — fiat-denominated investment exposed across the FFI.
@@ -2011,8 +2130,33 @@ impl RegistryHandle {
                 last_paid_unix: b.last_paid_unix,
                 display_label: b.display_label,
                 created_at_unix: b.created_at_unix,
+                variable: b.variable,
+                last_paid_amount_sat: b.last_paid_amount_sat,
+                category: b.category,
+                paid_ref: b.paid_ref,
             })
             .collect())
+    }
+
+    /// Registry schema v7 — mark a bill paid with the amount actually paid.
+    pub fn mark_bill_paid_amount(
+        &self,
+        id: i64,
+        unix_ts: i64,
+        amount_sat: u64,
+    ) -> Result<bool, WalletError> {
+        let guard = self.inner.lock().map_err(|_| WalletError::Storage {
+            detail: "registry mutex poisoned".into(),
+        })?;
+        Ok(guard.mark_bill_paid_amount(id, unix_ts, amount_sat)?)
+    }
+
+    /// Registry schema v7 — whether the bill's amount varies.
+    pub fn set_bill_variable(&self, id: i64, variable: bool) -> Result<bool, WalletError> {
+        let guard = self.inner.lock().map_err(|_| WalletError::Storage {
+            detail: "registry mutex poisoned".into(),
+        })?;
+        Ok(guard.set_bill_variable(id, variable)?)
     }
 
     pub fn delete_bill(&self, id: i64) -> Result<bool, WalletError> {
@@ -2020,6 +2164,240 @@ impl RegistryHandle {
             detail: "registry mutex poisoned".into(),
         })?;
         Ok(guard.delete_bill(id)?)
+    }
+
+    /// Registry schema v8 — the budget category of a bill.
+    pub fn set_bill_category(
+        &self,
+        id: i64,
+        category: Option<String>,
+    ) -> Result<bool, WalletError> {
+        Ok(self
+            .registry()?
+            .set_bill_category(id, category.as_deref())?)
+    }
+
+    /// Registry schema v8 — mark a bill paid by a transaction
+    /// (`paid_ref` = `<wallet_id>|<txid>`).
+    pub fn mark_bill_paid_by(
+        &self,
+        id: i64,
+        unix_ts: i64,
+        amount_sat: u64,
+        paid_ref: String,
+    ) -> Result<bool, WalletError> {
+        Ok(self
+            .registry()?
+            .mark_bill_paid_by(id, unix_ts, amount_sat, &paid_ref)?)
+    }
+
+    // ----------------------------------------------------------------
+    // Registry schema v8 — manual transactions
+    // ----------------------------------------------------------------
+
+    /// Record income ("in") or spending ("out") outside the wallets;
+    /// returns its id.
+    ///
+    /// Schema v10 — `liability_id` + `liability_payment` (both or
+    /// neither) make it a payment on that debt, from `account_ref`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn add_manual_txn(
+        &self,
+        direction: String,
+        amount_sat: u64,
+        amount_fiat: Option<f64>,
+        currency: Option<String>,
+        occurred_unix: i64,
+        account_ref: Option<String>,
+        note: Option<String>,
+        liability_id: Option<i64>,
+        liability_payment: Option<String>,
+    ) -> Result<i64, WalletError> {
+        let debt = match (liability_id, liability_payment.as_deref()) {
+            (Some(liability_id), Some(kind)) => {
+                Some(bhodl_wallet_onchain::DebtPayment { liability_id, kind })
+            }
+            (None, None) => None,
+            _ => {
+                return Err(WalletError::InvalidArgument {
+                    detail: "liability_id and liability_payment go together".into(),
+                });
+            }
+        };
+        Ok(self.registry()?.add_manual_txn_paying(
+            &direction,
+            amount_sat,
+            amount_fiat,
+            currency.as_deref(),
+            occurred_unix,
+            account_ref.as_deref(),
+            note.as_deref(),
+            debt,
+        )?)
+    }
+
+    /// Change a manual transaction (not its account, nor its debt;
+    /// `liability_payment` null keeps how it pays the debt).
+    #[allow(clippy::too_many_arguments)]
+    pub fn update_manual_txn(
+        &self,
+        id: i64,
+        direction: String,
+        amount_sat: u64,
+        amount_fiat: Option<f64>,
+        currency: Option<String>,
+        occurred_unix: i64,
+        note: Option<String>,
+        liability_payment: Option<String>,
+    ) -> Result<bool, WalletError> {
+        Ok(self.registry()?.update_manual_txn_paying(
+            id,
+            &direction,
+            amount_sat,
+            amount_fiat,
+            currency.as_deref(),
+            occurred_unix,
+            note.as_deref(),
+            liability_payment.as_deref(),
+        )?)
+    }
+
+    /// The amortization plan of every mortgage / loan whose details
+    /// carry its terms (original amount, start date, rate, installment
+    /// or end date), adjusted by the payments recorded on it, as of
+    /// `now_unix`. `currency` is the plan's currency when the details
+    /// do not name one.
+    pub fn loan_schedules(
+        &self,
+        currency: String,
+        now_unix: i64,
+    ) -> Result<Vec<LoanScheduleFfi>, WalletError> {
+        let schedules = bhodl_wallet_onchain::loan_schedule::load_loan_schedules(
+            &*self.registry()?,
+            &currency,
+        )?;
+        Ok(schedules
+            .into_iter()
+            .map(|(l, s)| LoanScheduleFfi {
+                liability_id: l.id,
+                currency: s.terms.currency.clone(),
+                original_amount: s.terms.principal,
+                start_unix: s.terms.start_unix,
+                balance_now: s.balance_at(now_unix),
+                payment_now: s.payment_at(now_unix),
+                next_due_unix: s.next_due_after(now_unix),
+                payoff_unix: s.payoff_unix,
+                installments_left: u32::try_from(
+                    s.due_dates.iter().filter(|&&d| d > now_unix).count(),
+                )
+                .unwrap_or(u32::MAX),
+            })
+            .collect())
+    }
+
+    /// Delete a manual transaction, its category and any bill link.
+    pub fn delete_manual_txn(&self, id: i64) -> Result<bool, WalletError> {
+        Ok(self.registry()?.delete_manual_txn(id)?)
+    }
+
+    /// Every manual transaction, newest first.
+    pub fn list_manual_txns(&self) -> Result<Vec<ManualTxnFfi>, WalletError> {
+        Ok(self
+            .registry()?
+            .list_manual_txns()?
+            .into_iter()
+            .map(|t| ManualTxnFfi {
+                id: t.id,
+                direction: t.direction,
+                amount_sat: t.amount_sat,
+                amount_fiat: t.amount_fiat,
+                currency: t.currency,
+                occurred_unix: t.occurred_unix,
+                account_ref: t.account_ref,
+                note: t.note,
+                created_at_unix: t.created_at_unix,
+                liability_id: t.liability_id,
+                liability_payment: t.liability_payment,
+            })
+            .collect())
+    }
+
+    // ----------------------------------------------------------------
+    // Registry schema v9 — test-mode profiles
+    // ----------------------------------------------------------------
+
+    /// Mark this registry as a test-mode profile (irreversible).
+    pub fn mark_demo_profile(&self) -> Result<(), WalletError> {
+        Ok(self.registry()?.mark_demo_profile()?)
+    }
+
+    /// True for a test-mode profile.
+    pub fn is_demo_profile(&self) -> Result<bool, WalletError> {
+        Ok(self.registry()?.is_demo_profile()?)
+    }
+
+    /// A free profile fact (e.g. the modules of a test profile).
+    pub fn profile_meta(&self, key: String) -> Result<Option<String>, WalletError> {
+        Ok(self.registry()?.profile_meta(&key)?)
+    }
+
+    /// Set or (with `null`) remove a profile fact.
+    pub fn set_profile_meta(&self, key: String, value: Option<String>) -> Result<(), WalletError> {
+        Ok(self.registry()?.set_profile_meta(&key, value.as_deref())?)
+    }
+
+    /// Add wallet transactions to a test-mode profile (refused on a
+    /// real registry).
+    pub fn add_demo_events(&self, events: Vec<DemoEventFfi>) -> Result<(), WalletError> {
+        let registry = self.registry()?;
+        for e in events {
+            registry.add_demo_event(&bhodl_wallet_onchain::DemoEvent {
+                wallet_id: e.wallet_id,
+                event_id: e.event_id,
+                direction: e.direction,
+                amount_sat: e.amount_sat,
+                fee_sat: e.fee_sat,
+                occurred_unix: e.occurred_unix,
+                block_height: e.block_height,
+            })?;
+        }
+        Ok(())
+    }
+
+    /// The test-mode wallet transactions, oldest first (empty on a real
+    /// registry).
+    pub fn list_demo_events(&self) -> Result<Vec<DemoEventFfi>, WalletError> {
+        Ok(self
+            .registry()?
+            .list_demo_events()?
+            .into_iter()
+            .map(|e| DemoEventFfi {
+                wallet_id: e.wallet_id,
+                event_id: e.event_id,
+                direction: e.direction,
+                amount_sat: e.amount_sat,
+                fee_sat: e.fee_sat,
+                occurred_unix: e.occurred_unix,
+                block_height: e.block_height,
+            })
+            .collect())
+    }
+
+    /// Write the BTC rates a test-mode profile carries (refused on a
+    /// real registry).
+    pub fn put_demo_rates(
+        &self,
+        currency: String,
+        points: Vec<RatePointFfi>,
+    ) -> Result<(), WalletError> {
+        let pairs: Vec<(i64, f64)> = points.iter().map(|p| (p.date_unix, p.rate)).collect();
+        Ok(self.registry()?.put_demo_rates(&currency, &pairs)?)
+    }
+
+    /// Move every date of a test-mode profile by `days` (refused on a
+    /// real registry); returns the rows touched.
+    pub fn shift_demo_dates(&self, days: i64) -> Result<u64, WalletError> {
+        Ok(self.registry()?.shift_demo_dates(days)?)
     }
 
     // ----------------------------------------------------------------
@@ -3113,6 +3491,7 @@ impl RegistryHandle {
         // Phase 7.10 — pre-load crypto event kinds with the same
         // strategy as categories: one bulk SELECT per refresh.
         let crypto_kind_dump = guard.dump_crypto_event_kinds()?;
+        let demo_events = guard.list_demo_events()?;
         drop(guard);
         let category_index: std::collections::HashMap<(String, String), String> = category_dump
             .into_iter()
@@ -3168,6 +3547,26 @@ impl RegistryHandle {
                     crypto_event_kind,
                 });
             }
+        }
+        // v9 — a test-mode profile's wallet transactions (none on a real one).
+        for e in demo_events {
+            let key = (e.wallet_id.clone(), e.event_id.clone());
+            out.push(PaymentEvent {
+                category: category_index.get(&key).cloned(),
+                crypto_event_kind: crypto_kind_index.get(&key).cloned(),
+                wallet_id: e.wallet_id,
+                txid_or_payment_id: e.event_id,
+                kind: PaymentKind::OnChain,
+                direction: if e.direction == "in" {
+                    PaymentDirection::Incoming
+                } else {
+                    PaymentDirection::Outgoing
+                },
+                amount_sat: e.amount_sat,
+                fee_sat: e.fee_sat,
+                timestamp_unix: u64::try_from(e.occurred_unix).ok(),
+                block_height: e.block_height,
+            });
         }
         Ok(out)
     }
@@ -3312,6 +3711,17 @@ fn remove_sqlite_files(path: &Path) {
 /// PIN recovery — `true` when a recovery code was created for the
 /// registry at `data_dir`. Read before unlocking, so the unlock screen
 /// knows which "forgot PIN" branch to offer.
+/// Settings → "Online prices". Off, every historical BTC rate comes from
+/// the local cache and no rate request leaves the device.
+static ONLINE_RATES: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+/// Turn the download of historical BTC rates on or off for every
+/// registry handle of this process.
+#[uniffi::export]
+pub fn set_online_rates(enabled: bool) {
+    ONLINE_RATES.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
 #[uniffi::export]
 pub fn registry_has_recovery_code(data_dir: String) -> bool {
     Path::new(&data_dir).join(RECOVERY_FILE_NAME).is_file()
@@ -3321,6 +3731,27 @@ pub fn registry_has_recovery_code(data_dir: String) -> bool {
 #[uniffi::export]
 pub fn generate_wallet_id() -> String {
     Uuid::new_v4().to_string()
+}
+
+/// Registry schema v8 — the wallet id a manual transaction's events and
+/// category carry, one per account (`account_ref` = `asset:<id>`,
+/// `liability:<id>` or null for cash / other).
+#[uniffi::export]
+pub fn manual_txn_wallet_id(account_ref: Option<String>) -> String {
+    bhodl_wallet_onchain::manual_txn_wallet_id(account_ref.as_deref()).to_string()
+}
+
+/// Registry schema v8 — the event id of manual transaction `id`.
+#[uniffi::export]
+pub fn manual_txn_event_id(id: i64) -> String {
+    bhodl_wallet_onchain::manual_txn_event_id(id)
+}
+
+/// Registry schema v8 — whether `wallet_id` is a manual account's
+/// synthetic id rather than a real wallet.
+#[uniffi::export]
+pub fn is_manual_wallet_id(wallet_id: String) -> bool {
+    wallet_id.starts_with(bhodl_wallet_onchain::MANUAL_WALLET_ID_PREFIX)
 }
 
 /// Extract the account-level xpub from any BDK-form descriptor string.
@@ -4612,9 +5043,19 @@ impl RegistryHandle {
     /// already-derived key (no Argon2, no PIN), routing fetches through
     /// `proxy_url` when set. A separate SQLCipher connection, so rate
     /// fetches never contend with the registry mutex.
+    ///
+    /// A test-mode profile answers from its own rates only: nothing is
+    /// ever fetched for it. Neither is anything with online rates off
+    /// ([`set_online_rates`]).
     fn rate_repo(&self, proxy_url: Option<&str>) -> Result<BtcRateRepo, WalletError> {
         let db_path = self.data_dir.join(REGISTRY_FILE_NAME);
-        Ok(BtcRateRepo::open(&db_path, &self.device_key)?.with_proxy(proxy_url)?)
+        let repo = BtcRateRepo::open(&db_path, &self.device_key)?.with_proxy(proxy_url)?;
+        let online = ONLINE_RATES.load(std::sync::atomic::Ordering::Relaxed);
+        Ok(if !online || self.registry()?.is_demo_profile()? {
+            repo.offline()
+        } else {
+            repo
+        })
     }
 
     /// A second registry connection for long-running jobs (backfill,

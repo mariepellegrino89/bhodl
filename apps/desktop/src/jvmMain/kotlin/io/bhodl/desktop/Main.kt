@@ -87,6 +87,11 @@ fun main() {
         File(WalletPaths.defaultDataDir(), PinAttemptTracker.PIN_FAILURES_FILE_NAME),
     )
 
+    // Test mode — `BHODL_DEMO=1` starts in test mode on the project test
+    // data, `BHODL_DEMO=<file>` on that `.bhodl-test` file. App() then
+    // finds the registry open and starts on the tracker.
+    startTestModeIfRequested(System.getenv("BHODL_DEMO"))
+
     val windowState = WindowState(
         // UX review 2026-10 (item 17) — the dense desktop layouts (rail +
         // full-width wallet workspace + tracker tables) open at a
@@ -125,26 +130,10 @@ fun main() {
     // straight to the neon palette regardless of useDarkTheme.
     val neonMode = themeMode == ThemeMode.Neon
     val useDarkTheme = themeMode.usesDarkPalette(systemDark)
-    // Compose-resources reads `Locale.getDefault()` per stringResource
-    // lookup. Override it as a JVM-wide side effect when the user
-    // picks a specific language in Settings.
-    //
-    // We deliberately do NOT wrap the subtree in `key(localeOverride) { App() }`
-    // any more (smoke 2026-05-12, finding #11 follow-up): the `key`
-    // forces a full NavHost remount, which (a) discards the
-    // user's current location and (b) re-routes through the boot
-    // guard — landing them on Dashboard regardless of where they were
-    // when they flipped languages. With the `key` removed, the user
-    // STAYS on the screen they were on; the strings on that screen
-    // are stale until the next recomposition (a nav, a state change),
-    // but the trade-off is far less disruptive than a forced
-    // remount.
-    val localeOverride by SettingsStore.localeOverride
-    LaunchedEffect(localeOverride) {
-        if (localeOverride != null) {
-            Locale.setDefault(Locale.forLanguageTag(localeOverride!!))
-        }
-    }
+    // Language: compose-resources reads `Locale.getDefault()`, which
+    // SettingsStore.setLocaleOverride sets before the state change; App's
+    // key(localeOverride) then rebuilds the screens (back stack kept) in
+    // the new language.
     // Phase 5.0 — boot the BTC/fiat price cache once per process.
     // The PriceCache loop respects SettingsStore.fiatCurrency and is
     // idempotent on repeated start() calls.
@@ -179,6 +168,13 @@ fun main() {
     // loop tick. Keyed on the flag, so it fires on the off→on transition
     // (and harmlessly on first composition / when the registry is still
     // locked, where refreshInvestmentPrices early-returns).
+    // Online prices off: the Rust rate cache stops fetching too; back on,
+    // prices refresh at once.
+    val onlinePrices by SettingsStore.onlinePrices
+    LaunchedEffect(onlinePrices) {
+        io.bhodl.ffi.setOnlineRates(onlinePrices)
+        if (onlinePrices) PriceCache.refreshNow()
+    }
     val autoFetchInvestments by SettingsStore.autoFetchInvestmentPrices
     LaunchedEffect(autoFetchInvestments) {
         if (autoFetchInvestments) {
@@ -211,5 +207,17 @@ fun main() {
             }
         }
     }
+    }
+}
+
+/** `BHODL_DEMO`: "1" = project test data, a path = that test-data file. */
+internal fun startTestModeIfRequested(value: String?) {
+    val v = value?.trim().orEmpty()
+    if (v.isEmpty() || v == "0") return
+    kotlinx.coroutines.runBlocking {
+        runCatching {
+            io.bhodl.desktop.data.TestMode.enter()
+            if (v != "1") io.bhodl.desktop.data.TestMode.importFrom(File(v))
+        }.onFailure { System.err.println("[bhodl] BHODL_DEMO: ${it.message}") }
     }
 }

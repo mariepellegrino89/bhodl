@@ -105,12 +105,12 @@ class UcPortfolioPriceCacheTest {
     fun `GAP-012 a thrown fetch error never reaches the UI raw`() = runBlocking {
         PriceCache.seedForTest(55_000.0)
         PriceCache.btcPriceSource = {
-            throw java.io.IOException("connect to https://api.coingecko.com/x failed at C:\\Users\\mario\\x")
+            throw java.io.IOException("connect to https://api.coingecko.com/x failed at C:\\Users\\alice\\x")
         }
         PriceCache.refreshNow()
         val err = PriceCache.lastError.value
         assertEquals(PriceCache.NO_PRICE_ERROR, err)
-        assertFalse(err!!.contains("coingecko") || err.contains("mario"))
+        assertFalse(err!!.contains("coingecko") || err.contains("alice"))
         assertEquals(55_000.0, PriceCache.price.value)
     }
 

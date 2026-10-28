@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="gls_counts">%1$d obiettivi · %2$d in linea · %3$d in ritardo · %4$d raggiunti</string>
+    <string name="gls_filter_all">Tutti</string>
+    <string name="gls_filter_savings">Accumulo</string>
+    <string name="gls_filter_sinking">Spese future</string>
+    <string name="gls_filter_allocation">Allocazione</string>
+    <string name="gls_current">Accumulato</string>
+    <string name="gls_target">Obiettivo</string>
+    <string name="gls_monthly">Al mese serve</string>
+    <string name="gls_deadline">Scadenza</string>
+    <string name="gls_allocation">Quota del netto</string>
+    <string name="gls_kind_savings">Accumulo</string>
+    <string name="gls_kind_sinking">Spesa futura</string>
+    <string name="gls_kind_allocation">Allocazione · % del netto</string>
+    <string name="gls_reached">RAGGIUNTO</string>
+    <string name="gls_h_monthly">Per una spesa futura: quanto manca diviso per i mesi che restano alla scadenza.</string>
+    <string name="gls_h_allocation">La quota del patrimonio netto che vuoi tenere; l’etichetta indica quanto la quota attuale se ne discosta, in punti percentuali.</string>
+</resources>

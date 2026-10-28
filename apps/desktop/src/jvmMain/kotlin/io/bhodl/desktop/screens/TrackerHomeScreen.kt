@@ -15,6 +15,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import io.bhodl.desktop.AppClock
 import io.bhodl.shared.resources.Res
 import io.bhodl.shared.resources.tracker_add_wallet
 import io.bhodl.shared.resources.tracker_refresh_balances
@@ -90,6 +91,11 @@ internal fun TrackerHomeSection(
     onAddWatch: () -> Unit,
     /** The monthly-review banner's "Review" action (opens Reports). */
     onOpenReports: () -> Unit = {},
+    /** Home redesign 2026-10 — targets of the composition card and of
+     *  the "to do" rows. */
+    onOpenPortfolio: () -> Unit = {},
+    onOpenBudget: () -> Unit = {},
+    onOpenTransactions: () -> Unit = {},
     // Injection seam for Compose UI tests — lets a test point the
     // load path at a tempdir rather than the production data dir.
     // (No longer read since the NW history goes through the open
@@ -158,7 +164,7 @@ internal fun TrackerHomeSection(
         computeFinanceKpis(
             events = trackedEvents,
             totalAssetSat = netWorth.assetsSat,
-            nowUnix = System.currentTimeMillis() / 1000L,
+            nowUnix = AppClock.nowUnix(),
             investments = investments,
             lotsByInvestment = investmentLots,
             manualAssets = manualAssets,
@@ -174,7 +180,7 @@ internal fun TrackerHomeSection(
             bills = bills,
             recurring = recurringCandidates,
             startBalanceSat = walletSat,
-            nowUnix = System.currentTimeMillis() / 1000L,
+            nowUnix = AppClock.nowUnix(),
         )
     }
 
@@ -248,7 +254,7 @@ internal fun TrackerHomeSection(
             nwHistoryReconstructed = emptyList()
             return@LaunchedEffect
         }
-        val nowUnix = System.currentTimeMillis() / 1000L
+        val nowUnix = AppClock.nowUnix()
         val fromUnix = nowUnix - period.days.toLong() * 86_400L
         // Excluded wallets stay out of the history like they stay out of the hero.
         val eventLite = netWorthHistoryEvents(events, excludedWalletIds)
@@ -279,47 +285,94 @@ internal fun TrackerHomeSection(
             // The sync / cache error is shown once, by the TrackingScreen
             // shell above every section; repeating it here doubled it.
 
-            // Phase 7.2 — tracker-stale banner. The 2-min background
-            // poll usually keeps lastSyncUnix fresh; the banner shows
-            // up when the user reopens after the app sat unloaded /
-            // when the sync repeatedly fails. Tap-to-refresh shortcut
-            // so the user doesn't have to scroll to the bottom-of-page
-            // Refresh action.
-            TrackerStaleBanner(
-                lastSyncUnix = lastSyncUnix,
-                refreshing = refreshing,
-                onRefresh = { scope.launch { TrackerCache.refresh(syncEsplora = true) } },
-            )
-
-            // Phase 7.6 — first days of the month: nudge to review it.
-            if (hasLoadedOnce && trackedEvents.isNotEmpty()) {
-                MonthlyReviewBanner(onReview = onOpenReports)
-            }
-
-            // B5 — the fiat line is net worth × spot rate; the tail is the
-            // reconstructed history's fiat change (hidden when absent).
+            // Home redesign 2026-10 (proposal A) — the sync state is shown
+            // once, by the shell's DataStateStrip; the review and stale
+            // nudges live in the "to do" card next to the hero.
             val fiatFigures = heroFiat(
                 netWorthSat = netWorthSat,
                 spotRate = if (fiatCurrency == io.bhodl.desktop.prices.FiatCurrency.NONE) null else liveBtcRate,
                 nwHistory = nwHistoryReconstructed,
             )
-            // B12 — no hero-local period chips: the global selector
-            // above the section is the only one, and drives this chart.
-            NetWorthHero(
-                currentSat = netWorthSat,
-                historySatFiat = historyFiat,
-                fiatCurrency = fiatCurrency,
-                period = period,
-                onPeriodChange = { globalPeriod = it.toTrackingPeriod() },
-                modifier = Modifier.fillMaxWidth(),
-                nwHistory = nwHistoryReconstructed,
-                currentFiat = fiatFigures.nowFiat,
-                periodDeltaFiat = fiatFigures.periodDeltaFiat,
-            )
+            val lastReviewDismissed by SettingsStore.lastMonthlyReviewDismissedUnix
+            val nowUnix = AppClock.nowUnix()
+            val periodEvents = remember(trackedEvents, globalPeriod) { filterByPeriod(trackedEvents, globalPeriod, nowUnix) }
+            val todos = remember(trackedEvents, bills, recurringCandidates, manualAssets, lastReviewDismissed, periodEvents, hasLoadedOnce) {
+                homeTodos(
+                    nowUnix = nowUnix,
+                    reviewDue = hasLoadedOnce && trackedEvents.isNotEmpty() &&
+                        io.bhodl.desktop.domain.shouldShowMonthlyReviewBanner(nowUnix, lastReviewDismissed),
+                    bills = bills,
+                    recurringCount = recurringCandidates.size,
+                    periodEvents = periodEvents,
+                    manualAssets = manualAssets,
+                )
+            }
+            val hero: @Composable (Modifier) -> Unit = { m ->
+                // B12 — no hero-local period chips: the global selector
+                // above the section is the only one, and drives this chart.
+                NetWorthHero(
+                    currentSat = netWorthSat,
+                    historySatFiat = historyFiat,
+                    fiatCurrency = fiatCurrency,
+                    period = period,
+                    onPeriodChange = { globalPeriod = it.toTrackingPeriod() },
+                    modifier = m,
+                    nwHistory = nwHistoryReconstructed,
+                    currentFiat = fiatFigures.nowFiat,
+                    periodDeltaFiat = fiatFigures.periodDeltaFiat,
+                )
+            }
+            val rail: @Composable (Modifier) -> Unit = { m ->
+                Column(modifier = m, verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    HomeCompositionCard(netWorth = netWorth, onOpenPortfolio = onOpenPortfolio, modifier = Modifier.fillMaxWidth())
+                    HomeTodoCard(
+                        todos = todos,
+                        onAction = { t ->
+                            when (t.kind) {
+                                HomeTodoKind.REVIEW -> {
+                                    SettingsStore.markMonthlyReviewDismissed(nowUnix)
+                                    onOpenReports()
+                                }
+                                HomeTodoKind.BILL_DUE, HomeTodoKind.RECURRING -> onOpenBudget()
+                                HomeTodoKind.UNCATEGORIZED -> onOpenTransactions()
+                                HomeTodoKind.STALE_ASSET -> onOpenPortfolio()
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+            androidx.compose.foundation.layout.BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                if (maxWidth < 1000.dp) {
+                    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        hero(Modifier.fillMaxWidth())
+                        rail(Modifier.fillMaxWidth())
+                    }
+                } else {
+                    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                        hero(Modifier.weight(0.64f))
+                        rail(Modifier.weight(0.36f))
+                    }
+                }
+            }
 
             if (hasLoadedOnce) {
-                KpiStripV7(kpis = kpis)
-                CashFlowForecastCard(series = forecast, modifier = Modifier.fillMaxWidth())
+                // One KPI strip: the period's income / expenses, then the
+                // savings rate, runway, FIRE and opportunity cost.
+                KpiStripV7(kpis = kpis, showBurn = false, period = periodFlows(periodEvents))
+                androidx.compose.foundation.layout.BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                    if (maxWidth < 1000.dp) {
+                        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                            InflowOutflowChart(events = trackedEvents)
+                            CashFlowForecastCard(series = forecast, modifier = Modifier.fillMaxWidth())
+                        }
+                    } else {
+                        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                            Box(Modifier.weight(1f)) { InflowOutflowChart(events = trackedEvents) }
+                            CashFlowForecastCard(series = forecast, modifier = Modifier.weight(1f))
+                        }
+                    }
+                }
             }
 
             // Wallets list. B13 — refresh and "add wallet" are header
@@ -331,7 +384,7 @@ internal fun TrackerHomeSection(
             ) {
                 WalletsHeader(
                     refreshing = refreshing,
-                    onRefresh = { scope.launch { TrackerCache.refresh(syncEsplora = true) } },
+                    onRefresh = { io.bhodl.desktop.AppScope.io.launch(kotlinx.coroutines.Dispatchers.Main) { TrackerCache.refresh(syncEsplora = true) } },
                     onAddWatch = onAddWatch,
                 )
                 WalletListTable(
@@ -435,54 +488,8 @@ public object TrackerHomeTags {
     public const val OPEN_TRACKING: String = "tracker-home.open-tracking"
     public const val ADD_WATCH: String = "tracker-home.add-watch"
     public const val REFRESH: String = "tracker-home.refresh"
-    public const val STALE_BANNER: String = "tracker-home.stale-banner"
     public const val MODULES: String = "tracker-home.modules"
     public const val MODULES_BANNER: String = "tracker-home.modules-banner"
-}
-
-/**
- * Phase 7.2 — slim banner above the hero that surfaces when the
- * Tracker data hasn't been refreshed in a while. Three states:
- *  - **never synced** (lastSyncUnix null): banner is hidden — the
- *    "Loading tracker…" text under the header rail covers this
- *    initial gap.
- *  - **fresh** (within [io.bhodl.desktop.ui.STALE_THRESHOLD_MINUTES]):
- *    banner is hidden so the dashboard doesn't carry visual noise
- *    when everything is normal.
- *  - **stale**: muted amber chip "Tracker data Xm ago — tap to
- *    refresh".
- *  - **refreshing**: collapses into "Refreshing…" so the user sees
- *    the action is in flight after the tap.
- */
-@Composable
-private fun TrackerStaleBanner(
-    lastSyncUnix: Long?,
-    refreshing: Boolean,
-    onRefresh: () -> Unit,
-) {
-    val nowSec = System.currentTimeMillis() / 1000L
-    val stale = io.bhodl.desktop.ui.isStale(lastSyncUnix, nowSec)
-    if (!stale && !refreshing) return
-    if (lastSyncUnix == null) return
-    val ageLabel = io.bhodl.desktop.ui.relativeTimeAgo(lastSyncUnix, nowSec)
-    val text = if (refreshing) stringResource(Res.string.trk_home_refreshing)
-        else stringResource(Res.string.trk_home_stale, ageLabel)
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(BhodlTheme.shapes.pill)
-            .background(BhodlTheme.colors.financialPending.copy(alpha = 0.18f))
-            .clickable(enabled = !refreshing, onClick = onRefresh)
-            .padding(horizontal = BhodlTheme.spacing.md, vertical = BhodlTheme.spacing.sm)
-            .testTag(TrackerHomeTags.STALE_BANNER),
-        contentAlignment = Alignment.CenterStart,
-    ) {
-        Text(
-            text = text,
-            style = BhodlTheme.typography.labelMedium,
-            color = BhodlTheme.colors.financialPending,
-        )
-    }
 }
 
 /**

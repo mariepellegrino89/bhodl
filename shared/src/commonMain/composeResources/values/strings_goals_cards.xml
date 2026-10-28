@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="gls_counts">%1$d goals · %2$d on track · %3$d behind · %4$d reached</string>
+    <string name="gls_filter_all">All</string>
+    <string name="gls_filter_savings">Saving</string>
+    <string name="gls_filter_sinking">Future expenses</string>
+    <string name="gls_filter_allocation">Allocation</string>
+    <string name="gls_current">Saved</string>
+    <string name="gls_target">Target</string>
+    <string name="gls_monthly">Needed per month</string>
+    <string name="gls_deadline">Deadline</string>
+    <string name="gls_allocation">Share of net worth</string>
+    <string name="gls_kind_savings">Saving</string>
+    <string name="gls_kind_sinking">Future expense</string>
+    <string name="gls_kind_allocation">Allocation · % of net worth</string>
+    <string name="gls_reached">REACHED</string>
+    <string name="gls_h_monthly">For a future expense: what is still missing divided by the months left to the deadline.</string>
+    <string name="gls_h_allocation">Your target share of the net worth; the chip shows how far the current share is from it, in percentage points.</string>
+</resources>

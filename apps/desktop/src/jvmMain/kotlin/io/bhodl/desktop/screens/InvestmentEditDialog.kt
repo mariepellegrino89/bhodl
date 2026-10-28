@@ -1,5 +1,6 @@
 package io.bhodl.desktop.screens
 
+import io.bhodl.desktop.AppClock
 import io.bhodl.desktop.ui.money.filterDecimalChars
 import io.bhodl.desktop.ui.money.formatDecimalInput
 import io.bhodl.desktop.ui.money.parseDecimalInput
@@ -147,7 +148,7 @@ internal fun InvestmentEditDialog(
     // editing pre-fills the stored purchase_unix. Read-only for multi-lot
     // (each lot carries its own date — edit them via the row expansion).
     var purchaseUnix by remember(editing?.id) {
-        mutableStateOf(editing?.purchaseUnix ?: (System.currentTimeMillis() / 1000L))
+        mutableStateOf(editing?.purchaseUnix ?: AppClock.nowUnix())
     }
     // Locale-aware parse (it_IT "350.000" = 350000) — see parseDecimalInput.
     val quantity: Double? = parseDecimalInput(quantityStr)

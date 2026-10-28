@@ -188,9 +188,22 @@ public object SettingsStore {
     private val _localeOverride = mutableStateOf<String?>(null)
     public val localeOverride: State<String?> get() = _localeOverride
 
+    /** The OS locale, captured before any override: "follow the system" goes back to it. */
+    private val systemLocale: java.util.Locale = java.util.Locale.getDefault()
+
     public fun setLocaleOverride(tag: String?) {
-        _localeOverride.value = tag?.trim()?.takeIf { it.isNotBlank() }
+        val clean = tag?.trim()?.takeIf { it.isNotBlank() }
+        // The JVM locale changes BEFORE the state: the screen that the
+        // state change rebuilds (App's key(localeOverride)) then reads
+        // the new language. Applied later (a LaunchedEffect) it rebuilt
+        // with the old strings.
+        applyLocale(clean)
+        _localeOverride.value = clean
         persistIfEnabled()
+    }
+
+    private fun applyLocale(tag: String?) {
+        java.util.Locale.setDefault(tag?.let { java.util.Locale.forLanguageTag(it) } ?: systemLocale)
     }
 
     private val _torEnabled = mutableStateOf(false)
@@ -325,6 +338,18 @@ public object SettingsStore {
         persistIfEnabled()
     }
 
+    // Online prices: BTC spot and history (CoinGecko, mempool.space,
+    // blockchain.info, Frankfurter) and investment quotes (Yahoo).
+    // Off, no price request leaves the device: amounts in fiat use the
+    // rates already cached, or show no rate.
+    private val _onlinePrices = mutableStateOf(true)
+    public val onlinePrices: State<Boolean> get() = _onlinePrices
+
+    public fun setOnlinePrices(enabled: Boolean) {
+        _onlinePrices.value = enabled
+        persistIfEnabled()
+    }
+
     // Phase 3.14 — wallet IDs the user has chosen to EXCLUDE from
     // cross-wallet totals and from the Tracking dashboard
     // aggregations. The wallet still appears in the History → Wallets
@@ -353,6 +378,33 @@ public object SettingsStore {
      *  installs the persistence hook only AFTER rehydrate). */
     internal fun replaceExcludedWalletIds(ids: Set<String>) {
         _excludedWalletIds.value = ids
+    }
+
+    // Redesign 2026-10 — category colours the user picked (lower-case
+    // name → palette slot) and the categories they added. A category
+    // with no entry takes its classic colour (see CategoryCatalog).
+    private val _categoryColors = mutableStateOf<Map<String, Int>>(emptyMap())
+    public val categoryColors: State<Map<String, Int>> get() = _categoryColors
+    private val _customCategories = mutableStateOf<List<String>>(emptyList())
+    public val customCategories: State<List<String>> get() = _customCategories
+
+    public fun setCategoryColor(category: String, colorIndex: Int) {
+        val key = category.trim().lowercase().takeIf { it.isNotEmpty() } ?: return
+        _categoryColors.value = _categoryColors.value + (key to colorIndex)
+        profileSettingsChanged()
+    }
+
+    public fun addCustomCategory(category: String) {
+        val name = category.trim().takeIf { it.isNotEmpty() } ?: return
+        if (_customCategories.value.any { it.equals(name, ignoreCase = true) }) return
+        _customCategories.value = _customCategories.value + name
+        profileSettingsChanged()
+    }
+
+    /** Rehydrate without a write-through (see [replaceExcludedWalletIds]). */
+    internal fun replaceCategories(colors: Map<String, Int>, custom: List<String>) {
+        _categoryColors.value = colors
+        _customCategories.value = custom
     }
 
     // Phase 7.2 — privacy auto-hide; UX review 2026-10 (item 13) — now
@@ -533,27 +585,98 @@ public object SettingsStore {
 
     private val _moduleInvestments = mutableStateOf(false)
     public val moduleInvestments: State<Boolean> get() = _moduleInvestments
-    public fun setModuleInvestments(v: Boolean) { _moduleInvestments.value = v; persistIfEnabled() }
+    public fun setModuleInvestments(v: Boolean) { _moduleInvestments.value = v; profileSettingsChanged() }
 
     private val _moduleBudgetBills = mutableStateOf(false)
     public val moduleBudgetBills: State<Boolean> get() = _moduleBudgetBills
-    public fun setModuleBudgetBills(v: Boolean) { _moduleBudgetBills.value = v; persistIfEnabled() }
+    public fun setModuleBudgetBills(v: Boolean) { _moduleBudgetBills.value = v; profileSettingsChanged() }
 
     private val _moduleSavingsGoals = mutableStateOf(false)
     public val moduleSavingsGoals: State<Boolean> get() = _moduleSavingsGoals
-    public fun setModuleSavingsGoals(v: Boolean) { _moduleSavingsGoals.value = v; persistIfEnabled() }
+    public fun setModuleSavingsGoals(v: Boolean) { _moduleSavingsGoals.value = v; profileSettingsChanged() }
 
     private val _moduleManualAssets = mutableStateOf(false)
     public val moduleManualAssets: State<Boolean> get() = _moduleManualAssets
-    public fun setModuleManualAssets(v: Boolean) { _moduleManualAssets.value = v; persistIfEnabled() }
+    public fun setModuleManualAssets(v: Boolean) { _moduleManualAssets.value = v; profileSettingsChanged() }
 
     private val _moduleAnalyticsLabs = mutableStateOf(false)
     public val moduleAnalyticsLabs: State<Boolean> get() = _moduleAnalyticsLabs
-    public fun setModuleAnalyticsLabs(v: Boolean) { _moduleAnalyticsLabs.value = v; persistIfEnabled() }
+    public fun setModuleAnalyticsLabs(v: Boolean) { _moduleAnalyticsLabs.value = v; profileSettingsChanged() }
 
     private val _modulesBannerDismissed = mutableStateOf(false)
     public val modulesBannerDismissed: State<Boolean> get() = _modulesBannerDismissed
     public fun setModulesBannerDismissed(v: Boolean) { _modulesBannerDismissed.value = v; persistIfEnabled() }
+
+    /** The five module switches together. */
+    public data class ModuleFlags(
+        val investments: Boolean,
+        val budgetBills: Boolean,
+        val savingsGoals: Boolean,
+        val manualAssets: Boolean,
+        val analyticsLabs: Boolean,
+    )
+
+    public fun moduleFlags(): ModuleFlags = ModuleFlags(
+        _moduleInvestments.value, _moduleBudgetBills.value, _moduleSavingsGoals.value,
+        _moduleManualAssets.value, _moduleAnalyticsLabs.value,
+    )
+
+    private fun applyModuleFlags(f: ModuleFlags) {
+        _moduleInvestments.value = f.investments
+        _moduleBudgetBills.value = f.budgetBills
+        _moduleSavingsGoals.value = f.savingsGoals
+        _moduleManualAssets.value = f.manualAssets
+        _moduleAnalyticsLabs.value = f.analyticsLabs
+    }
+
+    /**
+     * What belongs to a profile rather than to the app: the module
+     * switches and the categories added or recoloured. A test profile
+     * carries its own (see [beginProfileSettings]).
+     */
+    public data class ProfileSettings(
+        val modules: ModuleFlags,
+        val categoryColors: Map<String, Int> = emptyMap(),
+        val customCategories: List<String> = emptyList(),
+    )
+
+    public fun profileSettings(): ProfileSettings =
+        ProfileSettings(moduleFlags(), _categoryColors.value, _customCategories.value)
+
+    private fun applyProfileSettings(p: ProfileSettings) {
+        applyModuleFlags(p.modules)
+        _categoryColors.value = p.categoryColors
+        _customCategories.value = p.customCategories
+    }
+
+    // Test mode — while a test profile is open its settings are shown
+    // and changes go back to it; settings.json keeps the real profile's.
+    private var realProfile: ProfileSettings? = null
+    private var profileSink: ((ProfileSettings) -> Unit)? = null
+
+    /** What settings.json stores: the real profile's, also in test mode. */
+    internal fun persistedProfileSettings(): ProfileSettings = realProfile ?: profileSettings()
+
+    /** Show [settings] (a test profile's); changes go to [sink], not to settings.json. */
+    public fun beginProfileSettings(settings: ProfileSettings, sink: (ProfileSettings) -> Unit) {
+        if (realProfile == null) realProfile = profileSettings()
+        profileSink = null
+        applyProfileSettings(settings)
+        profileSink = sink
+    }
+
+    /** Back to the real profile's settings. */
+    public fun endProfileSettings() {
+        val real = realProfile ?: return
+        profileSink = null
+        realProfile = null
+        applyProfileSettings(real)
+    }
+
+    private fun profileSettingsChanged() {
+        val sink = profileSink
+        if (sink != null) sink(profileSettings()) else persistIfEnabled()
+    }
 
     public val anyModuleEnabled: Boolean
         get() = _moduleInvestments.value || _moduleBudgetBills.value ||
@@ -564,9 +687,14 @@ public object SettingsStore {
      * future) by a "Reset to defaults" button in Settings.
      */
     public fun reset() {
+        realProfile = null
+        profileSink = null
         _themeMode.value = ThemeMode.System
+        _categoryColors.value = emptyMap()
+        _customCategories.value = emptyList()
         _esploraUrls.value = emptyMap()
         _localeOverride.value = null
+        applyLocale(null)
         _torEnabled.value = false
         _torProxyUrl.value = DEFAULT_TOR_PROXY_URL
         _colorConvention.value = ColorConvention.WESTERN
@@ -575,6 +703,7 @@ public object SettingsStore {
         _excludedWalletIds.value = emptySet()
         _fiatCurrency.value = DEFAULT_FIAT_CURRENCY
         _autoFetchInvestmentPrices.value = false
+        _onlinePrices.value = true
         _privacyAutoHide.value = false
         _balancesHidden.value = false
         _labelsExportedAt.value = emptyMap()

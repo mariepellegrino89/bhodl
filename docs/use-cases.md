@@ -16,6 +16,7 @@ Aree:
 - [D. Portafoglio e patrimonio](#d) — `PRT-*`
 - [E. Revisione: casi aggiunti](#e) — `GAP-*`
 - [F. Test aggiunti per area](#f)
+- [G. Funzioni dal 25 al 26 ottobre](#g) — `NEW-*`
 
 ## Stato dopo la campagna di test (2026-10-24)
 
@@ -760,7 +761,7 @@ Legenda stato: **COVERED** = happy path + varianti principali verificate da test
 |---|---|---|---|---|
 | TRK-110 | KPI di periodo: entrate, uscite, netto, numero tx, saldo; trasferimenti interni esclusi | screens/TrackingAggregations.kt:computeKpis | screens/TrackingDashboardAggregationsTest::computeKpis splits inflow and outflow ignoring self-transfer | **COVERED** (test in §F; prima: PARTIAL) |
 | TRK-111 | Saldo confermato vs in attesa (somma netta degli eventi in mempool, limitato a 0) | screens/TrackingAggregations.kt:splitBalance | — | **COVERED** (test in §F; prima: UNCOVERED) |
-| TRK-112 | Riga KPI: savings rate inline ("—" senza entrate), sottotitolo "X confermato · Y in attesa", confronto col periodo precedente | screens/TrackingKpi.kt:KpiRow | — | **COVERED** (test in §F; prima: UNCOVERED) |
+| TRK-112 | Riga KPI: savings rate inline ("—" senza entrate), sottotitolo "X confermato · Y in attesa", confronto col periodo precedente | screens/TrackingKpi.kt:KpiRow | — | RIMOSSO (redesign Home 2026-10: una sola striscia KPI e la card Composizione) |
 | TRK-113 | Etichetta delta rispetto al periodo precedente | screens/TrackingAggregations.kt:deltaLabel | — | **COVERED** (test in §F; prima: UNCOVERED) |
 | TRK-114 | Filtro per periodo (D7/D30/D90/Y1/ALL), eventi in mempool sempre inclusi | screens/TrackingAggregations.kt:periodLowerBound / filterByPeriod | screens/TrackingDashboardAggregationsTest::periodLowerBound — ALL returns null; ::periodLowerBound — D7 is now minus 7 days; ::filterByPeriod keeps mempool events regardless of period | COVERED |
 
@@ -856,7 +857,7 @@ Legenda stato: **COVERED** = happy path + varianti principali verificate da test
 | ID | Caso d'uso (italiano, una riga) | Codice (file:funzione) | Test esistenti (file::nome test) | Stato |
 |---|---|---|---|---|
 | TRK-167 | Al primo montaggio la home avvia il cold load; "Loading…" solo prima del primo caricamento durante il refresh | screens/TrackerHomeScreen.kt:TrackerHomeSection | — | **PARTIAL** (test in §F; prima: UNCOVERED) |
-| TRK-168 | Banner wallet stale con pulsante refresh e messaggio d'errore della cache | screens/TrackerHomeScreen.kt:TrackerStaleBanner | — | **COVERED** (test in §F; prima: UNCOVERED) |
+| TRK-168 | Banner wallet stale con pulsante refresh e messaggio d'errore della cache | screens/TrackerHomeScreen.kt:TrackerStaleBanner | — | COVERED (redesign Home 2026-10: niente banner, la sync sta nella DataStateStrip; card "Da fare") |
 | TRK-169 | Eventi ridotti a PaymentEventLite per la ricostruzione storica del net worth | screens/TrackerHomeScreen.kt:buildPaymentEventLite | — | **COVERED** (test in §F; prima: UNCOVERED) |
 | TRK-170 | Intestazione WALLETS: refresh con tooltip (disabilitato durante il refresh), "+ Add" | screens/TrackerHomeScreen.kt:WalletsHeader | — | **COVERED** (test in §F; prima: UNCOVERED) |
 | TRK-171 | Conversione periodo tracker ↔ periodo net worth | screens/TrackerHomeScreen.kt:toNetWorthPeriod / toTrackingPeriod | — | **COVERED** (test in §F; prima: UNCOVERED) |
@@ -1062,7 +1063,7 @@ Stato: COVERED = logica + persistenza testate in automatico; PARTIAL = parte tes
 | PRT-119 | Variazione per riga sul periodo: flussi wallet dedup per txid, investimenti al tasso BTC d'inizio periodo, lot/asset nuovi da zero, passività statiche, tasso mancante o stale → "—" | PortfolioSheet.kt:walletFlowSince, investmentValueSatAt, sheetStartDay, SheetStartRates | PortfolioSheetTest::wallet change is the signed flow inside the window…, ::investment change uses today's fiat value at the start-of-period BTC rate, ::lots bought inside the window count from zero, ::manual asset bought inside the window changes by its whole value, ::liabilities are static…, ::missing start rate leaves the change unknown…, ::start rates answer only for the day…, ::stale rates from the previous period…, ::start day is the UTC midnight… | COVERED |
 | PRT-120 | Colonne del foglio responsive (Updated → Type → %NW → Change; Nome e Valore sempre) | PortfolioSheet.kt:visibleSheetColumns | PortfolioSheetTest::wide sheets show every column, ::a 1024 px window keeps the essentials, ::columns give way in priority order | COVERED |
 | PRT-121 | AssetPortfolioCard: menu Add (investimento/manual/passività), righe che aprono l'edit, badge per tipo, "Updated N days", pulsante fetch prezzi | K/screens/AssetPortfolioCard.kt:AssetPortfolioCard | — | **COVERED** (test in §F; prima: UNCOVERED) |
-| PRT-122 | Donut / tabella di breakdown NW (mascherati in privacy) | K/screens (NwBreakdownDonut), NetWorthBreakdownTable.kt | PrivacyModeTest::privacy mode hides every amount… (donut); TableColumnHidingTest::net worth breakdown * | **COVERED** (test in §F; prima: PARTIAL) |
+| PRT-122 | Donut / tabella di breakdown NW (mascherati in privacy) | K/screens (NwBreakdownDonut), NetWorthBreakdownTable.kt | PrivacyModeTest::privacy mode hides every amount… (donut); TableColumnHidingTest::net worth breakdown * | RIMOSSO (redesign Home 2026-10: una sola striscia KPI e la card Composizione) |
 
 ### Savings goals
 
@@ -1670,3 +1671,54 @@ File di test (tutti nuovi):
 - apps/desktop/src/jvmMain/kotlin/io/bhodl/desktop/screens/NetWorthCard.kt — testTag chip kind passività
 - crates/bhodl-wallet-onchain/src/net_worth_history.rs — fix GAP-018
 Nessuna stringa visibile cambiata (nessuna modifica alle risorse EN/IT).
+
+
+<a id="g"></a>
+
+## G. Funzioni dal 25 al 26 ottobre
+
+Casi d'uso delle funzioni arrivate dopo l'inventario (redesign delle
+sezioni, budget mensili, movimenti fuori dai wallet, modalità test,
+categorie tradotte). Il passo per passo è nel test-book §59–§78; qui
+il caso e il test che lo verifica. `T/` come sopra.
+
+| ID | Caso d'uso | Test | Stato |
+|----|------------|------|-------|
+| NEW-001 | Home: nei primi 3 giorni del mese la riga "Revisione del mese" apre Report e sparisce; dopo il 3 non c'è | T/screens/UcHomeTrackerTest::TRK-172, ::TRK-173 | COVERED |
+| NEW-002 | Home: ogni "?" spiega cosa misura, al passaggio del mouse e con il focus da tastiera | T/screens/UcHomeTrackerTest::TRK-174 | COVERED |
+| NEW-003 | Transazioni: cambiando periodo cambiano insieme riepiloghi e cronologia | T/screens/TransactionsTimelineTest::changing the period moves the summaries and the timeline together | COVERED |
+| NEW-004 | Obiettivo "% del netto": riquadro "Quota del netto", etichetta di scostamento solo oltre ±5 pp | T/screens/GoalsCardsTest::an allocation goal shows its share of net worth… | COVERED |
+| NEW-005 | Report, periodo Tutto: nessuna variazione e nessuna barra del periodo prima | T/screens/ReportsOverviewTest::the period All has no previous window… | COVERED |
+| NEW-006 | Report: clic sulla legenda evidenzia la categoria in torta e barre, secondo clic toglie | T/screens/ReportsOverviewTest::a legend click highlights… | COVERED |
+| NEW-007 | Wallet con sync fallita: card "stale" con "?" che dice cosa fare | T/screens/WalletCardsTest::a wallet whose sync failed says stale…, T/data/UcCacheTrackerTest | COVERED |
+| NEW-008 | Portafoglio: "Registra acquisto" chiede il titolo se sono più di uno, altrimenti apre subito il lotto | T/screens/PortfolioClassViewTest::record buy asks which holding… | COVERED |
+| NEW-009 | Portafoglio: i pulsanti tratteggiati aprono investimento, asset, debito e aggiunta wallet | T/screens/PortfolioClassViewTest::the dashed add buttons open… | COVERED |
+| NEW-010 | Indietro dal wallet aperto dalla Home torna alla Home | T/UcNavigationSecurityTest::rail Back from a wallet opened on the home returns to the home | COVERED |
+| NEW-011 | Una categoria salvata durante una sync lenta compare subito | T/screens/UcRegistryWiringTrackerTest::TRK-034 a category saved during a slow sync… | COVERED |
+| NEW-012 | Nuovo colore per una categoria esistente: cambia per tutte le sue transazioni, anche quelle salvate nell'altra lingua | T/screens/UcCardsTrackerTest::TRK-033 a new colour for an existing category… | COVERED (fix) |
+| NEW-013 | Categorie aggiunte e colori restano dopo il riavvio | T/screens/UcCardsTrackerTest::TRK-033 added categories and their colours survive a restart | COVERED |
+| NEW-014 | Budget: il 1° del mese lo speso riparte e mancano tutti i giorni del mese | T/screens/BudgetCardsTest::budgets follow the calendar month | COVERED |
+| NEW-015 | Budget e Transazioni condividono il mese; "Vedi transazioni" apre il mese e la categoria; "Questo mese" torna a oggi; fuori dal Budget torna il selettore del periodo | T/screens/BudgetCardsTest::budget and transactions share one month… | COVERED |
+| NEW-016 | Movimento in € senza prezzo BTC di quel giorno: messaggio, salvataggio solo in sat | T/screens/ManualTxnTest::without a price for that day…, ::offline, a past day missing from the cache has no price | COVERED |
+| NEW-017 | Uscita di 100 € da un conto: il patrimonio scende di 100 € in sat | T/screens/PortfolioScenarioTest::spending 100 euro from a bank account… | COVERED (±1 sat di troncamento, come ogni aggregato) |
+| NEW-018 | Modalità test: in Impostazioni niente "Cancella dati"; fuori dalla modalità test c'è | T/screens/TestModeSectionTest::in test mode Settings offers no data wipe, outside it does | COVERED |
+| NEW-019 | Modalità test da installazione nuova: niente PIN, uscendo si torna a Welcome | T/data/TestModeTest::trying test mode on a fresh install… | COVERED |
+| NEW-020 | `BHODL_DEMO=1` avvia in modalità test; vuoto o `0` no | T/data/TestModeTest::BHODL_DEMO starts the app in test mode… | COVERED |
+| NEW-021 | Ricerca per categoria predefinita in entrambe le lingue ("cibo" e "food") | T/screens/CategoryNamesTest::a search finds a classic category… | COVERED |
+| NEW-022 | Riaggiunta di un xpub rimosso: accettato, label locali perse | T/screens/UcWalletSettingsTest::WAL-032 a removed xpub can be added again… | COVERED |
+| NEW-023 | Finestra minima 960×640: l'ultimo pulsante di Welcome, PIN, Aggiungi wallet e pulizia resta raggiungibile | T/screens/SmallWindowTest | COVERED |
+| NEW-024 | Freccia Indietro in alto su Aggiungi wallet e Contatti | T/screens/UcAddWatchWalletTest::WAL-018 the back arrow…, T/screens/AddressBookScreenTest::the back arrow… | COVERED |
+
+### Cosa resta a mano (test-book, 2026-10-26)
+
+- **Rete e wallet veri** (§0, §1.10, §4.8, §4c.3, §5, §70.3, §70.4): pagamento
+  reale su signet, confronto con il wallet di firma, server di riserva. In CI
+  la parte regtest copre ricezione, saldo, UTXO e storico dopo la riapertura;
+  mancano una spesa reale con resto e il passaggio in attesa → confermata.
+- **File esterni** (§14b.12): import di un JSONL esportato da Sparrow.
+- **Collegamenti tra schermate ancora da coprire** (§1.3, §1.8, §2.3, §14c.2,
+  §16c.3, §16c.4, §17b.8): i pezzi sono testati, il percorso intero no.
+- **Aspetto e finestra** (§16.2 e le righe "finestra stretta"/"italiano"):
+  passano ai test a screenshot di riferimento.
+- **Copertura** (§17.6, §17.7): soglie non ancora imposte in CI.
+

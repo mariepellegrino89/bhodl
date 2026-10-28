@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="txc_in_out">Income and expenses</string>
+    <string name="txc_in_out_help">Incoming and outgoing payments in the period, transfers between your wallets excluded.</string>
+    <string name="txc_income">Income</string>
+    <string name="txc_expenses">Expenses</string>
+    <string name="txc_saved">Kept in the period</string>
+    <string name="txc_where">Where the sats went</string>
+    <string name="txc_where_help">Outgoing payments of the period by category; the five largest are named, the rest is grouped.</string>
+    <string name="txc_where_empty">No outgoing payments in the period.</string>
+    <string name="txc_other">Other</string>
+    <string name="txc_uncategorized">Uncategorised</string>
+    <string name="txc_search">Search category, wallet, txid or amount</string>
+    <string name="txc_today">Today</string>
+    <string name="txc_yesterday">Yesterday</string>
+    <string name="txc_pending">Pending</string>
+    <string name="txc_show_more">Showing %1$d of %2$d · show more</string>
+    <string name="txc_review">To review · %1$d</string>
+    <string name="txc_review_help">Payments of the period without a category. Pick one of your most used categories with one click, or Other… for the full editor.</string>
+    <string name="txc_quick_more">Other…</string>
+</resources>

@@ -1,5 +1,8 @@
 package io.bhodl.desktop.ui
 
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.ui.platform.testTag
+import io.bhodl.shared.resources.action_back
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -59,6 +62,8 @@ import org.jetbrains.compose.resources.stringResource
 public fun TwoTabShell(
     selected: Tab,
     onTabSelected: (Tab) -> Unit,
+    /** Redesign 2026-10 — the rail's Back after in-screen pages; null = nothing to go back to. */
+    onBack: (() -> Unit)? = null,
     content: @Composable () -> Unit,
 ) {
     val modBudgetBills by SettingsStore.moduleBudgetBills
@@ -105,6 +110,20 @@ public fun TwoTabShell(
             selected = selected,
             onSelect = onTabSelected,
             railTestTag = TwoTabShellTags.RAIL,
+            header = {
+                val enabled = BackNavigation.hasInScreenPage || onBack != null
+                androidx.compose.material3.IconButton(
+                    onClick = { if (!BackNavigation.closeInScreenPage()) onBack?.invoke() },
+                    enabled = enabled,
+                    modifier = Modifier.testTag(TwoTabShellTags.BACK),
+                ) {
+                    androidx.compose.material3.Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = stringResource(Res.string.action_back),
+                        tint = if (enabled) BhodlTheme.colors.textPrimary else BhodlTheme.colors.textTertiary,
+                    )
+                }
+            },
             content = content,
         )
     }
@@ -141,6 +160,7 @@ public enum class Tab {
 }
 
 public object TwoTabShellTags {
+    public const val BACK: String = "shell.back"
     public const val RAIL: String = "shell.rail"
     public const val TAB_WALLET: String = "shell.tab.wallet"
     public const val TAB_HOME: String = "shell.tab.home"

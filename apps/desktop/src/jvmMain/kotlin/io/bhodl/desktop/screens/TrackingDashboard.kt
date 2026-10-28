@@ -1,4 +1,7 @@
 package io.bhodl.desktop.screens
+import io.bhodl.desktop.AppClock
+import io.bhodl.shared.resources.bgm_month_closed
+import io.bhodl.shared.resources.bgm_month_left
 import io.bhodl.desktop.domain.RecurringCandidate
 import io.bhodl.desktop.domain.dayOfMonth
 
@@ -133,11 +136,15 @@ internal fun TrackingDashboardTab(
     /** Phase 9.0 — selects which section's cards render; see
      *  [TrackingTabMode]. All modes share the same compute. */
     mode: TrackingTabMode = TrackingTabMode.HOME,
+    /** Portfolio cards view — "+ Wallet (xpub)". */
+    onAddWallet: (() -> Unit)? = null,
     /** Phase 3.6 — invoked when the user clicks a donut slice. The
      *  parameter is the category label ("" for the Uncategorised
      *  bucket); the host switches to the History tab and applies
      *  it as the active filter. */
     onCategoryDrillDown: (String) -> Unit = {},
+    /** "View transactions" from a budget: the category in the budget's month. */
+    onBudgetDrillDown: (String) -> Unit = onCategoryDrillDown,
     /** Phase 3.6 — invoked when the user clicks a bar bucket chip.
      *  Receives the inclusive (startUnix, endUnix) range; the host
      *  switches to the History tab and applies it as a time-range
@@ -162,6 +169,9 @@ internal fun TrackingDashboardTab(
     onEditBill: (io.bhodl.ffi.TrackingBillFfi) -> Unit = {},
     /** Phase 4.4 — toggle paid status; host updates registry. */
     onToggleBillPaid: (io.bhodl.ffi.TrackingBillFfi, Boolean) -> Unit = { _, _ -> },
+    onMarkBillPaidAmount: (io.bhodl.ffi.TrackingBillFfi, ULong) -> Unit = { b, _ -> onToggleBillPaid(b, true) },
+    /** Schema v8 — "mark paid" opens the pay flow (link a transaction). */
+    onPayBill: ((io.bhodl.ffi.TrackingBillFfi) -> Unit)? = null,
     /** Phase 4.5 — savings goals snapshot. */
     goals: List<io.bhodl.ffi.TrackingSavingsGoalFfi> = emptyList(),
     onAddGoal: () -> Unit = {},
@@ -238,7 +248,7 @@ internal fun TrackingDashboardTab(
 ) {
     // Snapshot in seconds so the same `now` drives both the period
     // filter and the synthetic anchor inside `balanceSeries`.
-    val nowUnix = System.currentTimeMillis() / 1000L
+    val nowUnix = AppClock.nowUnix()
     val inPeriod = filterByPeriod(events, period, nowUnix)
     val kpis = computeKpis(inPeriod, currentBalanceSat)
     // Phase 3.11 — confirmed vs pending split derived from the full
@@ -284,15 +294,6 @@ internal fun TrackingDashboardTab(
         // Phase 9.0 — KPI strip leads the HOME synthesis; the other
         // sections lead with their own cards and Reports/Analytics
         // leads with the YoY toggle + charts.
-        if (mode == TrackingTabMode.HOME) {
-            KpiRow(
-                kpis = kpis,
-                period = period,
-                series = series,
-                prevKpis = prevKpis,
-                balanceSplit = balanceSplit,
-            )
-        }
 
         if (mode == TrackingTabMode.ANALYTICS) {
             // Phase 3.8 — YoY toggle row. Hidden on ALL (no "previous"
@@ -341,12 +342,25 @@ internal fun TrackingDashboardTab(
         // of the selected window (a monthly budget over 90g is ~2.96×),
         // and (B3) each budget lives in the direction its category's
         // full history belongs to.
-        val budgetDays = remember(period, inPeriod) { budgetWindowDays(period, inPeriod, nowUnix) }
-        val incomeRows = remember(inPeriod, events, budgets, budgetDays) {
-            computeBudgetRows(inPeriod, budgets, TrackingDirection.INCOME, budgetDays, events)
+        // Budget redesign 2026-10 — the Budget section is monthly: the
+        // calendar month so far against the full monthly budget, whatever
+        // the period chosen elsewhere.
+        val budgetMonth = mode == TrackingTabMode.BUDGET
+        val budgetToday = todayLocal()
+        val currentMonth = java.time.YearMonth.from(budgetToday)
+        var selectedMonth by TrackerUiState.month
+        val isCurrentMonth = selectedMonth == currentMonth
+        val budgetEvents = remember(budgetMonth, inPeriod, events, selectedMonth) {
+            if (budgetMonth) eventsInMonth(events, selectedMonth) else inPeriod
         }
-        val expenseRows = remember(inPeriod, events, budgets, budgetDays) {
-            computeBudgetRows(inPeriod, budgets, TrackingDirection.EXPENSE, budgetDays, events)
+        val budgetDays = remember(period, budgetEvents, budgetMonth) {
+            if (budgetMonth) DAYS_PER_MONTH else budgetWindowDays(period, budgetEvents, nowUnix)
+        }
+        val incomeRows = remember(budgetEvents, events, budgets, budgetDays) {
+            computeBudgetRows(budgetEvents, budgets, TrackingDirection.INCOME, budgetDays, events)
+        }
+        val expenseRows = remember(budgetEvents, events, budgets, budgetDays) {
+            computeBudgetRows(budgetEvents, budgets, TrackingDirection.EXPENSE, budgetDays, events)
         }
         // Phase 9.0 — module gating moved up to the NavigationRail
         // (a disabled module's section simply has no rail entry), so
@@ -366,10 +380,8 @@ internal fun TrackingDashboardTab(
         val excludedWalletIds by SettingsStore.excludedWalletIds
 
         if (mode == TrackingTabMode.HOME) {
-            // Synthesis only: breakdown donut + inflow/outflow. The
-            // domain cards live on their own section pages.
-            NwBreakdownDonut(netWorth = netWorth)
-            InflowOutflowChart(events = events)
+            // Home redesign 2026-10 — the whole Home (hero, composition,
+            // to-do, KPIs, flows, forecast, wallets) is TrackerHomeSection.
             return@Column
         }
 
@@ -380,8 +392,10 @@ internal fun TrackingDashboardTab(
             // "previous" window); no fiat currency → no split.
             val fiatCurrency by SettingsStore.fiatCurrency
             var priceHistory by remember { mutableStateOf<List<io.bhodl.desktop.prices.HistoricalPricePoint>>(emptyList()) }
-            LaunchedEffect(period, fiatCurrency) {
-                val days = period.days
+            // The month so far against the same stretch of the month before.
+            val monthDays = budgetToday.dayOfMonth
+            LaunchedEffect(monthDays, fiatCurrency) {
+                val days: Int? = monthDays
                 priceHistory = if (days == null) {
                     emptyList()
                 } else {
@@ -389,7 +403,9 @@ internal fun TrackingDashboardTab(
                 }
             }
             fun movesFor(rows: List<BudgetRow>, direction: TrackingDirection): Map<String, BudgetMove> {
-                val days = period.days ?: return emptyMap()
+                // Price vs spending only for the month in progress.
+                if (!isCurrentMonth) return emptyMap()
+                val days = monthDays
                 if (priceHistory.isEmpty()) return emptyMap()
                 val rateAt = rateLookup(priceHistory)
                 return rows.filter { it.budgetForPeriodSat != null }.mapNotNull { r ->
@@ -403,21 +419,46 @@ internal fun TrackingDashboardTab(
             val expenseMoves = remember(expenseRows, priceHistory, events) {
                 movesFor(expenseRows, TrackingDirection.EXPENSE)
             }
-            if (incomeRows.isNotEmpty() || expenseRows.isNotEmpty()) {
+            // Budget redesign 2026-10 (proposal C): summary rings, one card
+            // per category, the 30-day bills strip, then recurring and rules.
+            val summary = remember(expenseRows, expenseMoves) { budgetSummary(expenseRows, expenseMoves) }
+            val incomeBudget = incomeRows.filter { it.budgetForPeriodSat != null }
+            val incomeFraction = incomeBudget.sumOf { it.budgetForPeriodSat!!.toLong() }.takeIf { it > 0L }
+                ?.let { incomeBudget.sumOf { r -> r.actualSat.toLong() }.toFloat() / it }
+            val monthLabel = selectedMonth.month.getDisplayName(java.time.format.TextStyle.FULL_STANDALONE, java.util.Locale.getDefault())
+                .replaceFirstChar { it.titlecase(java.util.Locale.getDefault()) } + " " + selectedMonth.year
+            val monthCaption = if (isCurrentMonth) {
+                stringResource(Res.string.bgm_month_left, monthLabel, daysLeftInMonth(budgetToday))
+            } else {
+                stringResource(Res.string.bgm_month_closed, monthLabel)
+            }
+            BudgetMonthSelector(month = selectedMonth, current = currentMonth, onChange = { selectedMonth = it })
+            BudgetSummaryCard(summary = summary, incomeFraction = incomeFraction, periodLabel = monthCaption, modifier = Modifier.fillMaxWidth())
+            if (expenseRows.isNotEmpty()) {
+                BudgetCategoryGrid(
+                    rows = expenseRows,
+                    moves = expenseMoves,
+                    onEditBudget = onEditBudget,
+                    onViewTransactions = onBudgetDrillDown,
+                )
+            }
+            BillsCalendarStrip(
+                bills = bills,
+                today = todayLocal(),
+                onToggleBillPaid = onToggleBillPaid,
+                onMarkPaidAmount = onMarkBillPaidAmount,
+                onPayBill = onPayBill,
+                onEditBill = onEditBill,
+                onAddBill = onAddBill,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            if (incomeRows.any { it.budgetForPeriodSat != null }) {
                 BudgetBreakdownCard(
-                    title = stringResource(Res.string.trk_chart_income_breakdown, period.label),
+                    title = stringResource(Res.string.trk_chart_income_breakdown, monthLabel),
                     rows = incomeRows,
                     onEditBudget = onEditBudget,
-                    proratedToLabel = period.label,
+                    proratedToLabel = monthLabel,
                     moves = incomeMoves,
-                )
-                BudgetBreakdownCard(
-                    title = stringResource(Res.string.trk_chart_expense_breakdown, period.label),
-                    rows = expenseRows,
-                    onEditBudget = onEditBudget,
-                    proratedToLabel = period.label,
-                    moves = expenseMoves,
-                    showSatsNote = true,
                 )
             }
 
@@ -426,23 +467,6 @@ internal fun TrackingDashboardTab(
                 onAccept = onAcceptRecurring,
                 onDismiss = onDismissRecurring,
             )
-
-            BillsTrackerCard(
-                bills = bills, onAdd = onAddBill,
-                onEdit = onEditBill, onTogglePaid = onToggleBillPaid,
-            )
-
-            if (inPeriod.any { it.direction == PaymentDirection.OUTGOING }) {
-                ChartCard(
-                    title = stringResource(Res.string.trk_chart_expense_by_category, period.label),
-                    height = null,
-                ) {
-                    ExpenseLollipopChart(
-                        events = inPeriod,
-                        onCategoryClick = onCategoryDrillDown,
-                    )
-                }
-            }
 
             // Automation block — rules are configuration, not
             // monitoring; they close the page instead of crowding it.
@@ -503,6 +527,7 @@ internal fun TrackingDashboardTab(
                 onEditManualAsset = onEditManualAsset,
                 onAddLiability = onAddLiability,
                 onEditLiability = onEditLiability,
+                onAddWallet = onAddWallet,
                 onRefreshPrices = onRefreshPrices,
                 // Item 9 — the change column follows the global period.
                 events = events,

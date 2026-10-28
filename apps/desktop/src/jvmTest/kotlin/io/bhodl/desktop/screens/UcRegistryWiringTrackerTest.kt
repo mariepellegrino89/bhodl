@@ -25,6 +25,7 @@ import io.bhodl.ffi.PaymentKind
 import io.bhodl.ffi.RegistryHandle
 import io.bhodl.ffi.WalletRecordFfi
 import io.bhodl.ui.theme.BhodlTheme
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import java.io.File
 import kotlin.test.AfterTest
@@ -195,7 +196,9 @@ class UcRegistryWiringTrackerTest {
         assertEquals(90_000UL to 5u, bill.amountSat to bill.dueDay)
 
         refresh()
+        // Schema v8 — "mark paid" opens the pay flow; no transaction: only tick it off.
         onNodeWithTag(BillTags.paidChip(bill.id)).performScrollTo().performClick()
+        onNodeWithTag(BillPayTags.ONLY_MARK).performClick()
         until("bill paid") { registry.listBills().single().lastPaidUnix != null }
 
         refresh()
@@ -256,7 +259,7 @@ class UcRegistryWiringTrackerTest {
     // ─── TRK-034 / TRK-072 — category save and rule from edit ───────
 
     @Test
-    fun `TRK-034 TRK-072 a re-categorisation offers a rule that also fills matching history`() = runDesktopComposeUiTest {
+    fun `TRK-034 TRK-072 the category editor can also create a rule that fills matching history`() = runDesktopComposeUiTest {
         legs = listOf(
             leg("a", 5_000UL, now - 3_600, PaymentDirection.INCOMING),
             leg("b", 6_000UL, now - 7_200, PaymentDirection.INCOMING),
@@ -266,19 +269,59 @@ class UcRegistryWiringTrackerTest {
         waitForIdle()
         onAllNodesWithTag(TrackingTags.CATEGORY_CHIP)[0].performScrollTo().performClick()
         onNodeWithTag(TrackingTags.CATEGORY_INPUT).performTextInput("  DCA ")
-        onNodeWithTag(TrackingTags.CATEGORY_SAVE).performClick()
-        until("category saved") { registry.getEventCategory(wallet.id, "a") == "DCA" }
-
-        waitUntilAtLeastOneExists(hasText("Always do this?", substring = true), timeoutMillis = 5_000)
+        // The rule is an option of the editor, off by default.
+        onNodeWithTag(RuleTags.MAKE_RULE).assertExists()
+        assertEquals(0, onAllNodes(hasTestTag(RuleTags.FROM_EDIT_PREVIEW)).fetchSemanticsNodes().size)
+        onNodeWithTag(RuleTags.MAKE_RULE).performClick()
         // The edited row is excluded from the preview: one other match.
         waitUntilAtLeastOneExists(hasText("applies to: 1", substring = true))
-        onNodeWithTag(RuleTags.FROM_EDIT_CREATE).performClick()
+        onNodeWithTag(TrackingTags.CATEGORY_SAVE).performClick()
+        until("category saved") { registry.getEventCategory(wallet.id, "a") == "DCA" }
         until("rule created") { registry.listRules().size == 1 }
         val rule = registry.listRules().single()
         assertEquals("payee" to "Exchange", rule.conditionField to rule.conditionValue)
         assertEquals("DCA", rule.actionValue)
         until("matching history categorised") { registry.getEventCategory(wallet.id, "b") == "DCA" }
         assertNotNull(rule)
+    }
+
+    @Test
+    fun `TRK-034 a single category save asks nothing and shows at once`() = runDesktopComposeUiTest {
+        legs = listOf(
+            leg("a", 5_000UL, now - 3_600, PaymentDirection.INCOMING),
+            leg("b", 6_000UL, now - 7_200, PaymentDirection.INCOMING),
+        )
+        refresh()
+        setContent { BhodlTheme { TrackingScreen(section = TrackerSection.TRANSACTIONS) } }
+        waitForIdle()
+        onAllNodesWithTag(TrackingTags.CATEGORY_CHIP)[0].performScrollTo().performClick()
+        onNodeWithTag(TrackingTags.CATEGORY_INPUT).performTextInput("Spesa")
+        onNodeWithTag(TrackingTags.CATEGORY_SAVE).performClick()
+        until("category saved") { registry.getEventCategory(wallet.id, "a") == "Spesa" }
+        until("shown in the cache") { TrackerCache.events.value.any { it.txidOrPaymentId == "a" && it.category == "Spesa" } }
+        waitForIdle()
+        assertEquals(0, onAllNodes(hasTestTag(RuleTags.FROM_EDIT_PANEL)).fetchSemanticsNodes().size, "no follow-up prompt")
+        assertEquals(0, registry.listRules().size)
+    }
+
+    @Test
+    fun `TRK-034 a category saved during a slow sync shows before the sync ends`() = runDesktopComposeUiTest {
+        legs = listOf(leg("a", 5_000UL, now - 3_600, PaymentDirection.INCOMING))
+        refresh()
+        setContent { BhodlTheme { TrackingScreen(section = TrackerSection.TRANSACTIONS) } }
+        waitForIdle()
+        // A sync that never finishes while the category is saved.
+        val release = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val sync = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch { TrackerCache.holdRefreshForTest(release) }
+        try {
+            onAllNodesWithTag(TrackingTags.CATEGORY_CHIP)[0].performScrollTo().performClick()
+            onNodeWithTag(TrackingTags.CATEGORY_INPUT).performTextInput("Spesa")
+            onNodeWithTag(TrackingTags.CATEGORY_SAVE).performClick()
+            until("shown in the cache") { TrackerCache.events.value.any { it.txidOrPaymentId == "a" && it.category == "Spesa" } }
+            assertTrue(sync.isActive, "the sync is still running")
+        } finally {
+            release.complete(Unit)
+        }
     }
 
     private companion object {

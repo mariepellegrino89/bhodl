@@ -1,8 +1,20 @@
 package io.bhodl.desktop.screens
+import io.bhodl.desktop.AppClock
+import io.bhodl.shared.resources.common_uncategorised
+import io.bhodl.desktop.data.ChannelFilter
+import io.bhodl.desktop.data.filterByChannel
+import io.bhodl.desktop.data.asManualAccount
+import io.bhodl.shared.resources.mtx_other
+import io.bhodl.desktop.data.ManualTxns
+import io.bhodl.desktop.data.manualAccounts
+import io.bhodl.shared.resources.mtx_cash
+import io.bhodl.shared.resources.mtx_add
+import io.bhodl.shared.resources.mtx_err_save
+import io.bhodl.shared.resources.mtx_err_delete
+import io.bhodl.shared.resources.bill_pay_title
 import io.bhodl.desktop.domain.applyRules
 import io.bhodl.desktop.domain.moveRule
 import io.bhodl.desktop.domain.rulesInEvaluationOrder
-import io.bhodl.desktop.domain.shouldOfferRuleFromEdit
 import io.bhodl.desktop.domain.topRulePriority
 import io.bhodl.desktop.domain.RecurringCandidate
 import io.bhodl.desktop.domain.dayOfMonth
@@ -162,6 +174,7 @@ public fun TrackingScreen(
     val bills by TrackerCache.bills
     val goals by TrackerCache.goals
     val liabilities by TrackerCache.liabilities
+    val loanSchedules by TrackerCache.loanSchedules
     val investments by TrackerCache.investments
     // Phase 7.8 — lots grouped by parent investment id.
     val investmentLotsByInvestmentId by TrackerCache.investmentLotsByInvestmentId
@@ -181,7 +194,15 @@ public fun TrackingScreen(
     // Phase 7.5 — rules + recurring candidates from the cache.
     val rules by TrackerCache.rules
     // Payee text for rules (item 11): the label of the event's wallet.
-    val walletLabelById = remember(wallets) { wallets.associate { it.id to it.label } }
+    // Schema v8 — the manual accounts (cash, bank, card) label their
+    // off-wallet entries like wallets do.
+    val cashLabel = stringResource(Res.string.mtx_cash)
+    val otherLabel = stringResource(Res.string.mtx_other)
+    val manualAccountList = remember(manualAssets, liabilities, cashLabel, otherLabel) {
+        manualAccounts(manualAssets, liabilities, cashLabel, otherLabel)
+    }
+    val manualLabels = remember(manualAccountList) { manualAccountList.associate { it.walletId to it.label } }
+    val walletLabelById = remember(wallets, manualLabels) { wallets.associate { it.id to it.label } + manualLabels }
     // Item 11 — the rule order being written; the move controls are
     // disabled until the reloaded cache shows it (or the write failed).
     var pendingRuleOrder by remember { mutableStateOf<List<Long>?>(null) }
@@ -220,13 +241,10 @@ public fun TrackingScreen(
     var editing by remember {
         mutableStateOf<io.bhodl.ffi.PaymentEvent?>(null)
     }
-    // UX review 2026-10 (item 11) — the re-categorised event + its new
-    // category while the "Always do this?" prompt is open.
-    var ruleFromEdit by remember {
-        mutableStateOf<Pair<io.bhodl.ffi.PaymentEvent, String>?>(null)
-    }
     var period by TrackerUiState.period
     var timeRangeFilter by TrackerUiState.timeRangeFilter
+    var month by TrackerUiState.month
+    var txByMonth by TrackerUiState.txByMonth
     // Saved-view inline-name dialog state. The view LIST itself
     // comes from TrackerCache.views (Phase 7.2.3).
     var showSaveDialog by remember { mutableStateOf(false) }
@@ -235,6 +253,12 @@ public fun TrackingScreen(
     // dialog open/close state stays in-composable.
     var budgetEdit by remember { mutableStateOf<Pair<String, ULong?>?>(null) }
     var billDialog by remember { mutableStateOf<io.bhodl.ffi.TrackingBillFfi?>(null) }
+    // Schema v8 — the bill being paid, and the off-wallet entry dialog.
+    var payingBill by remember { mutableStateOf<io.bhodl.ffi.TrackingBillFfi?>(null) }
+    var billAmountAsk by remember { mutableStateOf<io.bhodl.ffi.TrackingBillFfi?>(null) }
+    var manualDialog by remember { mutableStateOf<ManualDialogState?>(null) }
+    // Schema v8 — Transactions narrowed to the wallets or one channel.
+    var channelFilter by remember { mutableStateOf<ChannelFilter>(ChannelFilter.All) }
     var showNewBill by remember { mutableStateOf(false) }
     var goalDialog by remember { mutableStateOf<io.bhodl.ffi.TrackingSavingsGoalFfi?>(null) }
     var showNewGoal by remember { mutableStateOf(false) }
@@ -330,14 +354,21 @@ public fun TrackingScreen(
     // card and per-wallet rows above are intentionally NOT filtered:
     // they describe wallets, not transactions, and a category filter
     // there would be misleading.
-    val filteredEvents = remember(events, categoryFilter, timeRangeFilter) {
-        filterLedger(events, categoryFilter, timeRangeFilter)
+    // Transactions redesign 2026-10 — the ledger follows the global
+    // period like every other section; a drill-down range replaces it.
+    var txSearch by remember { mutableStateOf("") }
+    val txPeriodEvents = remember(events, period, timeRangeFilter, txByMonth, month) {
+        when {
+            timeRangeFilter != null -> filterLedger(events, null, timeRangeFilter)
+            // Month view (picked here, or arriving from a budget).
+            txByMonth -> eventsInMonth(events, month)
+            else -> filterByPeriod(events, period, AppClock.nowUnix())
+        }
     }
-    // Per-category breakdown card. Treats `null`/blank as the implicit
-    // "Uncategorised" bucket so the user sees what hasn't been tagged
-    // yet. Internal transfers (SELF_TRANSFER, send_to_self) are not
-    // income or spending: only a send_to_self's fee counts as outflow.
-    val breakdown = remember(events) { categoryBreakdown(events) }
+    val walletLabels = walletLabelById
+    val filteredEvents = remember(txPeriodEvents, categoryFilter, txSearch, walletLabels, channelFilter) {
+        searchLedger(filterByChannel(filterLedger(txPeriodEvents, categoryFilter, null), channelFilter), txSearch) { walletLabels[it] }
+    }
 
     // Phase 3.13 — keyboard shortcut handler. Uses `onKeyEvent` (post-
     // handler) rather than `onPreviewKeyEvent` so any focused text
@@ -364,7 +395,7 @@ public fun TrackingScreen(
             }
             !mod && event.key == Key.R -> {
                 if (!refreshing) {
-                    scope.launch { TrackerCache.refresh(syncEsplora = true) }
+                    io.bhodl.desktop.AppScope.io.launch(kotlinx.coroutines.Dispatchers.Main) { TrackerCache.refresh(syncEsplora = true) }
                 }
                 true
             }
@@ -445,7 +476,14 @@ public fun TrackingScreen(
                         color = BhodlTheme.colors.textPrimary,
                     )
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    // 2026-10-26 — the footer bar's useful part, up here.
+                    io.bhodl.desktop.ui.TrackerHeaderStatus(
+                        mainnetWallets = wallets.any { it.network.equals("mainnet", ignoreCase = true) || it.network.equals("bitcoin", ignoreCase = true) },
+                        lastSyncUnix = lastSyncUnix,
+                        showSync = section != TrackerSection.HOME,
+                        onOpenSecurityHub = onOpenSecurityHub,
+                    )
                     androidx.compose.material3.TextButton(
                         onClick = onOpenModules,
                         modifier = Modifier.testTag(TrackingTags.HEADER_MODULES),
@@ -459,8 +497,19 @@ public fun TrackingScreen(
                 }
             }
 
-            val labelByWalletIdForExport = wallets.associate { it.id to it.label }
+            val labelByWalletIdForExport = walletLabelById
             if (section == TrackerSection.TRANSACTIONS) {
+                // Schema v8 — income and spending outside the wallets.
+                OutlinedButton(
+                    onClick = { manualDialog = ManualDialogState() },
+                    modifier = Modifier.fillMaxWidth().testTag(ManualTxnTags.ADD),
+                ) { Text(stringResource(Res.string.mtx_add)) }
+                ChannelFilterRow(
+                    events = txPeriodEvents,
+                    accounts = manualAccountList,
+                    selected = channelFilter,
+                    onSelect = { channelFilter = it },
+                )
                 OutlinedButton(
                     onClick = {
                         scope.launch {
@@ -515,7 +564,7 @@ public fun TrackingScreen(
                 refreshing = refreshing,
                 onRefresh = {
                     if (refreshing) return@DataStateStrip
-                    scope.launch { TrackerCache.refresh(syncEsplora = true) }
+                    io.bhodl.desktop.AppScope.io.launch(kotlinx.coroutines.Dispatchers.Main) { TrackerCache.refresh(syncEsplora = true) }
                 },
             )
 
@@ -535,10 +584,17 @@ public fun TrackingScreen(
             // window is a global mode, not a per-chart toggle). The
             // Transactions ledger keeps its explicit composable
             // filters (category AND time range) instead.
-            if (section != TrackerSection.TRANSACTIONS) {
+            // Budget redesign 2026-10 — the Budget section is monthly.
+            if (section != TrackerSection.BUDGET) {
+                // Transactions also go by calendar month.
+                val monthView = section == TrackerSection.TRANSACTIONS
                 PeriodSelector(
                     selected = period,
-                    onSelect = { period = it },
+                    onSelect = { period = it; txByMonth = false },
+                    month = month.takeIf { monthView },
+                    monthSelected = monthView && txByMonth,
+                    onMonthMode = { txByMonth = true; timeRangeFilter = null },
+                    onMonthChange = { month = it },
                 )
             }
 
@@ -557,6 +613,7 @@ public fun TrackingScreen(
                 // content; the mode selects which cards appear.
                 val dashboardTab: @Composable (TrackingTabMode) -> Unit = { tabMode ->
                     TrackingDashboardTab(
+                        onAddWallet = onAddWatch,
                         onEditEvent = { event -> editing = event },
                         events = includedEvents,
                         period = period,
@@ -578,8 +635,22 @@ public fun TrackingScreen(
                                     withContext(Dispatchers.IO) {
                                         registry.markBillPaid(
                                             b.id,
-                                            if (paid) System.currentTimeMillis() / 1000L else null,
+                                            if (paid) AppClock.nowUnix() else null,
                                         )
+                                    }
+                                }.onFailure { e ->
+                                    lastError = e.message ?: getString(Res.string.trk_err_mark_bill)
+                                }
+                                RegistryStore.bumpDataVersion()
+                            }
+                        },
+                        onPayBill = { b -> payingBill = b },
+                        onMarkBillPaidAmount = { b, sat ->
+                            val registry = RegistryStore.current() ?: return@TrackingDashboardTab
+                            scope.launch {
+                                runCatching {
+                                    withContext(Dispatchers.IO) {
+                                        registry.markBillPaidAmount(b.id, AppClock.nowUnix(), sat)
                                     }
                                 }.onFailure { e ->
                                     lastError = e.message ?: getString(Res.string.trk_err_mark_bill)
@@ -702,6 +773,13 @@ public fun TrackingScreen(
                             categoryFilter = category
                             onSectionChange(TrackerSection.TRANSACTIONS)
                         },
+                        // From a budget: that category in the budget's month.
+                        onBudgetDrillDown = { category ->
+                            categoryFilter = category
+                            timeRangeFilter = null
+                            txByMonth = true
+                            onSectionChange(TrackerSection.TRANSACTIONS)
+                        },
                         onBucketDrillDown = { range ->
                             timeRangeFilter = range
                             onSectionChange(TrackerSection.TRANSACTIONS)
@@ -717,10 +795,12 @@ public fun TrackingScreen(
                         // section page now.
                         TrackerHomeSection(
                             onOpenReports = { onSectionChange(TrackerSection.REPORTS) },
+                            onOpenPortfolio = { onSectionChange(TrackerSection.PORTFOLIO) },
+                            onOpenBudget = { onSectionChange(TrackerSection.BUDGET) },
+                            onOpenTransactions = { onSectionChange(TrackerSection.TRANSACTIONS) },
                             onOpenWallet = onOpenWallet,
                             onAddWatch = onAddWatch,
                         )
-                        dashboardTab(TrackingTabMode.HOME)
                     }
                     TrackerSection.TRANSACTIONS -> HistoryTabBody(
                         wallets = wallets,
@@ -732,13 +812,42 @@ public fun TrackingScreen(
                         },
                         events = events,
                         filteredEvents = filteredEvents,
-                        breakdown = breakdown,
                         categories = categories,
                         categoryFilter = categoryFilter,
                         timeRangeFilter = timeRangeFilter,
                         onClearTimeRange = { timeRangeFilter = null },
                         onSelectCategory = { categoryFilter = it },
-                        onEditCategory = { event -> editing = event },
+                        onEditCategory = { event ->
+                            // An off-wallet entry opens its own editor.
+                            val manualId = ManualTxns.idOf(event)
+                            val registry = RegistryStore.current()
+                            if (manualId == null || registry == null) {
+                                editing = event
+                            } else {
+                                scope.launch {
+                                    val row = withContext(Dispatchers.IO) {
+                                        runCatching { registry.listManualTxns() }.getOrDefault(emptyList()).firstOrNull { it.id == manualId }
+                                    }
+                                    if (row != null) manualDialog = ManualDialogState(editing = row, category = event.category)
+                                }
+                            }
+                        },
+                        extraLabels = manualLabels,
+                        periodEvents = txPeriodEvents,
+                        search = txSearch,
+                        onSearchChange = { txSearch = it },
+                        onQuickCategorize = { event, category ->
+                            val registry = RegistryStore.current() ?: return@HistoryTabBody
+                            scope.launch {
+                                runCatching {
+                                    withContext(Dispatchers.IO) {
+                                        registry.setEventCategory(event.walletId, event.txidOrPaymentId, category)
+                                    }
+                                }.onSuccess { TrackerCache.patchEventCategory(event.txidOrPaymentId, category) }
+                                    .onFailure { e -> lastError = e.message ?: getString(Res.string.trk_err_save_category) }
+                                RegistryStore.bumpDataVersion()
+                            }
+                        },
                     )
                     TrackerSection.BUDGET -> dashboardTab(TrackingTabMode.BUDGET)
                     TrackerSection.GOALS -> dashboardTab(TrackingTabMode.GOALS)
@@ -751,10 +860,18 @@ public fun TrackingScreen(
                             events = filterByPeriod(
                                 includedEvents,
                                 period,
-                                System.currentTimeMillis() / 1000L,
+                                AppClock.nowUnix(),
                             ),
                             groupedWallets = includedGroupedWallets,
                             periodLabel = period.label,
+                            previousEvents = period.days?.let { days ->
+                                val now = AppClock.nowUnix()
+                                val span = days.toLong() * 86_400L
+                                includedEvents.filter { e ->
+                                    val ts = e.timestampUnix?.toLong() ?: return@filter false
+                                    ts in (now - 2 * span) until (now - span)
+                                }
+                            },
                         )
                         if (modAnalyticsLabs) {
                             dashboardTab(TrackingTabMode.ANALYTICS)
@@ -763,17 +880,10 @@ public fun TrackingScreen(
                 }
             }
 
-            // Phase 3.11 — footer status bar (Sparrow / Bitcoin Core
-            // convention). Pinned at the bottom of the Tracking screen
-            // (outside the scrollable body) so the user always sees
-            // network / Tor / sync state regardless of how far they
-            // scrolled inside a tab.
-            io.bhodl.desktop.ui.BhodlFooterStatusBar(
-                network = WalletStore.network(),
-                walletCount = includedGroupedWallets.size,
-                lastSyncUnix = lastSyncUnix,
-                onOpenSecurityHub = onOpenSecurityHub,
-            )
+            // 2026-10-26 — no footer status bar on the tracker sections:
+            // network and server belong to the Wallet view; the privacy
+            // eye, the Security shield, the last sync and a mainnet-over-
+            // clearnet warning sit in the header (TrackerHeaderStatus).
         }
     }
 
@@ -1276,6 +1386,7 @@ public fun TrackingScreen(
     // the candidate's stats — no extra dialog: the user already
     // confirmed by clicking accept, and the bill itself remains
     // editable from the Bills card.
+    val uncategorisedName = stringResource(Res.string.common_uncategorised)
     billPrefillFromRecurring?.let { candidate ->
         val registry = RegistryStore.current()
         if (registry == null) {
@@ -1286,7 +1397,8 @@ public fun TrackingScreen(
                 runCatching {
                     // The bill is the authoritative record now: the
                     // suggestion is dismissed in the same step.
-                    withContext(Dispatchers.IO) { acceptRecurringAsBill(registry, candidate) }
+                    val name = if (io.bhodl.desktop.ui.isUncategorised(candidate.displayName)) uncategorisedName else candidate.displayName
+                    withContext(Dispatchers.IO) { acceptRecurringAsBill(registry, candidate, name = name) }
                 }.onFailure { e ->
                     lastError = e.message ?: getString(Res.string.trk_err_accept_as_bill)
                 }
@@ -1404,7 +1516,8 @@ public fun TrackingScreen(
                 showNewBill = false
                 billDialog = null
             },
-            onSave = { name, amountSat, dueDay, displayLabel ->
+            knownCategories = categories,
+            onSave = { name, amountSat, dueDay, displayLabel, variable, category ->
                 val registry = RegistryStore.current()
                 if (registry == null) {
                     lastError = registryNotOpen
@@ -1416,14 +1529,17 @@ public fun TrackingScreen(
                 scope.launch {
                     runCatching {
                         withContext(Dispatchers.IO) {
-                            if (editingNow != null) {
+                            val id = if (editingNow != null) {
                                 registry.updateBill(
                                     editingNow.id, name, amountSat, dueDay.toUInt(),
                                     displayLabel,
                                 )
+                                editingNow.id
                             } else {
                                 registry.addBill(name, amountSat, dueDay.toUInt(), displayLabel)
                             }
+                            registry.setBillVariable(id, variable)
+                            registry.setBillCategory(id, category)
                         }
                     }.onFailure { e ->
                         lastError = e.message ?: getString(Res.string.trk_err_save_bill)
@@ -1449,6 +1565,139 @@ public fun TrackingScreen(
                     }
                     showNewBill = false
                     billDialog = null
+                    RegistryStore.bumpDataVersion()
+                }
+            },
+        )
+    }
+
+    // Schema v8 — "mark paid": pick the transaction that paid the bill.
+    payingBill?.let { bill ->
+        val candidates = remember(bill, events, bills) { billPaymentCandidates(bill, events, bills, todayLocal()) }
+        BillPayDialog(
+            bill = bill,
+            candidates = candidates,
+            walletLabel = { walletLabelById[it] ?: it.take(8) },
+            onDismiss = { payingBill = null },
+            onLink = { ev ->
+                payingBill = null
+                val registry = RegistryStore.current() ?: return@BillPayDialog
+                val category = bill.category?.takeIf { it.isNotBlank() }
+                scope.launch {
+                    runCatching {
+                        withContext(Dispatchers.IO) {
+                            registry.markBillPaidBy(
+                                bill.id,
+                                ev.timestampUnix?.toLong() ?: AppClock.nowUnix(),
+                                ev.amountSat,
+                                billPaidRef(ev),
+                            )
+                            // It counts in the bill's budget category.
+                            if (category != null && ev.category != category) {
+                                registry.setEventCategory(ev.walletId, ev.txidOrPaymentId, category)
+                            }
+                        }
+                    }.onSuccess {
+                        if (category != null) TrackerCache.patchEventCategory(ev.txidOrPaymentId, category)
+                    }.onFailure { e ->
+                        lastError = e.message ?: getString(Res.string.trk_err_mark_bill)
+                    }
+                    RegistryStore.bumpDataVersion()
+                }
+            },
+            onPayOutside = {
+                payingBill = null
+                manualDialog = ManualDialogState(
+                    preset = ManualTxnPreset(category = bill.category, note = bill.name),
+                    forBill = bill,
+                )
+            },
+            onOnlyMark = {
+                payingBill = null
+                // A variable bill still asks what was paid (schema v7).
+                if (bill.variable) {
+                    billAmountAsk = bill
+                    return@BillPayDialog
+                }
+                val registry = RegistryStore.current() ?: return@BillPayDialog
+                scope.launch {
+                    runCatching {
+                        withContext(Dispatchers.IO) { registry.markBillPaid(bill.id, AppClock.nowUnix()) }
+                    }.onFailure { e ->
+                        lastError = e.message ?: getString(Res.string.trk_err_mark_bill)
+                    }
+                    RegistryStore.bumpDataVersion()
+                }
+            },
+        )
+    }
+
+    billAmountAsk?.let { bill ->
+        BillPaidAmountDialog(
+            bill,
+            onDismiss = { billAmountAsk = null },
+            onSave = { sat ->
+                billAmountAsk = null
+                val registry = RegistryStore.current() ?: return@BillPaidAmountDialog
+                scope.launch {
+                    runCatching {
+                        withContext(Dispatchers.IO) { registry.markBillPaidAmount(bill.id, AppClock.nowUnix(), sat) }
+                    }.onFailure { e ->
+                        lastError = e.message ?: getString(Res.string.trk_err_mark_bill)
+                    }
+                    RegistryStore.bumpDataVersion()
+                }
+            },
+        )
+    }
+
+    // Schema v8 — add / edit an off-wallet entry (optionally paying a bill).
+    manualDialog?.let { state ->
+        ManualTxnDialog(
+            editing = state.editing,
+            editingCategory = state.category,
+            accounts = manualAccountList,
+            knownCategories = categories,
+            preset = state.preset,
+            title = state.forBill?.let { stringResource(Res.string.bill_pay_title, it.name) },
+            walletLabels = wallets.filter { it.id !in excludedWalletIds }.map { it.label },
+            debts = debtOptions(liabilities, loanSchedules),
+            onAddAccount = { name, ccy, balance ->
+                RegistryStore.current()?.let { registry ->
+                    runCatching {
+                        withContext(Dispatchers.IO) {
+                            val id = registry.addManualAsset(name, "cash", balance, ccy, null, null, null, null, null)
+                            registry.listManualAssets().firstOrNull { it.id == id }
+                        }
+                    }.onFailure { e -> lastError = e.message ?: getString(Res.string.mtx_err_save) }
+                        .getOrNull()
+                        ?.also { RegistryStore.bumpDataVersion() }
+                        ?.asManualAccount()
+                }
+            },
+            onDismiss = { manualDialog = null },
+            onDelete = state.editing?.let { row ->
+                {
+                    manualDialog = null
+                    val registry = RegistryStore.current()
+                    if (registry != null) {
+                        scope.launch {
+                            runCatching { withContext(Dispatchers.IO) { registry.deleteManualTxn(row.id) } }
+                                .onFailure { e -> lastError = e.message ?: getString(Res.string.mtx_err_delete) }
+                            RegistryStore.bumpDataVersion()
+                        }
+                    }
+                }
+            },
+            onSave = { draft ->
+                manualDialog = null
+                val registry = RegistryStore.current() ?: return@ManualTxnDialog
+                scope.launch {
+                    runCatching {
+                        withContext(Dispatchers.IO) { saveManualTxn(registry, state, draft) }
+                    }.onFailure { e ->
+                        lastError = e.message ?: getString(Res.string.mtx_err_save)
+                    }
                     RegistryStore.bumpDataVersion()
                 }
             },
@@ -1555,7 +1804,7 @@ public fun TrackingScreen(
                 keywords = listOf("refresh", "sync", "aggiorna"),
                 invoke = {
                     if (!refreshing) {
-                        scope.launch { TrackerCache.refresh(syncEsplora = true) }
+                        io.bhodl.desktop.AppScope.io.launch(kotlinx.coroutines.Dispatchers.Main) { TrackerCache.refresh(syncEsplora = true) }
                     }
                 },
             ),
@@ -1688,6 +1937,36 @@ public fun TrackingScreen(
                     RegistryStore.bumpDataVersion()
                 }
             },
+            ruleOption = RuleOptionContext(
+                walletLabel = walletLabelById[editingEvent.walletId],
+                events = events,
+                payeeOf = { walletLabelById[it.walletId] },
+            ),
+            onCreateRule = { draft, applyTo ->
+                val registry = RegistryStore.current() ?: return@CategoryEditDialog
+                val priority = topRulePriority(rules)
+                scope.launch {
+                    runCatching {
+                        withContext(Dispatchers.IO) {
+                            registry.addRule(
+                                draft.name, draft.conditionField, draft.conditionOp,
+                                draft.conditionValue, "category", draft.category,
+                                priority, true,
+                            )
+                            // Only uncategorised rows (see ruleDraftMatches):
+                            // a hand-set category is never overwritten.
+                            for (ev in applyTo) {
+                                registry.setEventCategory(ev.walletId, ev.txidOrPaymentId, draft.category)
+                            }
+                        }
+                    }.onSuccess {
+                        applyTo.forEach { TrackerCache.patchEventCategory(it.txidOrPaymentId, draft.category) }
+                    }.onFailure { e ->
+                        lastError = e.message ?: getString(Res.string.trk_err_create_rule)
+                    }
+                    RegistryStore.bumpDataVersion()
+                }
+            },
             onDismiss = { editing = null },
             onSave = { newCategory ->
                 val registry = RegistryStore.current()
@@ -1696,28 +1975,19 @@ public fun TrackingScreen(
                     editing = null
                     return@CategoryEditDialog
                 }
-                // UX review 2026-10 (item 11) — offer "Always do this?"
-                // when the edit is a real re-categorisation no rule
-                // already covers.
-                val offerRule = shouldOfferRuleFromEdit(
-                    event = editingEvent,
-                    oldCategory = editingEvent.category,
-                    newCategory = newCategory,
-                    rules = rules,
-                    payee = walletLabelById[editingEvent.walletId],
-                )
                 scope.launch {
-                    val saved = runCatching {
+                    runCatching {
                         withContext(Dispatchers.IO) {
                             saveEventCategory(registry, editingEvent, newCategory)
                         }
+                    }.onSuccess {
+                        // Shown at once: the cache refresh can wait behind a
+                        // slow network sync.
+                        TrackerCache.patchEventCategory(editingEvent.txidOrPaymentId, newCategory.trim().ifBlank { null })
                     }.onFailure { e ->
                         lastError = e.message ?: getString(Res.string.trk_err_save_category)
-                    }.isSuccess
-                    editing = null
-                    if (saved && offerRule) {
-                        ruleFromEdit = editingEvent to newCategory.trim()
                     }
+                    editing = null
                     RegistryStore.bumpDataVersion()
                 }
             },
@@ -1744,53 +2014,13 @@ public fun TrackingScreen(
         )
     }
 
-    val pendingRule = ruleFromEdit
-    if (pendingRule != null) {
-        val (ruleEvent, ruleCategory) = pendingRule
-        RuleFromEditPanel(
-            event = ruleEvent,
-            category = ruleCategory,
-            walletLabel = walletLabelById[ruleEvent.walletId],
-            events = events,
-            payeeOf = { walletLabelById[it.walletId] },
-            onDismiss = { ruleFromEdit = null },
-            onCreate = { draft, applyTo ->
-                val registry = RegistryStore.current()
-                ruleFromEdit = null
-                if (registry == null) {
-                    lastError = registryNotOpen
-                    return@RuleFromEditPanel
-                }
-                val priority = topRulePriority(rules)
-                scope.launch {
-                    runCatching {
-                        withContext(Dispatchers.IO) {
-                            registry.addRule(
-                                draft.name, draft.conditionField, draft.conditionOp,
-                                draft.conditionValue, "category", draft.category,
-                                priority, true,
-                            )
-                            // Only uncategorised rows (see ruleDraftMatches):
-                            // a hand-set category is never overwritten.
-                            for (ev in applyTo) {
-                                registry.setEventCategory(
-                                    ev.walletId, ev.txidOrPaymentId, draft.category,
-                                )
-                            }
-                        }
-                    }.onFailure { e ->
-                        lastError = e.message ?: getString(Res.string.trk_err_create_rule)
-                    }
-                    RegistryStore.bumpDataVersion()
-                }
-            },
-        )
-    }
 }
 
 public object TrackingTags {
     public const val REFRESH: String = "tracking.refresh"
     public const val EXPORT_CSV: String = "tracking.export-csv"
+    /** Period selector — the calendar-month chip (Transactions). */
+    public const val PERIOD_MONTH: String = "tracking.period-month"
     /** Phase 3.4 — chip on each PaymentEventRow. */
     public const val CATEGORY_CHIP: String = "tracking.category-chip"
     /** Inline category editor dialog (text field). */
@@ -1833,4 +2063,50 @@ public object TrackingTags {
     public const val HEADER_LOCK: String = "tracking.header-lock"
     /** Focusable root receiving the keyboard shortcuts. */
     public const val ROOT: String = "tracking.root"
+}
+
+/**
+ * Schema v10 — the debts an off-wallet payment can go to: every
+ * liability, a planned mortgage / loan with its plan's currency.
+ */
+internal fun debtOptions(
+    liabilities: List<io.bhodl.ffi.TrackingLiabilityFfi>,
+    schedules: Map<Long, io.bhodl.ffi.LoanScheduleFfi>,
+): List<DebtOption> = liabilities.map { l ->
+    val plan = schedules[l.id]
+    DebtOption(l.id, l.name, planned = plan != null, planCurrency = plan?.currency)
+}
+
+/** Schema v8 — the off-wallet entry dialog: a new entry, an edit, or a bill paid outside the wallets. */
+internal data class ManualDialogState(
+    val editing: io.bhodl.ffi.ManualTxnFfi? = null,
+    val category: String? = null,
+    val preset: ManualTxnPreset = ManualTxnPreset(),
+    val forBill: io.bhodl.ffi.TrackingBillFfi? = null,
+)
+
+/**
+ * Schema v8 — save an off-wallet entry with its category; when it pays
+ * a bill, mark the bill paid by it. Blocking: call off the UI thread.
+ */
+internal fun saveManualTxn(registry: io.bhodl.ffi.RegistryHandle, state: ManualDialogState, draft: ManualTxnDraft) {
+    val editing = state.editing
+    val id = if (editing != null) {
+        registry.updateManualTxn(
+            editing.id, draft.direction, draft.amountSat, draft.amountFiat, draft.currency, draft.occurredUnix, draft.note,
+            draft.debtPayment.takeIf { editing.liabilityId != null },
+        )
+        editing.id
+    } else {
+        registry.addManualTxn(
+            draft.direction, draft.amountSat, draft.amountFiat, draft.currency, draft.occurredUnix, draft.accountRef, draft.note,
+            draft.debtId, draft.debtPayment.takeIf { draft.debtId != null },
+        )
+    }
+    val walletId = io.bhodl.ffi.manualTxnWalletId(editing?.accountRef ?: draft.accountRef)
+    val eventId = io.bhodl.ffi.manualTxnEventId(id)
+    registry.setEventCategory(walletId, eventId, draft.category)
+    state.forBill?.let { bill ->
+        registry.markBillPaidBy(bill.id, draft.occurredUnix, draft.amountSat, "$walletId|$eventId")
+    }
 }

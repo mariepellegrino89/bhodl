@@ -25,7 +25,7 @@
 
 use std::path::Path;
 
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -547,10 +547,112 @@ pub fn open_registry_in_memory(conn: Connection) -> Result<Registry, OnchainErro
 ///   `tracking_manual_assets` and `tracking_liabilities` — the
 ///   kind-specific details shown on the Portfolio cards (TER, interest
 ///   rate, maturity, linked mortgage…). Default `'{}'`, no backfill.
+/// - v7: `tracking_bills.variable` and `tracking_bills.last_paid_amount_sat`
+///   — a bill whose amount changes (power, gas): `amount_sat` is then an
+///   estimate and each "paid" mark records what was actually paid.
+///   Defaults: fixed, no amount; no backfill.
+/// - v8: `tracking_manual_txns` — income and spending outside the
+///   wallets (cash, bank account, card), entered by hand in their own
+///   currency and stored with the sat value at the day's BTC rate; and
+///   `tracking_bills.category` / `tracking_bills.paid_ref` — the budget
+///   category of a bill and the transaction that paid it. No backfill.
+/// - v9: test-mode profiles —: `profile_meta` (key/value facts, among
+///   them the test-mode flag) and `demo_events` (the wallet transactions
+///   of a test profile). No backfill.
+/// - v10: `tracking_manual_txns.liability_id` / `liability_payment` — a
+///   manual entry that pays a debt (an installment or an extra
+///   repayment of a mortgage, a credit-card balance…) from its channel.
+///   Null for every existing row; no backfill.
 ///
 /// Not downgrade-compatible: an older build refuses a registry stamped
 /// with a higher version (see the L9 gate in `ensure_schema`).
-pub(crate) const SCHEMA_VERSION: i64 = 6;
+pub const SCHEMA_VERSION: i64 = 10;
+
+mod demo;
+pub use demo::DemoEvent;
+
+/// v8 — income and spending outside the wallets. `amount_sat` is the
+/// value at the day's BTC rate, fixed when the row is saved (the
+/// budget counts sat). `amount_fiat` / `currency` keep what the user
+/// typed; both null for an amount entered in sat. `account_ref` names
+/// the channel the money moved through: `asset:<id>` (a manual "cash"
+/// account: its balance moves with the entry, in its own currency),
+/// `liability:<id>` (a credit card: spending raises the debt),
+/// `other` (`PayPal`, meal vouchers…) or null (cash). The
+/// category lives in `tracking_categories` like any transaction's,
+/// keyed by [`manual_txn_wallet_id`] and [`manual_txn_event_id`].
+const CREATE_TRACKING_MANUAL_TXNS_TABLE_SQL: &str = "\
+CREATE TABLE IF NOT EXISTS tracking_manual_txns (\
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,\
+    direction       TEXT NOT NULL,\
+    amount_sat      INTEGER NOT NULL,\
+    amount_fiat     REAL,\
+    currency        TEXT,\
+    occurred_unix   INTEGER NOT NULL,\
+    account_ref     TEXT,\
+    note            TEXT,\
+    created_at_unix INTEGER NOT NULL\
+)";
+
+/// v8 — the budget category of a bill and the transaction that paid it
+/// (`<wallet_id>|<txid>`; a manual one is `manual:…|manual-<id>`).
+const ALTER_BILLS_LINK_SQL: [&str; 2] = [
+    "ALTER TABLE tracking_bills ADD COLUMN category TEXT",
+    "ALTER TABLE tracking_bills ADD COLUMN paid_ref TEXT",
+];
+
+/// v10 — the debt a manual entry pays (`tracking_liabilities.id`) and
+/// how: one of [`crate::loan_schedule::VALID_LOAN_PAYMENT_KINDS`].
+const ALTER_MANUAL_TXNS_LIABILITY_SQL: [&str; 2] = [
+    "ALTER TABLE tracking_manual_txns ADD COLUMN liability_id INTEGER",
+    "ALTER TABLE tracking_manual_txns ADD COLUMN liability_payment TEXT",
+];
+
+/// v8 — allowed values for `tracking_manual_txns.direction`.
+pub(crate) const VALID_MANUAL_TXN_DIRECTIONS: &[&str] = &["in", "out"];
+
+/// v8 — prefix of the wallet ids manual transactions carry ("manual"
+/// in hex). Categories are keyed by wallet UUID, so each account gets a
+/// stable synthetic one: see [`manual_txn_wallet_id`].
+pub const MANUAL_WALLET_ID_PREFIX: &str = "6d616e75-616c-4000-8000-";
+
+/// v8 — the wallet id a manual transaction's events and category carry,
+/// one per channel: the last UUID group is `0…0` for cash, `c0…0` for
+/// `other`, `a` + the asset id or `b` + the liability id (11 hex digits).
+///
+/// # Panics
+///
+/// Never: the prefix plus 12 hex digits always parses.
+#[must_use]
+pub fn manual_txn_wallet_id(account_ref: Option<&str>) -> Uuid {
+    let tail = if account_ref == Some(MANUAL_ACCOUNT_OTHER) {
+        Some(format!("c{}", "0".repeat(11)))
+    } else {
+        match account_ref.and_then(|r| r.split_once(':')) {
+            Some(("asset", id)) => id.parse::<u64>().ok().map(|n| format!("a{n:011x}")),
+            Some(("liability", id)) => id.parse::<u64>().ok().map(|n| format!("b{n:011x}")),
+            _ => None,
+        }
+    }
+    .unwrap_or_else(|| "0".repeat(12));
+    Uuid::parse_str(&format!("{MANUAL_WALLET_ID_PREFIX}{tail}"))
+        .expect("prefix plus 12 hex digits is a valid UUID")
+}
+
+/// v8 — the `account_ref` of the "other" channel (`PayPal`, vouchers…).
+pub const MANUAL_ACCOUNT_OTHER: &str = "other";
+
+/// v8 — the event id of manual transaction `id`.
+#[must_use]
+pub fn manual_txn_event_id(id: i64) -> String {
+    format!("manual-{id}")
+}
+
+/// v7 — variable-amount bills.
+const ALTER_BILLS_VARIABLE_SQL: [&str; 2] = [
+    "ALTER TABLE tracking_bills ADD COLUMN variable INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE tracking_bills ADD COLUMN last_paid_amount_sat INTEGER",
+];
 
 /// v6 — kind-specific details of a portfolio row, a small JSON object
 /// (see [`Registry::set_details`]).
@@ -651,6 +753,32 @@ fn ensure_schema(conn: &Connection) -> Result<(), OnchainError> {
     }
     if current_version < 6 {
         for stmt in ALTER_DETAILS_JSON_SQL {
+            add_column_idempotent(&tx, stmt)?;
+        }
+    }
+    if current_version < 7 {
+        for stmt in ALTER_BILLS_VARIABLE_SQL {
+            add_column_idempotent(&tx, stmt)?;
+        }
+    }
+    if current_version < 8 {
+        tx.execute(CREATE_TRACKING_MANUAL_TXNS_TABLE_SQL, [])
+            .map_err(|e| OnchainError::Storage(e.to_string()))?;
+        for stmt in ALTER_BILLS_LINK_SQL {
+            add_column_idempotent(&tx, stmt)?;
+        }
+    }
+    if current_version < 9 {
+        for stmt in [
+            demo::CREATE_PROFILE_META_TABLE_SQL,
+            demo::CREATE_DEMO_EVENTS_TABLE_SQL,
+        ] {
+            tx.execute(stmt, [])
+                .map_err(|e| OnchainError::Storage(e.to_string()))?;
+        }
+    }
+    if current_version < 10 {
+        for stmt in ALTER_MANUAL_TXNS_LIABILITY_SQL {
             add_column_idempotent(&tx, stmt)?;
         }
     }
@@ -1959,11 +2087,82 @@ impl Registry {
     /// "Paid" checkbox. Pass `None` to clear the mark (e.g. user
     /// unchecks). Returns false when no row matches.
     pub fn mark_bill_paid(&self, id: i64, unix_ts: Option<i64>) -> Result<bool, OnchainError> {
+        // Clearing the mark also clears the amount it recorded (v7) and
+        // the transaction it was linked to (v8).
         let n = self
             .conn
             .execute(
-                "UPDATE tracking_bills SET last_paid_unix = ?1 WHERE id = ?2",
+                "UPDATE tracking_bills SET last_paid_unix = ?1, \
+                    last_paid_amount_sat = CASE WHEN ?1 IS NULL THEN NULL ELSE last_paid_amount_sat END, \
+                    paid_ref = CASE WHEN ?1 IS NULL THEN NULL ELSE paid_ref END \
+                 WHERE id = ?2",
                 rusqlite::params![unix_ts, id],
+            )
+            .map_err(|e| OnchainError::Storage(e.to_string()))?;
+        Ok(n > 0)
+    }
+
+    /// v7 — mark a bill paid at `unix_ts` with the amount actually paid
+    /// (variable bills: power, gas…). Returns false when no row matches.
+    pub fn mark_bill_paid_amount(
+        &self,
+        id: i64,
+        unix_ts: i64,
+        amount_sat: u64,
+    ) -> Result<bool, OnchainError> {
+        let n = self
+            .conn
+            .execute(
+                "UPDATE tracking_bills SET last_paid_unix = ?1, last_paid_amount_sat = ?2 WHERE id = ?3",
+                rusqlite::params![unix_ts, sat_to_i64("amount_sat", amount_sat)?, id],
+            )
+            .map_err(|e| OnchainError::Storage(e.to_string()))?;
+        Ok(n > 0)
+    }
+
+    /// v7 — whether the bill's amount varies (`amount_sat` is then an
+    /// estimate). Returns false when no row matches.
+    pub fn set_bill_variable(&self, id: i64, variable: bool) -> Result<bool, OnchainError> {
+        let n = self
+            .conn
+            .execute(
+                "UPDATE tracking_bills SET variable = ?1 WHERE id = ?2",
+                rusqlite::params![variable, id],
+            )
+            .map_err(|e| OnchainError::Storage(e.to_string()))?;
+        Ok(n > 0)
+    }
+
+    /// v8 — the budget category of a bill (`None` clears it). Returns
+    /// false when no row matches.
+    pub fn set_bill_category(&self, id: i64, category: Option<&str>) -> Result<bool, OnchainError> {
+        let category = category.map(str::trim).filter(|c| !c.is_empty());
+        let n = self
+            .conn
+            .execute(
+                "UPDATE tracking_bills SET category = ?1 WHERE id = ?2",
+                rusqlite::params![category, id],
+            )
+            .map_err(|e| OnchainError::Storage(e.to_string()))?;
+        Ok(n > 0)
+    }
+
+    /// v8 — mark a bill paid by a transaction: at `unix_ts`, for
+    /// `amount_sat`, linked to `paid_ref` (`<wallet_id>|<txid>`).
+    /// Returns false when no row matches.
+    pub fn mark_bill_paid_by(
+        &self,
+        id: i64,
+        unix_ts: i64,
+        amount_sat: u64,
+        paid_ref: &str,
+    ) -> Result<bool, OnchainError> {
+        let n = self
+            .conn
+            .execute(
+                "UPDATE tracking_bills SET last_paid_unix = ?1, last_paid_amount_sat = ?2, \
+                    paid_ref = ?3 WHERE id = ?4",
+                rusqlite::params![unix_ts, sat_to_i64("amount_sat", amount_sat)?, paid_ref, id],
             )
             .map_err(|e| OnchainError::Storage(e.to_string()))?;
         Ok(n > 0)
@@ -1981,7 +2180,8 @@ impl Registry {
             .conn
             .prepare(
                 "SELECT id, name, amount_sat, due_day, last_paid_unix, \
-                        display_label, created_at_unix \
+                        display_label, created_at_unix, variable, last_paid_amount_sat, \
+                        category, paid_ref \
                  FROM tracking_bills ORDER BY due_day ASC, created_at_unix ASC",
             )
             .map_err(|e| OnchainError::Storage(e.to_string()))?;
@@ -1995,6 +2195,10 @@ impl Registry {
                     last_paid_unix: row.get(4)?,
                     display_label: row.get(5)?,
                     created_at_unix: row.get(6)?,
+                    variable: row.get(7)?,
+                    last_paid_amount_sat: row.get::<_, Option<i64>>(8)?.map(i64::cast_unsigned),
+                    category: row.get(9)?,
+                    paid_ref: row.get(10)?,
                 })
             })
             .map_err(|e| OnchainError::Storage(e.to_string()))?;
@@ -2012,6 +2216,255 @@ impl Registry {
             .execute("DELETE FROM tracking_bills WHERE id = ?1", [id])
             .map_err(|e| OnchainError::Storage(e.to_string()))?;
         Ok(n > 0)
+    }
+
+    // ----------------------------------------------------------------
+    // v8 — manual transactions (cash, bank account, card)
+    // ----------------------------------------------------------------
+
+    /// Record income (`"in"`) or spending (`"out"`) outside the
+    /// wallets. `amount_sat` must be positive; `amount_fiat` and
+    /// `currency` go together.
+    #[allow(clippy::too_many_arguments)]
+    pub fn add_manual_txn(
+        &self,
+        direction: &str,
+        amount_sat: u64,
+        amount_fiat: Option<f64>,
+        currency: Option<&str>,
+        occurred_unix: i64,
+        account_ref: Option<&str>,
+        note: Option<&str>,
+    ) -> Result<i64, OnchainError> {
+        self.add_manual_txn_paying(
+            direction,
+            amount_sat,
+            amount_fiat,
+            currency,
+            occurred_unix,
+            account_ref,
+            note,
+            None,
+        )
+    }
+
+    /// [`Self::add_manual_txn`], optionally paying a debt (v10): the
+    /// money leaves `account_ref` and goes to `debt`. Spending only. The
+    /// debt's stored balance drops by `amount_sat`; a mortgage or loan
+    /// with a plan follows its plan instead (see [`crate::loan_schedule`]),
+    /// and then the entry must be in the plan's currency.
+    #[allow(clippy::too_many_arguments)]
+    pub fn add_manual_txn_paying(
+        &self,
+        direction: &str,
+        amount_sat: u64,
+        amount_fiat: Option<f64>,
+        currency: Option<&str>,
+        occurred_unix: i64,
+        account_ref: Option<&str>,
+        note: Option<&str>,
+        debt: Option<DebtPayment<'_>>,
+    ) -> Result<i64, OnchainError> {
+        validate_manual_txn(direction, amount_sat, amount_fiat, currency)?;
+        let tx = self
+            .conn
+            .unchecked_transaction()
+            .map_err(|e| OnchainError::Storage(e.to_string()))?;
+        if let Some(d) = debt {
+            validate_debt_payment(&tx, d, direction, currency, account_ref)?;
+        }
+        tx.execute(
+            "INSERT INTO tracking_manual_txns \
+                    (direction, amount_sat, amount_fiat, currency, occurred_unix, \
+                     account_ref, note, created_at_unix, liability_id, liability_payment) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            rusqlite::params![
+                direction,
+                sat_to_i64("amount_sat", amount_sat)?,
+                amount_fiat,
+                currency.map(|c| c.trim().to_uppercase()),
+                occurred_unix,
+                account_ref,
+                note.map(str::trim).filter(|n| !n.is_empty()),
+                now_unix(),
+                debt.map(|d| d.liability_id),
+                debt.map(|d| d.kind),
+            ],
+        )
+        .map_err(|e| OnchainError::Storage(e.to_string()))?;
+        let id = tx.last_insert_rowid();
+        let entry = AccountEffect {
+            account_ref,
+            direction,
+            amount_sat,
+            amount_fiat,
+            currency,
+            liability_id: debt.map(|d| d.liability_id),
+        };
+        move_account_balance(&tx, &entry, true)?;
+        tx.commit()
+            .map_err(|e| OnchainError::Storage(e.to_string()))?;
+        Ok(id)
+    }
+
+    /// Change a manual transaction. The account stays: it is part of the
+    /// event's identity (its category is stored under it). Its balance
+    /// moves by the difference (the old entry undone, the new applied).
+    /// Returns false when no row matches.
+    #[allow(clippy::too_many_arguments)]
+    pub fn update_manual_txn(
+        &self,
+        id: i64,
+        direction: &str,
+        amount_sat: u64,
+        amount_fiat: Option<f64>,
+        currency: Option<&str>,
+        occurred_unix: i64,
+        note: Option<&str>,
+    ) -> Result<bool, OnchainError> {
+        self.update_manual_txn_paying(
+            id,
+            direction,
+            amount_sat,
+            amount_fiat,
+            currency,
+            occurred_unix,
+            note,
+            None,
+        )
+    }
+
+    /// [`Self::update_manual_txn`]; `debt_kind` changes how the entry
+    /// pays its debt (installment / extra repayment), `None` keeps it.
+    /// The debt itself stays, like the account.
+    #[allow(clippy::too_many_arguments)]
+    pub fn update_manual_txn_paying(
+        &self,
+        id: i64,
+        direction: &str,
+        amount_sat: u64,
+        amount_fiat: Option<f64>,
+        currency: Option<&str>,
+        occurred_unix: i64,
+        note: Option<&str>,
+        debt_kind: Option<&str>,
+    ) -> Result<bool, OnchainError> {
+        validate_manual_txn(direction, amount_sat, amount_fiat, currency)?;
+        let tx = self
+            .conn
+            .unchecked_transaction()
+            .map_err(|e| OnchainError::Storage(e.to_string()))?;
+        let Some(old) = read_manual_txn(&tx, id)? else {
+            return Ok(false);
+        };
+        let kind = debt_kind
+            .or(old.liability_payment.as_deref())
+            .map(str::to_owned);
+        if let Some(liability_id) = old.liability_id {
+            let d = DebtPayment {
+                liability_id,
+                kind: kind.as_deref().unwrap_or(""),
+            };
+            validate_debt_payment(&tx, d, direction, currency, old.account_ref.as_deref())?;
+        }
+        move_account_balance(&tx, &old.effect(), false)?;
+        let new = AccountEffect {
+            account_ref: old.account_ref.as_deref(),
+            direction,
+            amount_sat,
+            amount_fiat,
+            currency,
+            liability_id: old.liability_id,
+        };
+        move_account_balance(&tx, &new, true)?;
+        let n = tx
+            .execute(
+                "UPDATE tracking_manual_txns SET direction = ?1, amount_sat = ?2, \
+                    amount_fiat = ?3, currency = ?4, occurred_unix = ?5, note = ?6, \
+                    liability_payment = ?7 \
+                 WHERE id = ?8",
+                rusqlite::params![
+                    direction,
+                    sat_to_i64("amount_sat", amount_sat)?,
+                    amount_fiat,
+                    currency.map(|c| c.trim().to_uppercase()),
+                    occurred_unix,
+                    note.map(str::trim).filter(|n| !n.is_empty()),
+                    kind.filter(|_| old.liability_id.is_some()),
+                    id,
+                ],
+            )
+            .map_err(|e| OnchainError::Storage(e.to_string()))?;
+        tx.commit()
+            .map_err(|e| OnchainError::Storage(e.to_string()))?;
+        Ok(n > 0)
+    }
+
+    /// Delete a manual transaction with its category and any bill link
+    /// to it (the bill goes back to unpaid); its account's balance is
+    /// moved back. Returns true if a row was removed.
+    pub fn delete_manual_txn(&self, id: i64) -> Result<bool, OnchainError> {
+        let event_id = manual_txn_event_id(id);
+        let tx = self
+            .conn
+            .unchecked_transaction()
+            .map_err(|e| OnchainError::Storage(e.to_string()))?;
+        if let Some(old) = read_manual_txn(&tx, id)? {
+            move_account_balance(&tx, &old.effect(), false)?;
+        }
+        tx.execute(
+            "DELETE FROM tracking_categories \
+             WHERE txid_or_payment_id = ?1 AND wallet_id LIKE ?2",
+            rusqlite::params![event_id, format!("{MANUAL_WALLET_ID_PREFIX}%")],
+        )
+        .map_err(|e| OnchainError::Storage(e.to_string()))?;
+        tx.execute(
+            "UPDATE tracking_bills SET last_paid_unix = NULL, last_paid_amount_sat = NULL, \
+                paid_ref = NULL \
+             WHERE paid_ref LIKE ?2 AND substr(paid_ref, instr(paid_ref, '|') + 1) = ?1",
+            rusqlite::params![event_id, format!("{MANUAL_WALLET_ID_PREFIX}%")],
+        )
+        .map_err(|e| OnchainError::Storage(e.to_string()))?;
+        let n = tx
+            .execute("DELETE FROM tracking_manual_txns WHERE id = ?1", [id])
+            .map_err(|e| OnchainError::Storage(e.to_string()))?;
+        tx.commit()
+            .map_err(|e| OnchainError::Storage(e.to_string()))?;
+        Ok(n > 0)
+    }
+
+    /// Every manual transaction, newest first.
+    pub fn list_manual_txns(&self) -> Result<Vec<ManualTxn>, OnchainError> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT id, direction, amount_sat, amount_fiat, currency, occurred_unix, \
+                        account_ref, note, created_at_unix, liability_id, liability_payment \
+                 FROM tracking_manual_txns ORDER BY occurred_unix DESC, id DESC",
+            )
+            .map_err(|e| OnchainError::Storage(e.to_string()))?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(ManualTxn {
+                    id: row.get(0)?,
+                    direction: row.get(1)?,
+                    amount_sat: row.get::<_, i64>(2)?.cast_unsigned(),
+                    amount_fiat: row.get(3)?,
+                    currency: row.get(4)?,
+                    occurred_unix: row.get(5)?,
+                    account_ref: row.get(6)?,
+                    note: row.get(7)?,
+                    created_at_unix: row.get(8)?,
+                    liability_id: row.get(9)?,
+                    liability_payment: row.get(10)?,
+                })
+            })
+            .map_err(|e| OnchainError::Storage(e.to_string()))?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r.map_err(|e| OnchainError::Storage(e.to_string()))?);
+        }
+        Ok(out)
     }
 
     // ----------------------------------------------------------------
@@ -3936,6 +4389,41 @@ pub struct TrackingBill {
     pub last_paid_unix: Option<i64>,
     pub display_label: Option<String>,
     pub created_at_unix: i64,
+    /// v7 — the amount varies; `amount_sat` is an estimate.
+    pub variable: bool,
+    /// v7 — what the last "paid" mark recorded, when given.
+    pub last_paid_amount_sat: Option<u64>,
+    /// v8 — the budget category the bill's payments count against.
+    pub category: Option<String>,
+    /// v8 — the transaction that paid it (`<wallet_id>|<txid>`).
+    pub paid_ref: Option<String>,
+}
+
+/// v8 — one row of the `tracking_manual_txns` table.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ManualTxn {
+    pub id: i64,
+    /// One of [`VALID_MANUAL_TXN_DIRECTIONS`].
+    pub direction: String,
+    pub amount_sat: u64,
+    pub amount_fiat: Option<f64>,
+    pub currency: Option<String>,
+    pub occurred_unix: i64,
+    pub account_ref: Option<String>,
+    pub note: Option<String>,
+    pub created_at_unix: i64,
+    /// v10 — the debt this entry pays, if any.
+    pub liability_id: Option<i64>,
+    /// v10 — how: one of [`crate::loan_schedule::VALID_LOAN_PAYMENT_KINDS`].
+    pub liability_payment: Option<String>,
+}
+
+/// v10 — the debt a manual entry pays and how
+/// (one of [`crate::loan_schedule::VALID_LOAN_PAYMENT_KINDS`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DebtPayment<'a> {
+    pub liability_id: i64,
+    pub kind: &'a str,
 }
 
 /// Phase 4.5 — one row of the `tracking_savings_goals` table.
@@ -4402,6 +4890,217 @@ pub(crate) fn validate_details_json(json: &str) -> Result<String, OnchainError> 
         return Err(bad(format!("at most {MAX_DETAILS_KEYS} keys")));
     }
     Ok(serde_json::Value::Object(out).to_string())
+}
+
+/// v8 — a manual transaction as it touches its account's balance.
+struct AccountEffect<'a> {
+    account_ref: Option<&'a str>,
+    direction: &'a str,
+    amount_sat: u64,
+    amount_fiat: Option<f64>,
+    currency: Option<&'a str>,
+    /// v10 — the debt the entry pays.
+    liability_id: Option<i64>,
+}
+
+impl ManualTxn {
+    fn effect(&self) -> AccountEffect<'_> {
+        AccountEffect {
+            account_ref: self.account_ref.as_deref(),
+            direction: &self.direction,
+            amount_sat: self.amount_sat,
+            amount_fiat: self.amount_fiat,
+            currency: self.currency.as_deref(),
+            liability_id: self.liability_id,
+        }
+    }
+}
+
+fn read_manual_txn(conn: &Connection, id: i64) -> Result<Option<ManualTxn>, OnchainError> {
+    conn.query_row(
+        "SELECT id, direction, amount_sat, amount_fiat, currency, occurred_unix, \
+                account_ref, note, created_at_unix, liability_id, liability_payment \
+         FROM tracking_manual_txns WHERE id = ?1",
+        [id],
+        |row| {
+            Ok(ManualTxn {
+                id: row.get(0)?,
+                direction: row.get(1)?,
+                amount_sat: row.get::<_, i64>(2)?.cast_unsigned(),
+                amount_fiat: row.get(3)?,
+                currency: row.get(4)?,
+                occurred_unix: row.get(5)?,
+                account_ref: row.get(6)?,
+                note: row.get(7)?,
+                created_at_unix: row.get(8)?,
+                liability_id: row.get(9)?,
+                liability_payment: row.get(10)?,
+            })
+        },
+    )
+    .optional()
+    .map_err(|e| OnchainError::Storage(e.to_string()))
+}
+
+/// v8 — move the balance of an entry's account: spending lowers a
+/// "cash" asset account (by the amount in its own currency) and raises
+/// a credit card's debt (in sat, never below zero); income does the
+/// opposite. `apply` false undoes the entry. Cash and `other` have no
+/// balance. Applying checks the account exists and, for an asset
+/// account, that the entry is in its currency; undoing an entry whose
+/// account is gone is a no-op.
+fn move_account_balance(
+    conn: &Connection,
+    e: &AccountEffect<'_>,
+    apply: bool,
+) -> Result<(), OnchainError> {
+    if let Some(debt) = e.liability_id {
+        // v10 — the payment lowers the debt (never below zero).
+        let amount = sat_to_i64("amount_sat", e.amount_sat)?;
+        let delta = if apply { -amount } else { amount };
+        conn.execute(
+            "UPDATE tracking_liabilities SET amount_sat = MAX(0, amount_sat + ?1) WHERE id = ?2",
+            rusqlite::params![delta, debt],
+        )
+        .map_err(|err| OnchainError::Storage(err.to_string()))?;
+    }
+    let Some((kind, id)) = e.account_ref.and_then(|r| r.split_once(':')) else {
+        return Ok(());
+    };
+    let Ok(id) = id.parse::<i64>() else {
+        return Ok(());
+    };
+    let spending = e.direction == "out";
+    let unknown = || OnchainError::InvalidArgument(format!("unknown account {kind}:{id}"));
+    match kind {
+        "asset" => {
+            let account_currency: Option<String> = conn
+                .query_row(
+                    "SELECT currency FROM tracking_manual_assets WHERE id = ?1",
+                    [id],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(|err| OnchainError::Storage(err.to_string()))?;
+            let Some(account_currency) = account_currency else {
+                return if apply { Err(unknown()) } else { Ok(()) };
+            };
+            let same_currency = e
+                .currency
+                .is_some_and(|c| c.trim().eq_ignore_ascii_case(account_currency.trim()));
+            let (Some(fiat), true) = (e.amount_fiat, same_currency) else {
+                return if apply {
+                    Err(OnchainError::InvalidArgument(format!(
+                        "an entry on this account must be in {account_currency}"
+                    )))
+                } else {
+                    Ok(())
+                };
+            };
+            let grows = spending != apply;
+            let delta = if grows { fiat } else { -fiat };
+            conn.execute(
+                "UPDATE tracking_manual_assets SET value_fiat = value_fiat + ?1, \
+                    last_updated_unix = ?2 WHERE id = ?3",
+                rusqlite::params![delta, now_unix(), id],
+            )
+            .map_err(|err| OnchainError::Storage(err.to_string()))?;
+        }
+        "liability" => {
+            let amount = sat_to_i64("amount_sat", e.amount_sat)?;
+            let grows = spending == apply;
+            let delta = if grows { amount } else { -amount };
+            let n = conn
+                .execute(
+                    "UPDATE tracking_liabilities SET amount_sat = MAX(0, amount_sat + ?1) \
+                     WHERE id = ?2",
+                    rusqlite::params![delta, id],
+                )
+                .map_err(|err| OnchainError::Storage(err.to_string()))?;
+            if n == 0 && apply {
+                return Err(unknown());
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn validate_manual_txn(
+    direction: &str,
+    amount_sat: u64,
+    amount_fiat: Option<f64>,
+    currency: Option<&str>,
+) -> Result<(), OnchainError> {
+    if !VALID_MANUAL_TXN_DIRECTIONS.contains(&direction) {
+        return Err(OnchainError::InvalidArgument(format!(
+            "manual transaction direction must be one of {VALID_MANUAL_TXN_DIRECTIONS:?}, got {direction:?}"
+        )));
+    }
+    if amount_sat == 0 {
+        return Err(OnchainError::InvalidArgument(
+            "manual transaction amount must be positive".into(),
+        ));
+    }
+    if let Some(v) = amount_fiat {
+        validate_finite("amount_fiat", v)?;
+    }
+    let has_currency = currency.is_some_and(|c| !c.trim().is_empty());
+    if amount_fiat.is_some() != has_currency {
+        return Err(OnchainError::InvalidArgument(
+            "amount_fiat and currency go together".into(),
+        ));
+    }
+    Ok(())
+}
+
+/// v10 — a debt payment is spending, on an existing debt other than the
+/// channel itself, of a known kind; on a mortgage / loan whose plan names
+/// its currency, in that currency (the plan counts it in that currency).
+fn validate_debt_payment(
+    conn: &Connection,
+    d: DebtPayment<'_>,
+    direction: &str,
+    currency: Option<&str>,
+    account_ref: Option<&str>,
+) -> Result<(), OnchainError> {
+    let bad = |m: String| Err(OnchainError::InvalidArgument(m));
+    if direction != "out" {
+        return bad("a debt payment must be spending".into());
+    }
+    if !crate::loan_schedule::VALID_LOAN_PAYMENT_KINDS.contains(&d.kind) {
+        return bad(format!(
+            "debt payment kind must be one of {:?}, got {:?}",
+            crate::loan_schedule::VALID_LOAN_PAYMENT_KINDS,
+            d.kind
+        ));
+    }
+    if account_ref == Some(format!("liability:{}", d.liability_id).as_str()) {
+        return bad("a debt cannot pay itself".into());
+    }
+    let row: Option<(String, String)> = conn
+        .query_row(
+            "SELECT kind, details_json FROM tracking_liabilities WHERE id = ?1",
+            [d.liability_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()
+        .map_err(|e| OnchainError::Storage(e.to_string()))?;
+    let Some((kind, details)) = row else {
+        return bad(format!("unknown debt {}", d.liability_id));
+    };
+    if crate::loan_schedule::SCHEDULED_LIABILITY_KINDS.contains(&kind.as_str()) {
+        let plan_currency = crate::loan_schedule::terms_from_details(&details, "")
+            .map(|t| t.currency)
+            .filter(|c| !c.is_empty());
+        if let Some(plan) = plan_currency {
+            let same = currency.is_some_and(|c| c.trim().eq_ignore_ascii_case(&plan));
+            if !same {
+                return bad(format!("a payment on this debt must be in {plan}"));
+            }
+        }
+    }
+    Ok(())
 }
 
 fn validate_manual_asset_kind(t: &str) -> Result<(), OnchainError> {

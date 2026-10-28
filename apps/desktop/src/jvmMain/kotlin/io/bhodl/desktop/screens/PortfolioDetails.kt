@@ -1,11 +1,17 @@
 package io.bhodl.desktop.screens
 
+import io.bhodl.desktop.AppClock
+import io.bhodl.ffi.LoanScheduleFfi
 import io.bhodl.ffi.TrackingInvestmentFfi
 import io.bhodl.ffi.TrackingInvestmentLotFfi
 import io.bhodl.ffi.TrackingLiabilityFfi
 import io.bhodl.ffi.TrackingLotDisposalFfi
 import io.bhodl.ffi.TrackingManualAssetFfi
 import io.bhodl.shared.resources.Res
+import io.bhodl.shared.resources.pfc_f_original_amount_fiat
+import io.bhodl.shared.resources.pfc_f_start_date
+import io.bhodl.shared.resources.pfc_k_next_installment
+import io.bhodl.shared.resources.pfc_k_payoff_date
 import io.bhodl.shared.resources.pfc_cat_brokerage
 import io.bhodl.shared.resources.pfc_cat_business
 import io.bhodl.shared.resources.pfc_cat_cash
@@ -162,6 +168,10 @@ private val F_RATE = DetailField("rate_pct", Res.string.pfc_f_rate_pct, FieldTyp
 private val F_MONTHLY_PAYMENT = DetailField("monthly_payment", Res.string.pfc_f_monthly_payment, FieldType.MONEY)
 private val F_END_DATE = DetailField("end_date", Res.string.pfc_f_end_date, FieldType.DATE)
 private val F_ORIGINAL_SAT = DetailField("original_amount_sat", Res.string.pfc_f_original_amount_sat, FieldType.SATS)
+// Schema v10 — the amortization plan: with the rate and the installment
+// (or the end date) these make the debt follow its plan.
+private val F_ORIGINAL_FIAT = DetailField("original_amount_fiat", Res.string.pfc_f_original_amount_fiat, FieldType.MONEY)
+private val F_START_DATE = DetailField("start_date", Res.string.pfc_f_start_date, FieldType.DATE)
 private val F_LINKED_ASSET = DetailField("linked_asset_id", Res.string.pfc_f_linked_asset_id, FieldType.LINK_ASSET)
 
 /**
@@ -269,14 +279,14 @@ internal enum class DetailCategory(
     MORTGAGE(
         PortfolioClass.LIABILITIES, "⌂", Res.string.pfc_cat_mortgage,
         listOf(
-            F_ORIGINAL_SAT, F_RATE,
+            F_ORIGINAL_FIAT, F_START_DATE, F_RATE,
             DetailField("rate_type", Res.string.pfc_f_rate_type, FieldType.CHOICE, listOf("fixed", "variable")),
-            F_MONTHLY_PAYMENT, F_END_DATE, F_LINKED_ASSET,
+            F_MONTHLY_PAYMENT, F_END_DATE, F_LINKED_ASSET, F_ORIGINAL_SAT,
         ),
     ),
     LOAN(
         PortfolioClass.LIABILITIES, "%", Res.string.pfc_cat_loan,
-        listOf(F_ORIGINAL_SAT, F_RATE, F_MONTHLY_PAYMENT, F_END_DATE, F_LINKED_ASSET),
+        listOf(F_ORIGINAL_FIAT, F_START_DATE, F_RATE, F_MONTHLY_PAYMENT, F_END_DATE, F_LINKED_ASSET, F_ORIGINAL_SAT),
     ),
     CREDIT_CARD(
         PortfolioClass.LIABILITIES, "▭", Res.string.pfc_cat_credit_card,
@@ -362,13 +372,18 @@ internal fun parseDetailsJson(json: String): Map<String, String> = runCatching {
         ?.toMap()
 }.getOrNull().orEmpty()
 
+/** Details key of the currency the money fields of a row are in. */
+internal const val DETAILS_CURRENCY_KEY: String = "currency"
+
 /**
  * The editor's `key → text` back to a details object. Numeric fields
  * become JSON numbers (decimal comma accepted), booleans JSON booleans;
  * blank and unparsable numeric values are dropped, as are keys that are
- * not fields of [category].
+ * not fields of [category]. When a money field is filled the object also
+ * names its currency: the one already stored, else [currency] — so a
+ * later change of the dashboard currency does not re-read 690 € as 690 $.
  */
-internal fun detailsToJson(category: DetailCategory, values: Map<String, String>): String {
+internal fun detailsToJson(category: DetailCategory, values: Map<String, String>, currency: String? = null): String {
     val out = LinkedHashMap<String, JsonPrimitive>()
     for (f in category.fields) {
         val raw = values[f.key]?.trim().orEmpty()
@@ -385,6 +400,9 @@ internal fun detailsToJson(category: DetailCategory, values: Map<String, String>
         }
         if (prim != null) out[f.key] = prim
     }
+    val hasMoney = category.fields.any { it.type == FieldType.MONEY && it.key in out }
+    val ccy = values[DETAILS_CURRENCY_KEY]?.trim()?.takeIf { it.isNotEmpty() } ?: currency?.takeIf { it.isNotBlank() }
+    if (hasMoney && ccy != null) out[DETAILS_CURRENCY_KEY] = JsonPrimitive(ccy.uppercase())
     return JsonObject(out).toString()
 }
 
@@ -463,11 +481,12 @@ internal fun detailAttrs(
     linkedAssetName: (String) -> String? = { null },
 ): List<CardAttr> = category.fields.mapNotNull { f ->
     val raw = details[f.key]?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+    val moneyCurrency = details[DETAILS_CURRENCY_KEY]?.takeIf { it.isNotBlank() } ?: currency
     val value: CardValue = when (f.type) {
         FieldType.TEXT -> CardValue.Text(raw)
         FieldType.NUMBER -> parseNumber(raw)?.let { CardValue.Qty(it, "") } ?: CardValue.Text(raw)
         FieldType.PERCENT -> parseNumber(raw)?.let { CardValue.Pct(it) } ?: CardValue.Text(raw)
-        FieldType.MONEY -> parseNumber(raw)?.let { CardValue.Fiat(it, currency) } ?: CardValue.Text(raw)
+        FieldType.MONEY -> parseNumber(raw)?.let { CardValue.Fiat(it, moneyCurrency) } ?: CardValue.Text(raw)
         FieldType.SATS -> raw.toLongOrNull()?.let { CardValue.Sat(it) } ?: CardValue.Text(raw)
         FieldType.DATE -> parseIsoDate(raw)?.let { CardValue.Date(it) } ?: CardValue.Text(raw)
         FieldType.BOOL -> CardValue.YesNo(raw.equals("true", ignoreCase = true))
@@ -705,18 +724,51 @@ internal fun manualAssetCardModel(
 
 /**
  * Liability card. Amounts are in sat, like the liability itself;
- * [linkedAssetName] resolves `linked_asset_id` to the asset's name.
+ * [linkedAssetName] resolves `linked_asset_id` to the asset's name. A
+ * mortgage / loan with a [plan] shows what the plan says today: repaid
+ * share, current installment, installments left, next due and payoff day.
  */
 internal fun liabilityCardModel(
     l: TrackingLiabilityFfi,
     details: Map<String, String>,
     nowUnix: Long,
     fiatCode: String,
+    plan: LoanScheduleFfi? = null,
     linkedAssetName: (String) -> String? = { null },
 ): DetailCardModel {
     val category = DetailCategory.ofLiability(l.kind)
     val balance = l.amountSat.toLong()
     val today = epochDay(nowUnix)
+    var meter: CardMeter? = null
+    val derived = mutableListOf<CardAttr>()
+    val kpis: List<CardKpi> = when {
+        plan != null && (category == DetailCategory.MORTGAGE || category == DetailCategory.LOAN) -> {
+            val repaid = if (plan.originalAmount > 0.0) clamp01(1.0 - plan.balanceNow / plan.originalAmount) else 0.0
+            meter = CardMeter(Res.string.pfc_k_repaid, repaid, CardValue.Pct(repaid * 100.0))
+            plan.nextDueUnix?.let { derived += CardAttr(Res.string.pfc_k_next_installment, CardValue.Date(epochDay(it))) }
+            plan.payoffUnix?.let { derived += CardAttr(Res.string.pfc_k_payoff_date, CardValue.Date(epochDay(it))) }
+            listOf(
+                CardKpi(Res.string.pfc_k_remaining, CardValue.Sat(balance), Tone.NEGATIVE),
+                CardKpi(Res.string.pfc_f_monthly_payment, CardValue.Fiat(plan.paymentNow, plan.currency).takeIf { plan.balanceNow > 0.0 }),
+                CardKpi(Res.string.pfc_f_rate_pct, details.num("rate_pct")?.let { CardValue.Pct(it) }),
+                CardKpi(Res.string.pfc_k_months_left, CardValue.Months(plan.installmentsLeft.toLong()).takeIf { plan.payoffUnix != null }),
+            )
+        }
+        else -> legacyLiabilityKpis(category, balance, details, today, fiatCode, l.createdAtUnix) { meter = it }
+    }
+    return DetailCardModel(category, kpis, meter, detailAttrs(category, details, fiatCode, linkedAssetName) + derived)
+}
+
+/** KPIs of a liability without a plan; [setMeter] receives its meter. */
+private fun legacyLiabilityKpis(
+    category: DetailCategory,
+    balance: Long,
+    details: Map<String, String>,
+    today: LocalDate,
+    fiatCode: String,
+    createdAtUnix: Long,
+    setMeter: (CardMeter) -> Unit,
+): List<CardKpi> {
     var meter: CardMeter? = null
     val kpis: List<CardKpi> = when (category) {
         DetailCategory.MORTGAGE, DetailCategory.LOAN -> {
@@ -729,7 +781,10 @@ internal fun liabilityCardModel(
             val monthsLeft = end?.let { ChronoUnit.MONTHS.between(today, it).coerceAtLeast(0L) }
             listOf(
                 CardKpi(Res.string.pfc_k_remaining, CardValue.Sat(balance), Tone.NEGATIVE),
-                CardKpi(Res.string.pfc_f_monthly_payment, details.num("monthly_payment")?.let { CardValue.Fiat(it, fiatCode) }),
+                CardKpi(
+                    Res.string.pfc_f_monthly_payment,
+                    details.num("monthly_payment")?.let { CardValue.Fiat(it, details[DETAILS_CURRENCY_KEY] ?: fiatCode) },
+                ),
                 CardKpi(Res.string.pfc_f_rate_pct, details.num("rate_pct")?.let { CardValue.Pct(it) }),
                 CardKpi(Res.string.pfc_k_months_left, monthsLeft?.let { CardValue.Months(it) }),
             )
@@ -749,12 +804,13 @@ internal fun liabilityCardModel(
         }
         else -> listOf(
             CardKpi(Res.string.pfc_k_balance, CardValue.Sat(balance), Tone.NEGATIVE),
-            CardKpi(Res.string.pfc_k_updated, CardValue.DaysAgo(ChronoUnit.DAYS.between(epochDay(l.createdAtUnix), today).coerceAtLeast(0L))),
+            CardKpi(Res.string.pfc_k_updated, CardValue.DaysAgo(ChronoUnit.DAYS.between(epochDay(createdAtUnix), today).coerceAtLeast(0L))),
             CardKpi(Res.string.pfc_f_rate_pct, details.num("rate_pct")?.let { CardValue.Pct(it) }),
             CardKpi(Res.string.pfc_f_end_date, details.date("end_date")?.let { CardValue.Date(it) }),
         )
     }
-    return DetailCardModel(category, kpis, meter, detailAttrs(category, details, fiatCode, linkedAssetName))
+    meter?.let(setMeter)
+    return kpis
 }
 
 /** Days from [today] to the next [day] of a month (clamped to the month's length). */
@@ -778,4 +834,4 @@ internal fun linkedDebtFiat(
 }
 
 /** Today in UTC, as the card builders expect it. */
-internal fun nowUnixUtc(): Long = java.time.Instant.now().atZone(ZoneOffset.UTC).toEpochSecond()
+internal fun nowUnixUtc(): Long = java.time.Instant.ofEpochMilli(AppClock.nowMillis()).atZone(ZoneOffset.UTC).toEpochSecond()

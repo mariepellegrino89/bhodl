@@ -6,7 +6,9 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -17,6 +19,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import io.bhodl.desktop.ui.HelpTip
 import io.bhodl.desktop.ui.bhodlCard
 import io.bhodl.desktop.ui.rememberAmountFormatter
 import io.bhodl.desktop.ui.money.Money
@@ -26,6 +29,16 @@ import io.bhodl.desktop.ui.money.MoneySemantic
 import io.bhodl.desktop.ui.money.MoneyValue
 import io.bhodl.ui.theme.BhodlTheme
 import io.bhodl.shared.resources.Res
+import io.bhodl.shared.resources.hmc_h_burn
+import io.bhodl.shared.resources.hmc_h_expenses
+import io.bhodl.shared.resources.hmc_h_fire
+import io.bhodl.shared.resources.hmc_h_income
+import io.bhodl.shared.resources.hmc_h_opp_cost
+import io.bhodl.shared.resources.hmc_h_runway
+import io.bhodl.shared.resources.hmc_h_savings
+import io.bhodl.shared.resources.hmc_kpi_expenses
+import io.bhodl.shared.resources.hmc_kpi_income
+import io.bhodl.shared.resources.hmc_kpi_tx_count
 import io.bhodl.shared.resources.trk_kpi_burn
 import io.bhodl.shared.resources.trk_kpi_burn_sub
 import io.bhodl.shared.resources.trk_kpi_fire_sub
@@ -66,14 +79,37 @@ internal fun KpiStripV7(
     showFire: Boolean = true,
     showRunway: Boolean = true,
     showOppCost: Boolean = true,
+    /** Home redesign 2026-10 — income / expenses of the selected
+     *  period as leading cards (null hides them). */
+    period: PeriodFlows? = null,
 ) {
     val fmtAmount = rememberAmountFormatter()
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            // Equal card heights (the money cards carry a fiat line).
+            .height(androidx.compose.foundation.layout.IntrinsicSize.Min)
             .testTag(KpiStripV7Tags.ROW),
         horizontalArrangement = Arrangement.spacedBy(BhodlTheme.spacing.sm),
     ) {
+        period?.let { p ->
+            KpiCardMoney(
+                modifier = Modifier.weight(1f).testTag(KpiStripV7Tags.INCOME),
+                label = stringResource(Res.string.hmc_kpi_income),
+                value = MoneyValue.fromSat(p.inflowSat.toLong(), semantic = MoneySemantic.AtNow),
+                subtitle = stringResource(Res.string.hmc_kpi_tx_count, p.inflowCount),
+                accent = BhodlTheme.colors.financialPositive,
+                help = stringResource(Res.string.hmc_h_income),
+            )
+            KpiCardMoney(
+                modifier = Modifier.weight(1f).testTag(KpiStripV7Tags.EXPENSES),
+                label = stringResource(Res.string.hmc_kpi_expenses),
+                value = MoneyValue.fromSat(p.outflowSat.toLong(), semantic = MoneySemantic.AtNow),
+                subtitle = stringResource(Res.string.hmc_kpi_tx_count, p.outflowCount),
+                accent = BhodlTheme.colors.financialNegative,
+                help = stringResource(Res.string.hmc_h_expenses),
+            )
+        }
         if (showSavings) {
             KpiCard(
                 modifier = Modifier.weight(1f).testTag(KpiStripV7Tags.SAVINGS),
@@ -81,6 +117,7 @@ internal fun KpiStripV7(
                 value = kpis.savingsRatePct?.let { "${if (it >= 0) "+" else ""}$it%" } ?: "—",
                 subtitle = stringResource(Res.string.trk_kpi_savings_sub),
                 accent = savingsAccent(kpis.savingsRatePct),
+                help = stringResource(Res.string.hmc_h_savings),
             )
         }
         if (showBurn) {
@@ -92,6 +129,7 @@ internal fun KpiStripV7(
                 },
                 subtitle = stringResource(Res.string.trk_kpi_burn_sub),
                 accent = BhodlTheme.colors.textSecondary,
+                help = stringResource(Res.string.hmc_h_burn),
             )
         }
         if (showFire) {
@@ -103,6 +141,7 @@ internal fun KpiStripV7(
                 },
                 subtitle = stringResource(Res.string.trk_kpi_fire_sub),
                 accent = BhodlTheme.colors.accentNeon,
+                help = stringResource(Res.string.hmc_h_fire),
             )
         }
         if (showRunway) {
@@ -112,6 +151,7 @@ internal fun KpiStripV7(
                 value = kpis.runwayMonths?.let { formatMonths(it) } ?: "—",
                 subtitle = stringResource(Res.string.trk_kpi_runway_sub),
                 accent = runwayAccent(kpis.runwayMonths),
+                help = stringResource(Res.string.hmc_h_runway),
             )
         }
         if (showOppCost) {
@@ -121,6 +161,7 @@ internal fun KpiStripV7(
                 value = kpis.opportunityCostBtc?.let { formatOppCost(it, fmtAmount, masked = io.bhodl.desktop.ui.money.amountsMasked()) } ?: "—",
                 subtitle = stringResource(Res.string.trk_kpi_opp_cost_sub),
                 accent = oppCostAccent(kpis.opportunityCostBtc),
+                help = stringResource(Res.string.hmc_h_opp_cost),
             )
         }
     }
@@ -133,18 +174,16 @@ private fun KpiCard(
     value: String,
     subtitle: String,
     accent: Color,
+    help: String? = null,
 ) {
     Column(
         modifier = modifier
+            .fillMaxHeight()
             .bhodlCard()
             .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Text(
-            text = label,
-            style = BhodlTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-            color = BhodlTheme.colors.textSecondary,
-        )
+        KpiLabel(label, help)
         Text(
             text = value,
             style = BhodlTheme.typography.amountMedium.copy(fontWeight = FontWeight.SemiBold),
@@ -182,18 +221,16 @@ private fun KpiCardMoney(
     value: MoneyValue?,
     subtitle: String,
     accent: Color,
+    help: String? = null,
 ) {
     Column(
         modifier = modifier
+            .fillMaxHeight()
             .bhodlCard()
             .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Text(
-            text = label,
-            style = BhodlTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-            color = BhodlTheme.colors.textSecondary,
-        )
+        KpiLabel(label, help)
         if (value == null) {
             // Em-dash placeholder identical in weight to the other
             // KpiCard's "—" so the visual rhythm doesn't break.
@@ -217,6 +254,27 @@ private fun KpiCardMoney(
         )
     }
 }
+
+/** PLAN §14.9 — a KPI label with its "?" help. */
+@Composable
+private fun KpiLabel(label: String, help: String?) {
+    Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(
+            text = label,
+            style = BhodlTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+            color = BhodlTheme.colors.textSecondary,
+        )
+        help?.let { HelpTip(it) }
+    }
+}
+
+/** Home redesign 2026-10 — in / out of the selected period. */
+internal data class PeriodFlows(
+    val inflowSat: ULong,
+    val outflowSat: ULong,
+    val inflowCount: Int,
+    val outflowCount: Int,
+)
 
 @Composable
 private fun savingsAccent(pct: Int?): Color = when {
@@ -286,4 +344,6 @@ internal object KpiStripV7Tags {
     const val RUNWAY: String = "kpi-strip-v7.runway"
     /** Phase 8.3.4 — opportunity cost placeholder (real compute in Phase 8.5). */
     const val OPP_COST: String = "kpi-strip-v7.opp-cost"
+    const val INCOME: String = "kpi-strip-v7.income"
+    const val EXPENSES: String = "kpi-strip-v7.expenses"
 }

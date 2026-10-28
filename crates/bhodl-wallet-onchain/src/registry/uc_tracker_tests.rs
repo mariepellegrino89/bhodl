@@ -123,6 +123,446 @@ fn rules_update_runs_the_same_validation_as_add() {
     );
 }
 
+// Schema v7 — variable-amount bills.
+#[test]
+fn a_variable_bill_records_what_was_paid_and_unmarking_clears_it() {
+    let dir = TempDir::new().unwrap();
+    let r = open(&dir);
+    let id = r.add_bill("Luce e gas", 140_000, 15, None).unwrap();
+    let fresh = &r.list_bills().unwrap()[0];
+    assert!(!fresh.variable, "bills are fixed by default");
+    assert_eq!(fresh.last_paid_amount_sat, None);
+
+    assert!(r.set_bill_variable(id, true).unwrap());
+    assert!(r.mark_bill_paid_amount(id, 1_760_000_000, 163_500).unwrap());
+    let paid = &r.list_bills().unwrap()[0];
+    assert!(paid.variable);
+    assert_eq!(
+        (paid.last_paid_unix, paid.last_paid_amount_sat),
+        (Some(1_760_000_000), Some(163_500))
+    );
+    assert_eq!(paid.amount_sat, 140_000, "the estimate stays");
+
+    assert!(r.mark_bill_paid(id, None).unwrap());
+    let cleared = &r.list_bills().unwrap()[0];
+    assert_eq!(
+        (cleared.last_paid_unix, cleared.last_paid_amount_sat),
+        (None, None)
+    );
+    assert!(!r.set_bill_variable(9_999, true).unwrap(), "no such bill");
+}
+
+// Schema v8 — income and spending outside the wallets.
+#[test]
+fn manual_transactions_round_trip_and_validate() {
+    let dir = TempDir::new().unwrap();
+    let r = open(&dir);
+    let cash = r
+        .add_manual_txn(
+            "out",
+            52_000,
+            Some(30.5),
+            Some("eur"),
+            1_760_000_000,
+            None,
+            Some(" pizza "),
+        )
+        .unwrap();
+    let card = r
+        .add_manual_txn(
+            "in",
+            10_000,
+            None,
+            None,
+            1_760_100_000,
+            Some(MANUAL_ACCOUNT_OTHER),
+            None,
+        )
+        .unwrap();
+    let rows = r.list_manual_txns().unwrap();
+    assert_eq!(
+        rows.iter().map(|t| t.id).collect::<Vec<_>>(),
+        vec![card, cash],
+        "newest first"
+    );
+    let c = &rows[1];
+    assert_eq!(
+        (
+            c.direction.as_str(),
+            c.amount_sat,
+            c.amount_fiat,
+            c.currency.as_deref(),
+            c.note.as_deref()
+        ),
+        ("out", 52_000, Some(30.5), Some("EUR"), Some("pizza"))
+    );
+    assert_eq!(
+        manual_txn_wallet_id(None).to_string(),
+        "6d616e75-616c-4000-8000-000000000000"
+    );
+    assert_eq!(
+        manual_txn_wallet_id(Some("asset:26")).to_string(),
+        "6d616e75-616c-4000-8000-a0000000001a"
+    );
+    assert_eq!(
+        manual_txn_wallet_id(Some("liability:2")).to_string(),
+        "6d616e75-616c-4000-8000-b00000000002"
+    );
+    assert_eq!(
+        manual_txn_wallet_id(Some("bogus")),
+        manual_txn_wallet_id(None)
+    );
+
+    assert!(invalid(
+        &r.add_manual_txn("sideways", 1, None, None, 0, None, None)
+    ));
+    assert!(invalid(
+        &r.add_manual_txn("out", 0, None, None, 0, None, None)
+    ));
+    assert!(invalid(&r.add_manual_txn(
+        "out",
+        1,
+        Some(2.0),
+        None,
+        0,
+        None,
+        None
+    )));
+
+    assert!(
+        r.update_manual_txn(
+            cash,
+            "out",
+            60_000,
+            Some(35.0),
+            Some("EUR"),
+            1_760_000_000,
+            None
+        )
+        .unwrap()
+    );
+    assert_eq!(r.list_manual_txns().unwrap()[1].amount_sat, 60_000);
+}
+
+// Schema v8 — a bill's category and the transaction that paid it.
+#[test]
+fn deleting_a_manual_transaction_unlinks_the_bill_it_paid() {
+    let dir = TempDir::new().unwrap();
+    let r = open(&dir);
+    let cash = r
+        .add_manual_txn("out", 60_000, None, None, 1_760_000_000, None, None)
+        .unwrap();
+    r.add_manual_txn("out", 1_000, None, None, 1_760_000_000, None, None)
+        .unwrap();
+    let bill = r.add_bill("Luce e gas", 140_000, 15, None).unwrap();
+    assert!(r.set_bill_category(bill, Some(" Bollette ")).unwrap());
+    let event = manual_txn_event_id(cash);
+    let wallet = manual_txn_wallet_id(None);
+    r.set_event_category(&wallet, &event, Some("Bollette"))
+        .unwrap();
+    assert!(
+        r.mark_bill_paid_by(bill, 1_760_000_000, 60_000, &format!("{wallet}|{event}"))
+            .unwrap()
+    );
+    let b = &r.list_bills().unwrap()[0];
+    assert_eq!(
+        (
+            b.category.as_deref(),
+            b.paid_ref.as_deref(),
+            b.last_paid_amount_sat
+        ),
+        (
+            Some("Bollette"),
+            Some("6d616e75-616c-4000-8000-000000000000|manual-1"),
+            Some(60_000)
+        )
+    );
+
+    assert!(r.delete_manual_txn(cash).unwrap());
+    let b = &r.list_bills().unwrap()[0];
+    assert_eq!(
+        (b.last_paid_unix, b.paid_ref.as_deref()),
+        (None, None),
+        "the bill is unpaid again"
+    );
+    assert_eq!(
+        r.get_event_category(&wallet, &event).unwrap(),
+        None,
+        "its category goes too"
+    );
+    assert_eq!(r.list_manual_txns().unwrap().len(), 1, "only that one");
+    assert!(!r.delete_manual_txn(cash).unwrap());
+
+    // Unmarking a bill drops its link.
+    assert!(r.mark_bill_paid_by(bill, 1, 1, "w|tx").unwrap());
+    assert!(r.mark_bill_paid(bill, None).unwrap());
+    assert_eq!(r.list_bills().unwrap()[0].paid_ref, None);
+    assert!(r.set_bill_category(bill, None).unwrap());
+    assert_eq!(r.list_bills().unwrap()[0].category, None);
+}
+
+// Schema v8 — an entry moves its account's balance.
+#[test]
+fn a_manual_transaction_moves_its_account_balance() {
+    let dir = TempDir::new().unwrap();
+    let r = open(&dir);
+    let bank = r
+        .add_manual_asset(
+            "Conto", "cash", 1_000.0, "EUR", None, None, None, None, None,
+        )
+        .unwrap();
+    let bank_ref = format!("asset:{bank}");
+    let balance = |r: &Registry| {
+        r.list_manual_assets()
+            .unwrap()
+            .into_iter()
+            .find(|a| a.id == bank)
+            .unwrap()
+            .value_fiat
+    };
+
+    // Spending from the bank account lowers it, in its currency.
+    let spend = r
+        .add_manual_txn(
+            "out",
+            50_000,
+            Some(40.0),
+            Some("EUR"),
+            1,
+            Some(&bank_ref),
+            None,
+        )
+        .unwrap();
+    assert!((balance(&r) - 960.0).abs() < 1e-9);
+    // Income raises it.
+    r.add_manual_txn(
+        "in",
+        10_000,
+        Some(15.5),
+        Some("EUR"),
+        1,
+        Some(&bank_ref),
+        None,
+    )
+    .unwrap();
+    assert!((balance(&r) - 975.5).abs() < 1e-9);
+    // Another currency, or sat, is refused for that account.
+    assert!(invalid(&r.add_manual_txn(
+        "out",
+        1,
+        Some(1.0),
+        Some("USD"),
+        1,
+        Some(&bank_ref),
+        None
+    )));
+    assert!(invalid(&r.add_manual_txn(
+        "out",
+        1,
+        None,
+        None,
+        1,
+        Some(&bank_ref),
+        None
+    )));
+    // An edit moves it by the difference, a delete moves it back.
+    assert!(
+        r.update_manual_txn(spend, "out", 60_000, Some(50.0), Some("EUR"), 1, None)
+            .unwrap()
+    );
+    assert!((balance(&r) - 965.5).abs() < 1e-9);
+    assert!(r.delete_manual_txn(spend).unwrap());
+    assert!((balance(&r) - 1_015.5).abs() < 1e-9);
+}
+
+// Schema v8 — a card entry moves the debt; cash and "other" move nothing.
+#[test]
+fn a_card_entry_moves_the_debt() {
+    let dir = TempDir::new().unwrap();
+    let r = open(&dir);
+    let card = r
+        .add_liability("Visa", 100_000, "credit-card", None)
+        .unwrap();
+    let card_ref = format!("liability:{card}");
+    let debt = |r: &Registry| r.list_liabilities().unwrap()[0].amount_sat;
+
+    // Spending raises the debt (in sat), a refund lowers it.
+    let buy = r
+        .add_manual_txn(
+            "out",
+            30_000,
+            Some(25.0),
+            Some("EUR"),
+            1,
+            Some(&card_ref),
+            None,
+        )
+        .unwrap();
+    assert_eq!(debt(&r), 130_000);
+    r.add_manual_txn("in", 5_000, None, None, 1, Some(&card_ref), None)
+        .unwrap();
+    assert_eq!(debt(&r), 125_000);
+    assert!(r.delete_manual_txn(buy).unwrap());
+    assert_eq!(debt(&r), 95_000);
+
+    // Cash and "other" have no balance; an unknown account is refused.
+    r.add_manual_txn(
+        "out",
+        1_000,
+        None,
+        None,
+        1,
+        Some(MANUAL_ACCOUNT_OTHER),
+        None,
+    )
+    .unwrap();
+    assert_eq!(
+        manual_txn_wallet_id(Some(MANUAL_ACCOUNT_OTHER)).to_string(),
+        "6d616e75-616c-4000-8000-c00000000000"
+    );
+    assert!(invalid(&r.add_manual_txn(
+        "out",
+        1,
+        None,
+        None,
+        1,
+        Some("liability:999"),
+        None
+    )));
+    // Deleting an entry whose account is gone still works.
+    let orphan = r
+        .add_manual_txn("out", 1_000, None, None, 1, Some(&card_ref), None)
+        .unwrap();
+    r.delete_liability(card).unwrap();
+    assert!(r.delete_manual_txn(orphan).unwrap());
+}
+
+#[test]
+fn a_debt_payment_lowers_the_debt_and_moves_its_channel() {
+    let dir = TempDir::new().unwrap();
+    let r = open(&dir);
+    let bank = r
+        .add_manual_asset(
+            "Conto", "cash", 5_000.0, "EUR", None, None, None, None, None,
+        )
+        .unwrap();
+    let loan = r.add_liability("Auto", 900_000, "loan", None).unwrap();
+    let pay = |kind| DebtPayment {
+        liability_id: loan,
+        kind,
+    };
+    let debt = |r: &Registry| r.list_liabilities().unwrap()[0].amount_sat;
+    let balance = |r: &Registry| r.list_manual_assets().unwrap()[0].value_fiat;
+
+    let id = r
+        .add_manual_txn_paying(
+            "out",
+            100_000,
+            Some(300.0),
+            Some("EUR"),
+            1,
+            Some(&format!("asset:{bank}")),
+            None,
+            Some(pay("installment")),
+        )
+        .unwrap();
+    assert_eq!(debt(&r), 800_000);
+    assert!((balance(&r) - 4_700.0).abs() < 1e-9);
+    let row = r.list_manual_txns().unwrap().remove(0);
+    assert_eq!(row.liability_id, Some(loan));
+    assert_eq!(row.liability_payment.as_deref(), Some("installment"));
+
+    // Editing re-applies the new amount and may change the kind.
+    assert!(
+        r.update_manual_txn_paying(
+            id,
+            "out",
+            200_000,
+            Some(600.0),
+            Some("EUR"),
+            1,
+            None,
+            Some("extra_term")
+        )
+        .unwrap()
+    );
+    assert_eq!(debt(&r), 700_000);
+    assert!((balance(&r) - 4_400.0).abs() < 1e-9);
+    let row = r.list_manual_txns().unwrap().remove(0);
+    assert_eq!(row.liability_payment.as_deref(), Some("extra_term"));
+    // A plain edit keeps it.
+    assert!(
+        r.update_manual_txn(
+            id,
+            "out",
+            200_000,
+            Some(600.0),
+            Some("EUR"),
+            1,
+            Some("rata")
+        )
+        .unwrap()
+    );
+    let row = r.list_manual_txns().unwrap().remove(0);
+    assert_eq!(row.liability_payment.as_deref(), Some("extra_term"));
+
+    assert!(r.delete_manual_txn(id).unwrap());
+    assert_eq!(debt(&r), 900_000);
+    assert!((balance(&r) - 5_000.0).abs() < 1e-9);
+}
+
+#[test]
+fn debt_payments_are_validated() {
+    let dir = TempDir::new().unwrap();
+    let r = open(&dir);
+    let card = r.add_liability("Visa", 1_000, "credit-card", None).unwrap();
+    let mortgage = r.add_liability("Mutuo", 1_000, "mortgage", None).unwrap();
+    r.set_details(
+        "liability",
+        mortgage,
+        r#"{"original_amount_fiat":100000,"rate_pct":2,"start_date":"2020-01-01","monthly_payment":500,"currency":"EUR"}"#,
+    )
+    .unwrap();
+    let add = |direction, currency: Option<&str>, account: Option<&str>, liability_id, kind| {
+        r.add_manual_txn_paying(
+            direction,
+            1_000,
+            currency.map(|_| 10.0),
+            currency,
+            1,
+            account,
+            None,
+            Some(DebtPayment { liability_id, kind }),
+        )
+    };
+    assert!(
+        invalid(&add("in", None, None, card, "installment")),
+        "income"
+    );
+    assert!(invalid(&add("out", None, None, card, "sideways")), "kind");
+    assert!(
+        invalid(&add("out", None, None, 999, "installment")),
+        "unknown debt"
+    );
+    let card_ref = format!("liability:{card}");
+    assert!(
+        invalid(&add("out", None, Some(&card_ref), card, "installment")),
+        "pays itself"
+    );
+    // A planned mortgage counts its payments in its own currency.
+    assert!(
+        invalid(&add("out", None, None, mortgage, "installment")),
+        "sat"
+    );
+    assert!(
+        invalid(&add("out", Some("USD"), None, mortgage, "installment")),
+        "USD"
+    );
+    add("out", Some("EUR"), None, mortgage, "extra_payment").unwrap();
+    // A card can be paid off from another channel.
+    add("out", None, None, card, "installment").unwrap();
+}
+
 // TRK-091
 #[test]
 fn bills_reject_a_blank_name_on_add() {

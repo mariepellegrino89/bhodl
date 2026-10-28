@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="tm_group">Test mode</string>
+    <string name="tm_group_sub">Try the app on test data, share it</string>
+    <string name="tm_band">TEST MODE · test data only, your real data is closed</string>
+    <string name="tm_band_exit">Exit test mode</string>
+    <string name="tm_intro">Test mode opens a separate profile with sample data: wallets, transactions, budgets, bills, goals and portfolio. Your real data stays closed and cannot be seen or changed. Test data can be changed freely, saved to a file and sent to other people, for example developers working on BHODL.</string>
+    <string name="tm_enter">Enter test mode</string>
+    <string name="tm_try">Try with sample data</string>
+    <string name="tm_try_body">No PIN needed. Leave test mode at any time.</string>
+    <string name="tm_active_intro">You are in test mode. Everything you change stays in the test data.</string>
+    <string name="tm_initial_state">Initial state marked on %1$s.</string>
+    <string name="tm_no_initial_state">No initial state marked.</string>
+    <string name="tm_export">Export test data…</string>
+    <string name="tm_import">Import test data…</string>
+    <string name="tm_mark_initial">Mark as initial state</string>
+    <string name="tm_restore_initial">Back to initial state</string>
+    <string name="tm_load_project">Load the project test data</string>
+    <string name="tm_exit">Exit test mode</string>
+    <string name="tm_working">Working…</string>
+    <string name="tm_exported">Saved to %1$s</string>
+    <string name="tm_done">Done.</string>
+    <string name="tm_file_filter">BHODL test data</string>
+    <string name="tm_export_dialog">Export test data</string>
+    <string name="tm_import_dialog">Import test data</string>
+    <string name="tm_confirm">Confirm</string>
+    <string name="tm_cancel">Cancel</string>
+    <string name="tm_import_title">Replace the test data?</string>
+    <string name="tm_import_body">The current test data and its initial state are replaced by the file’s. Export them first if you want to keep them.</string>
+    <string name="tm_import_keep_dates">Keep the file’s dates (otherwise they move to today)</string>
+    <string name="tm_export_first">Export mine first…</string>
+    <string name="tm_mark_title">Mark as initial state?</string>
+    <string name="tm_mark_body">The test data as it is now becomes the state “Back to initial state” returns to. The previous initial state is replaced.</string>
+    <string name="tm_restore_title">Back to initial state?</string>
+    <string name="tm_restore_body">Every change made since the initial state is lost. Export the test data first if you want to keep it.</string>
+    <string name="tm_project_title">Load the project test data?</string>
+    <string name="tm_project_body">The current test data and its initial state are replaced by the test data that comes with BHODL.</string>
+    <string name="tm_err_not_test">This file is not BHODL test data. Only test data can be imported.</string>
+    <string name="tm_err_bad_file">The file cannot be read as BHODL test data.</string>
+    <string name="tm_err_newer">This file was made by a newer BHODL. Update the app to open it.</string>
+    <string name="tm_err_too_large">The file is too large to be test data.</string>
+    <string name="tm_err_no_initial">No initial state is marked.</string>
+    <string name="tm_err_generic">Test mode failed: %1$s</string>
+</resources>

@@ -286,4 +286,32 @@ class PortfolioSheetTest {
         blockHeight = null,
         category = null,
     )
+
+    @Test
+    fun `class shares are of the total assets and the debts are leverage`() {
+        fun section(s: SheetSection, v: Long) = SheetSectionModel(s, emptyList(), v, null, null)
+        // Assets 400 (bitcoin 100, manual 300), debts 250: net worth 150.
+        val sheet = PortfolioSheet(
+            sections = listOf(
+                section(SheetSection.WALLETS, 100),
+                section(SheetSection.INVESTMENTS, 0),
+                section(SheetSection.MANUAL_ASSETS, 300),
+                section(SheetSection.LIABILITIES, -250),
+            ),
+            netWorthSat = 150,
+            netWorthChangeSat = null,
+        )
+        val shares = classShares(sheet)
+        assertEquals(25.0, shares[PortfolioClass.BITCOIN])
+        assertEquals(75.0, shares[PortfolioClass.MANUAL_ASSETS], "not 200% of the net worth")
+        assertEquals(0.0, shares[PortfolioClass.INVESTMENTS])
+        assertEquals(62.5, shares[PortfolioClass.LIABILITIES])
+        assertEquals(
+            100.0,
+            shares.filterKeys { it != PortfolioClass.LIABILITIES }.values.sum(),
+            "asset classes add up to 100%",
+        )
+        assertTrue(classShares(sheet.copy(sections = listOf(section(SheetSection.LIABILITIES, -5)))).isEmpty())
+    }
 }
+

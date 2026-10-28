@@ -58,6 +58,8 @@ public fun <T> BhodlNavigationSuite(
     selected: T,
     onSelect: (T) -> Unit,
     railTestTag: String,
+    /** Rail only: shown above the destinations (the Back button). */
+    header: (@Composable () -> Unit)? = null,
     content: @Composable () -> Unit,
 ) {
     val main = destinations.filterNot { it.pinnedEnd }
@@ -67,6 +69,7 @@ public fun <T> BhodlNavigationSuite(
             NavigationRail(
                 modifier = Modifier.fillMaxHeight().testTag(railTestTag),
                 containerColor = BhodlTheme.colors.surface,
+                header = header?.let { h -> { h() } },
             ) {
                 main.forEach { d ->
                     NavigationRailItem(

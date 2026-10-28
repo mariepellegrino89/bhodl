@@ -1,5 +1,7 @@
 package io.bhodl.desktop.screens
 
+import io.bhodl.desktop.data.TrackerCache
+import io.bhodl.shared.resources.wlc_receive
 import io.bhodl.desktop.ui.money.RevealAmounts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -93,6 +95,11 @@ public fun DashboardScreen(
     onWalletRemoved: () -> Unit = {},
     /** UX review 2026-10 (item 14) — footer shield → Security Hub. */
     onOpenSecurityHub: (() -> Unit)? = null,
+    /** Wallet redesign 2026-10 — open another tracked wallet from the
+     *  account cards; null hides the cards. */
+    onOpenWallet: ((String) -> Unit)? = null,
+    /** Wallet redesign 2026-10 — the account cards' "add" tile. */
+    onAddWallet: () -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
 
@@ -173,6 +180,9 @@ public fun DashboardScreen(
             .padding(horizontal = 24.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
+        if (onOpenWallet != null && TrackerCache.wallets.value.isNotEmpty()) {
+            WalletCardsStrip(currentId = walletId, onOpenWallet = onOpenWallet, onAdd = onAddWallet)
+        }
         WalletHeader(
             walletName = walletName ?: WalletStore.activeWalletLabel()
                 ?: stringResource(Res.string.wallet_header_watch),
@@ -184,6 +194,12 @@ public fun DashboardScreen(
             syncFailed = lastError != null,
             onSync = { launchSync(SyncMode.Foreground) },
             actions = {
+                if (!addressList) {
+                    TextButton(
+                        onClick = { tabWire = WalletTab.RECEIVE.wire },
+                        modifier = Modifier.testTag(DashboardTags.RECEIVE),
+                    ) { Text(stringResource(Res.string.wlc_receive)) }
+                }
                 TextButton(
                     onClick = onAddressBookClicked,
                     modifier = Modifier.testTag(DashboardTags.ADDRESS_BOOK),
@@ -389,6 +405,8 @@ internal enum class SyncMode { Idle, Background, Foreground }
 
 /** Test tags exposed by [`DashboardScreen`] (the wallet workspace). */
 public object DashboardTags {
+    /** Wallet redesign 2026-10 — header "Receive" shortcut. */
+    public const val RECEIVE: String = "dashboard.receive"
     public const val SYNC: String = "dashboard.sync"
     /** Header line with the fiat equivalent and the sync status. */
     public const val SYNC_STATUS: String = "dashboard.sync-status"

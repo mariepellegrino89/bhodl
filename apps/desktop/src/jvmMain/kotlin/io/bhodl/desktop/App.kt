@@ -23,10 +23,12 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
 import io.bhodl.desktop.navigation.Route
 import io.bhodl.desktop.navigation.TrackerSection
+import io.bhodl.desktop.data.TrackerCache
 import io.bhodl.desktop.screens.AddWatchScreen
 import io.bhodl.desktop.screens.AddressBookScreen
 import io.bhodl.desktop.screens.DashboardScreen
@@ -55,6 +57,7 @@ import io.bhodl.shared.resources.onb_registry_open_failed
 import io.bhodl.ui.theme.BhodlTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.jetbrains.compose.resources.stringResource
 
@@ -102,13 +105,18 @@ public fun App() {
     // flipping the language chip in Settings rebuilds every visible
     // `stringResource` while the back stack is preserved.
     val localeOverride by SettingsStore.localeOverride
+    val testMode by io.bhodl.desktop.data.TestMode.active
     key(localeOverride) {
+    androidx.compose.foundation.layout.Column(Modifier.fillMaxSize()) {
+    // Test mode: a band on every screen, with the way out.
+    if (testMode) io.bhodl.desktop.screens.TestModeBand(onExit = { navController.exitTestMode() })
     NavHost(
         navController = navController,
         startDestination = startDestination,
         // Idle-lock activity hook — every pointer / key event refreshes
         // the device-PIN idle clock. Never consumed.
         modifier = Modifier
+            .weight(1f)
             .pointerInput(Unit) {
                 awaitPointerEventScope {
                     while (true) {
@@ -128,6 +136,12 @@ public fun App() {
                 // After a wipe: rebuild the boot decision with a
                 // single-entry back stack.
                 onResetComplete = { navController.restartAtBootGuard() },
+                onTryTestMode = {
+                    io.bhodl.desktop.AppScope.io.launch(kotlinx.coroutines.Dispatchers.Main) {
+                        runCatching { navController.enterTestMode() }
+                            .onFailure { System.err.println("[bhodl] test mode: ${it.message}") }
+                    }
+                },
             )
         }
 
@@ -206,10 +220,15 @@ public fun App() {
                 onTabSelected = { tab ->
                     navController.handleRailTab(tab, current = Tab.fromSection(section))
                 },
+                onBack = navController.railBack(Tab.fromSection(section)),
             ) {
                 TrackingScreen(
                     section = section,
-                    onSectionChange = { target -> navController.navigateToSection(target) },
+                    onSectionChange = { target ->
+                        // In-page jumps ("see transactions") count for the rail's Back too.
+                        if (target != section) io.bhodl.desktop.ui.BackNavigation.recordTab(Tab.fromSection(section))
+                        navController.navigateToSection(target)
+                    },
                     onOpenWallet = { walletId ->
                         navController.navigate(Route.OpenWallet(walletId = walletId))
                     },
@@ -259,6 +278,9 @@ public fun App() {
                     null
                 },
                 onOpenSecurityHub = { navController.navigate(Route.SecurityHub) },
+                onEnterTestMode = { navController.enterTestMode() },
+                onExitTestMode = { navController.exitTestMode() },
+                onTestDataReloaded = { navController.reopenSettings() },
             )
         }
 
@@ -281,6 +303,7 @@ public fun App() {
             )
         }
     }
+    } // end Column (test-mode band + NavHost)
     } // end `key(localeOverride)` — see comment above NavHost.
 }
 
@@ -308,6 +331,8 @@ internal suspend fun runIdleLockWatcher(
 
 /** [IdleLock] policy applied to the current registry / session state. */
 internal fun idleLockDue(): Boolean {
+    // Test mode holds no secret: nothing to lock.
+    if (io.bhodl.desktop.data.TestMode.isActive()) return false
     val registryOpen = RegistryStore.current() != null
     return IdleLock.shouldLock(
         sessionOpen = registryOpen,
@@ -351,6 +376,41 @@ internal fun NavController.lockAndRouteToGate(target: () -> Route = { bootGuardT
     navigate(target()) {
         popUpTo(0) { inclusive = true }
     }
+}
+
+/**
+ * Test mode — close the real session, open the test profile and land
+ * on its Home. A failure leaves the real gate (the real session is
+ * already closed) and rethrows for the caller to show.
+ */
+internal suspend fun NavController.enterTestMode() {
+    lockSession()
+    try {
+        io.bhodl.desktop.data.TestMode.enter()
+    } catch (e: Throwable) {
+        restartAtBootGuard()
+        throw e
+    }
+    navigate(Route.Tracking()) {
+        popUpTo(0) { inclusive = true }
+    }
+}
+
+/** Test mode — close the test profile; the real data needs the real PIN. */
+internal fun NavController.exitTestMode() {
+    io.bhodl.desktop.data.TestMode.exit()
+    lockAndRouteToGate()
+}
+
+/**
+ * After a test-mode command reopened the profile: rebuild the screens
+ * (no wallet is open any more) and come back to Settings.
+ */
+internal fun NavController.reopenSettings() {
+    navigate(Route.Tracking()) {
+        popUpTo(0) { inclusive = true }
+    }
+    navigate(Route.Settings)
 }
 
 /** The in-memory half of [lockAndRouteToGate]. */
@@ -409,18 +469,26 @@ internal fun NavController.navigateToSection(section: TrackerSection) {
 /**
  * Shared NavigationRail dispatch for every shell-wrapped route. Tracker
  * sections route to [navigateToSection]; Wallet opens the workspace of
- * the wallet already open, or the tracker HOME wallet list when none is;
+ * the wallet already open, else the first tracked wallet (wallet
+ * redesign 2026-10), else the tracker HOME wallet list;
  * Settings is a full-screen action route.
  */
 internal fun NavController.handleRailTab(
     tab: Tab,
     current: Tab,
     walletOpen: Boolean = WalletStore.current() != null,
+    firstWalletId: String? = TrackerCache.wallets.value.firstOrNull()?.id,
+    /** False when going back: the move must not enter the history again. */
+    record: Boolean = true,
 ) {
     if (tab == current) return
+    // Redesign 2026-10 — the rail's Back returns to the section left here.
+    if (record && tab != Tab.Settings) io.bhodl.desktop.ui.BackNavigation.recordTab(current)
     when (tab) {
         Tab.Wallet -> {
-            if (!walletOpen) {
+            if (!walletOpen && firstWalletId != null) {
+                navigate(Route.OpenWallet(walletId = firstWalletId))
+            } else if (!walletOpen) {
                 navigateToSection(TrackerSection.HOME)
             } else {
                 navigate(Route.Dashboard) {
@@ -433,6 +501,31 @@ internal fun NavController.handleRailTab(
         else -> navigateToSection(tab.toSection() ?: TrackerSection.HOME)
     }
 }
+
+/**
+ * Redesign 2026-10 — the rail's Back once no in-screen page is open: the
+ * previous navigation entry, else the section visited before. Decided at
+ * click time, from the stack as it is then.
+ */
+internal fun NavController.goBack(current: Tab) {
+    if (previousBackStackEntry != null) {
+        popBackStack()
+    } else {
+        io.bhodl.desktop.ui.BackNavigation.popTab()?.let { handleRailTab(it, current, record = false) }
+    }
+}
+
+/** Whether [goBack] has somewhere to go; recomposes on every navigation. */
+@Composable
+internal fun NavController.canGoBack(): Boolean {
+    currentBackStackEntryAsState().value
+    return previousBackStackEntry != null || io.bhodl.desktop.ui.BackNavigation.tabHistory.isNotEmpty()
+}
+
+/** The rail's Back for a shell whose rail shows [current]; null when disabled. */
+@Composable
+internal fun NavController.railBack(current: Tab): (() -> Unit)? =
+    if (canGoBack()) { { goBack(current) } } else null
 
 /**
  * Open watch wallet [walletId] with the device key held by the registry
@@ -456,7 +549,19 @@ internal fun OpenWalletRoute(walletId: String, onOpened: () -> Unit, onBack: () 
             }
         }.fold(
             onSuccess = { (handle, network, label) ->
-                WalletStore.set(handle, network, walletId, label)
+                if (io.bhodl.desktop.data.TestMode.isActive()) {
+                    // Test mode: the wallet shows the test profile's transactions.
+                    WalletStore.set(
+                        io.bhodl.desktop.data.DemoWalletPort(io.bhodl.desktop.wallet.UniffiWalletPort(handle)) {
+                            RegistryStore.current()?.let { reg ->
+                                runCatching { io.bhodl.desktop.data.demoWalletFigures(reg.listDemoEvents())[walletId] }.getOrNull()
+                            }
+                        },
+                        network, walletId, label,
+                    )
+                } else {
+                    WalletStore.set(handle, network, walletId, label)
+                }
                 onOpened()
             },
             onFailure = { error = it.userMessage(localizedText(Res.string.onb_registry_open_failed)) },
@@ -500,6 +605,14 @@ private fun WalletWorkspaceRoute(navController: NavController, initialTab: Walle
                 WalletStore.clear()
                 navController.navigateToSection(TrackerSection.HOME)
             },
+            onOpenWallet = { id ->
+                // Replace the workspace: Back must not land on a workspace
+                // whose wallet is no longer the one loaded.
+                navController.navigate(Route.OpenWallet(walletId = id)) {
+                    popUpTo<Route.Dashboard> { inclusive = true }
+                }
+            },
+            onAddWallet = { navController.navigate(Route.AddWatch) },
         )
     }
 }
@@ -517,6 +630,7 @@ private fun WalletShell(navController: NavController, content: @Composable () ->
     io.bhodl.desktop.ui.TwoTabShell(
         selected = Tab.Wallet,
         onTabSelected = { tab -> navController.handleRailTab(tab, current = Tab.Wallet) },
+        onBack = navController.railBack(Tab.Wallet),
         content = content,
     )
 }

@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="bgc_summary">Budget · %1$s</string>
+    <string name="bgc_summary_help">Monthly expense budgets, for the month chosen above. Outer ring: what you spent of the budget. Inner ring: income received of the income you expected. Budgets are in sats, so the BTC price moves them too.</string>
+    <string name="bgc_left_center">left</string>
+    <string name="bgc_over_center">over budget</string>
+    <string name="bgc_budget">Budget</string>
+    <string name="bgc_spent">Spent</string>
+    <string name="bgc_unbudgeted">Spent without budget</string>
+    <string name="bgc_price_effect">Price effect</string>
+    <string name="bgc_spent_ring">Spent / budget</string>
+    <string name="bgc_income_ring">Income / expected</string>
+    <string name="bgc_categories">Categories</string>
+    <string name="bgc_categories_help">One card per category with a budget, most used first. Click a card to change its budget; categories you spent on without a budget are listed below.</string>
+    <string name="bgc_left">%1$s left</string>
+    <string name="bgc_over">Over by %1$s</string>
+    <string name="bgc_price_line">Price %1$s · spending %2$s vs previous period</string>
+    <string name="bgc_view_tx">View transactions</string>
+    <string name="bgc_no_budget">Without budget:</string>
+    <string name="bgc_bills">Bills · next 30 days</string>
+    <string name="bgc_bills_help">Bills due in the next 30 days. Highlighted when due within 3 days; mark them paid here. A bill paid this month shows its next date.</string>
+    <string name="bgc_bills_none">No bills in the next 30 days.</string>
+    <string name="bgc_add_bill">+ Bill</string>
+    <string name="bgc_paid">Paid ✓</string>
+    <string name="bgc_mark_paid">Mark paid</string>
+</resources>

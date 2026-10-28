@@ -1,5 +1,6 @@
 package io.bhodl.desktop.screens
 
+import io.bhodl.desktop.AppClock
 import io.bhodl.desktop.ui.tableRowClickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -143,6 +144,8 @@ internal fun AssetPortfolioCard(
     onAddManualAsset: () -> Unit,
     onEditManualAsset: (TrackingManualAssetFfi) -> Unit,
     onAddLiability: () -> Unit,
+    /** Portfolio redesign 2026-10 — "+ Wallet (xpub)" in the cards view; hidden when null. */
+    onAddWallet: (() -> Unit)? = null,
     onEditLiability: (TrackingLiabilityFfi) -> Unit,
     onRefreshPrices: () -> Unit = {},
     /** On-chain events, for the wallets' change over the period. */
@@ -174,7 +177,7 @@ internal fun AssetPortfolioCard(
     // Period start (null for "All") and the BTC/<ccy> rate on that day
     // for every currency the sheet converts.
     val periodStartUnix: Long? = remember(period) {
-        period.days?.let { System.currentTimeMillis() / 1000L - it.toLong() * 86_400L }
+        period.days?.let { AppClock.nowUnix() - it.toLong() * 86_400L }
     }
     val currencies = remember(investments, manualAssets) {
         (investments.map { it.costBasisCurrency } + manualAssets.map { it.currency })
@@ -224,16 +227,6 @@ internal fun AssetPortfolioCard(
             modifier = modifier.fillMaxWidth().testTag(AssetPortfolioTags.CARD),
             verticalArrangement = Arrangement.spacedBy(BhodlTheme.spacing.md),
         ) {
-            PortfolioHeaderBar(
-                onAddInvestment = onAddInvestment,
-                onAddManualAsset = onAddManualAsset,
-                onAddLiability = onAddLiability,
-                hasStaleInvestments = hasStaleInvestments,
-                onRefreshPrices = onRefreshPrices,
-                view = view,
-                onViewChange = onViewChange,
-                modifier = Modifier.clip(BhodlTheme.shapes.panel).border(1.dp, BhodlTheme.colors.outline, BhodlTheme.shapes.panel),
-            )
             PortfolioClassView(
                 sheet = sheet,
                 walletGroups = walletGroups,
@@ -255,6 +248,24 @@ internal fun AssetPortfolioCard(
                 onEditLot = onEditLot,
                 onSell = onSell,
                 onDeleteSell = onDeleteSell,
+                onAddInvestment = onAddInvestment,
+                onAddManualAsset = onAddManualAsset,
+                onAddLiability = onAddLiability,
+                onAddWallet = onAddWallet,
+                heroActions = {
+                    PortfolioViewToggle(view, onViewChange)
+                    if (hasStaleInvestments) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(BhodlTheme.colors.financialPending.copy(alpha = 0.18f))
+                                .clickable(onClick = onRefreshPrices)
+                                .padding(horizontal = 10.dp, vertical = 4.dp),
+                        ) {
+                            Text(stringResource(Res.string.trp_sheet_fetch_prices), style = BhodlTheme.typography.labelMedium, color = BhodlTheme.colors.financialPending)
+                        }
+                    }
+                },
                 bitcoinExtra = bitcoinExtra,
                 events = events,
                 period = period,
@@ -332,6 +343,8 @@ private fun PortfolioHeaderBar(
     onAddInvestment: () -> Unit,
     onAddManualAsset: () -> Unit,
     onAddLiability: () -> Unit,
+    /** Portfolio redesign 2026-10 — "+ Wallet (xpub)" in the cards view; hidden when null. */
+    onAddWallet: (() -> Unit)? = null,
     hasStaleInvestments: Boolean,
     onRefreshPrices: () -> Unit,
     view: PortfolioView,
@@ -661,7 +674,7 @@ private fun UpdatedCell(unix: Long?, modifier: Modifier) {
     val text = if (unix == null) {
         "—"
     } else {
-        val days = ((System.currentTimeMillis() / 1000L - unix) / 86_400L).coerceAtLeast(0L)
+        val days = ((AppClock.nowUnix() - unix) / 86_400L).coerceAtLeast(0L)
         if (days == 0L) {
             stringResource(Res.string.tracker_sheet_updated_today)
         } else {

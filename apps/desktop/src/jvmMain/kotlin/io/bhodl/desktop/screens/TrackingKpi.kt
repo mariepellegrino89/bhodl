@@ -1,4 +1,6 @@
 package io.bhodl.desktop.screens
+import io.bhodl.desktop.AppClock
+import io.bhodl.shared.resources.trk_period_month
 import io.bhodl.desktop.domain.RecurringCandidate
 import io.bhodl.desktop.domain.dayOfMonth
 
@@ -350,7 +352,7 @@ internal fun BucketDrillRow(
     ) {
         bars.forEachIndexed { i, b ->
             val end = if (i == bars.lastIndex) {
-                System.currentTimeMillis() / 1000L
+                AppClock.nowUnix()
             } else {
                 bars[i + 1].bucketStartUnix - 1L
             }
@@ -431,6 +433,12 @@ internal fun SkeletonRow() {
 internal fun PeriodSelector(
     selected: TrackingPeriod,
     onSelect: (TrackingPeriod) -> Unit,
+    /** When set, a "Month" chip too (Transactions); the month it shows. */
+    month: java.time.YearMonth? = null,
+    /** The month chip is the active one (the period chips are not). */
+    monthSelected: Boolean = false,
+    onMonthMode: () -> Unit = {},
+    onMonthChange: (java.time.YearMonth) -> Unit = {},
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -438,7 +446,7 @@ internal fun PeriodSelector(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         TrackingPeriod.entries.forEach { p ->
-            val isSel = p == selected
+            val isSel = p == selected && !monthSelected
             val bg = if (isSel) BhodlTheme.colors.brandPrimary
             else BhodlTheme.colors.surface
             val fg = if (isSel) BhodlTheme.colors.brandOnPrimary
@@ -458,6 +466,23 @@ internal fun PeriodSelector(
                     style = BhodlTheme.typography.labelMedium,
                     color = fg,
                 )
+            }
+        }
+        if (month != null) {
+            Text(
+                text = stringResource(Res.string.trk_period_month),
+                style = BhodlTheme.typography.labelMedium,
+                color = if (monthSelected) BhodlTheme.colors.brandOnPrimary else BhodlTheme.colors.textPrimary,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(if (monthSelected) BhodlTheme.colors.brandPrimary else BhodlTheme.colors.surface)
+                    .border(1.dp, BhodlTheme.colors.outline, RoundedCornerShape(20.dp))
+                    .clickable { onMonthMode() }
+                    .padding(horizontal = 14.dp, vertical = 6.dp)
+                    .testTag(TrackingTags.PERIOD_MONTH),
+            )
+            if (monthSelected) {
+                BudgetMonthSelector(month = month, current = AppClock.currentMonth(), onChange = onMonthChange)
             }
         }
     }
@@ -488,220 +513,6 @@ internal fun CompareToggle(
             style = BhodlTheme.typography.labelMedium,
             color = fg,
         )
-    }
-}
-
-@Composable
-internal fun KpiRow(
-    kpis: DashboardKpis,
-    period: TrackingPeriod,
-    series: List<BalancePoint>,
-    prevKpis: DashboardKpis?,
-    balanceSplit: BalanceSplit,
-) {
-    // Cumulative inflow / outflow series for the inflow/outflow KPI
-    // sparklines. We only feed the line — sign is dropped — because
-    // the visual is a "trend over the window" snapshot, not a
-    // signed balance.
-    val balanceTrend = series.takeLast(20).map { it.balanceSat.toFloat() }
-    // Phase 3.11 — when at least one mempool event is in flight, the
-    // Balance KPI subtitle reads as "X confirmed · Y pending" so the
-    // user knows immediately what is spendable now vs in the mempool.
-    // No pending → fall back to the cross-wallet net-worth subtitle.
-    val balanceSubtitle = if (balanceSplit.hasPending) {
-        val pendingSign = io.bhodl.desktop.ui.amountSign(balanceSplit.pendingNetSat)
-        val pendingAbs = kotlin.math.abs(balanceSplit.pendingNetSat).toULong()
-        stringResource(
-            Res.string.trk_kpi_balance_split,
-            displayAmount(balanceSplit.confirmedSat),
-            "$pendingSign${displayAmount(pendingAbs)}",
-        )
-    } else {
-        stringResource(Res.string.trk_kpi_balance_cross_wallet)
-    }
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        // Phase 4.2 — Savings rate % computed inline (Net / Income × 100).
-        // Edge case: Income == 0 → rate is "—" since the ratio is
-        // undefined. Negative net with positive income produces a
-        // negative rate (you spent more than you earned).
-        val savingsRatePercent: Double? = if (kpis.inflowSat > 0UL) {
-            kpis.netSat.toDouble() / kpis.inflowSat.toLong().toDouble() * 100.0
-        } else null
-        val savingsRateLabel = savingsRatePercent
-            ?.let { "%.1f%%".format(it) } ?: "—"
-        val savingsRateAccent = when {
-            savingsRatePercent == null -> BhodlTheme.colors.financialNeutral
-            savingsRatePercent >= 0.0 -> BhodlTheme.colors.financialPositive
-            else -> BhodlTheme.colors.financialNegative
-        }
-        // Phase 3.10 — accents use the semantic financial layer instead
-        // of brand/error so "+ income" and "− expense" carry the same
-        // green/red coding everywhere (KPI tile, sparkline, bar, table
-        // row, slice). The "+/−" sign prefix is the secondary cue for
-        // color-blind users — every amount carries BOTH the color AND
-        // the explicit sign so red-green CVD users still read the
-        // direction correctly.
-        KpiCard(
-            modifier = Modifier.weight(1f),
-            title = stringResource(Res.string.trk_kpi_income, period.label),
-            value = "+${displayAmount(kpis.inflowSat)}",
-            subtitle = prevKpis?.let {
-                deltaLabel(kpis.inflowSat.toLong(), it.inflowSat.toLong())
-            } ?: stringResource(Res.string.trk_kpi_tx_in_window, kpis.txCount),
-            accent = BhodlTheme.colors.financialPositive,
-            icon = "↑",
-        )
-        KpiCard(
-            modifier = Modifier.weight(1f),
-            title = stringResource(Res.string.trk_kpi_expenses, period.label),
-            value = "−${displayAmount(kpis.outflowSat)}",
-            subtitle = prevKpis?.let {
-                deltaLabel(kpis.outflowSat.toLong(), it.outflowSat.toLong())
-            } ?: stringResource(Res.string.trk_kpi_tx_in_window, kpis.txCount),
-            accent = BhodlTheme.colors.financialNegative,
-            icon = "↓",
-        )
-        KpiCard(
-            modifier = Modifier.weight(1f),
-            title = stringResource(Res.string.trk_kpi_net_savings, period.label),
-            value = displaySignedAmount(kpis.netSat),
-            subtitle = prevKpis?.let {
-                deltaLabel(kpis.netSat, it.netSat)
-            } ?: stringResource(
-                // B14 — "Inflow win" read as a truncated label; spell it out.
-                if (kpis.netSat >= 0L) Res.string.tracker_kpi_inflow_exceeds
-                else Res.string.tracker_kpi_outflow_exceeds,
-            ),
-            accent = if (kpis.netSat >= 0L)
-                BhodlTheme.colors.financialPositive
-            else
-                BhodlTheme.colors.financialNegative,
-            icon = "₿",
-        )
-        // Phase 4.2 — Savings Rate % is the personal-finance KPI
-        // missing from the previous KPI strip. Tells the user "of
-        // every sat I received this period, how much did I keep".
-        // Brand-tinted (gold/orange) accent so it stands out as the
-        // headline behavioural number.
-        KpiCard(
-            modifier = Modifier.weight(1f),
-            title = stringResource(Res.string.trk_kpi_savings_rate),
-            value = savingsRateLabel,
-            subtitle = if (savingsRatePercent == null) stringResource(Res.string.trk_kpi_no_income)
-                else if (savingsRatePercent >= 0.0) stringResource(Res.string.trk_kpi_kept)
-                else stringResource(Res.string.trk_kpi_overspent),
-            accent = savingsRateAccent,
-            icon = "%",
-        )
-        // Phase 4.2 — Balance card moved to the END of the KPI strip
-        // so the 4 Wealth Builder KPIs (Income/Expenses/Net/Rate) lead
-        // visually. Phase 4.8 will lift this out of the strip and into
-        // a hero number above the dashboard.
-        KpiCard(
-            modifier = Modifier.weight(1f),
-            title = stringResource(Res.string.trk_kpi_balance),
-            value = displayAmount(kpis.currentBalanceSat),
-            subtitle = balanceSubtitle,
-            sparkline = balanceTrend,
-            sparklineColor = BhodlTheme.colors.brandPrimary,
-            accent = BhodlTheme.colors.brandPrimary,
-            icon = "₿",
-        )
-    }
-}
-
-/**
- * Phase 4.2 — Wealth Builder KPI card.
- *
- * Visual layers (bottom up):
- *  1. Glass gradient background tinted with the accent color (subtle
- *     wash across the card surface)
- *  2. Neon glow border in the accent color — three concentric strokes
- *     at decreasing alpha simulate the "tube" without Skia BlurEffect
- *  3. Optional circular icon badge top-left
- *  4. Title (label medium, secondary color)
- *  5. Value (title medium, accent color — the headline number)
- *  6. Subtitle (variance % vs prev period when available, else a fact)
- *  7. Optional sparkline (Balance card only)
- *
- * The `accent` color is the semantic identity of the card (green for
- * Income, red for Expenses, brand for Balance, ...). It drives BOTH
- * the glow border AND the value text color so the card reads as one
- * color block at a glance.
- */
-@Composable
-private fun KpiCard(
-    modifier: Modifier = Modifier,
-    title: String,
-    value: String,
-    subtitle: String,
-    accent: androidx.compose.ui.graphics.Color = BhodlTheme.colors.textPrimary,
-    sparkline: List<Float>? = null,
-    sparklineColor: androidx.compose.ui.graphics.Color = BhodlTheme.colors.brandPrimary,
-    icon: String? = null,
-) {
-    Column(
-        modifier = modifier
-            .bhodlCard(accent = accent, gradient = true)
-            .padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        // Header row: optional circular icon badge + title.
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            if (icon != null) {
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(50))
-                        .background(accent.copy(alpha = 0.18f))
-                        .padding(horizontal = 8.dp, vertical = 2.dp),
-                ) {
-                    Text(
-                        text = icon,
-                        style = BhodlTheme.typography.labelMedium,
-                        color = accent,
-                    )
-                }
-            }
-            // B14 — narrow cards ellipsize instead of clipping; the
-            // tooltip carries the full text.
-            Box(modifier = Modifier.weight(1f)) {
-                EllipsizedWithTooltip(
-                    text = title,
-                    style = BhodlTheme.typography.labelMedium,
-                    color = BhodlTheme.colors.textSecondary,
-                    maxLines = 1,
-                )
-            }
-        }
-        EllipsizedWithTooltip(
-            text = value,
-            style = BhodlTheme.typography.titleMedium,
-            color = accent,
-            maxLines = 1,
-        )
-        EllipsizedWithTooltip(
-            text = subtitle,
-            style = BhodlTheme.typography.bodyMedium,
-            color = BhodlTheme.colors.textTertiary,
-            maxLines = 2,
-        )
-        if (sparkline != null && sparkline.size >= 2) {
-            Sparkline(
-                values = sparkline,
-                color = sparklineColor,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(24.dp)
-                    .padding(top = 4.dp),
-            )
-        }
     }
 }
 

@@ -1,5 +1,6 @@
 package io.bhodl.desktop.screens
 
+import io.bhodl.desktop.AppClock
 import androidx.compose.runtime.mutableStateOf
 
 /**
@@ -37,8 +38,20 @@ internal object TrackerUiState {
      */
     val timeRangeFilter = mutableStateOf<Pair<Long, Long>?>(null)
 
+    /**
+     * The calendar month shared by Budget (its month selector) and
+     * Transactions (month view): a month picked in one is the month of
+     * the other, so "view transactions" from a September budget lists
+     * September.
+     */
+    val month = mutableStateOf(AppClock.currentMonth())
+
+    /** Transactions show [month] instead of the global period. */
+    val txByMonth = mutableStateOf(false)
+
     fun clearFilters() {
         categoryFilter.value = null
         timeRangeFilter.value = null
+        txByMonth.value = false
     }
 }

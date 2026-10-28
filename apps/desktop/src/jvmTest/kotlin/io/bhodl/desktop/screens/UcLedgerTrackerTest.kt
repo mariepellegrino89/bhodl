@@ -274,6 +274,16 @@ class UcLedgerTrackerTest {
         assertEquals(100UL to 0UL, flows[0].incomingSat to flows[0].outgoingSat)
         assertEquals(0UL to 50UL, flows[1].incomingSat to flows[1].outgoingSat)
         assertTrue(computeMonthlyFlows(listOf(ev("w", "m", INCOMING, 1UL, ts = null))).isEmpty())
+        // Empty months in between are kept, the year shows on the first bar and on January.
+        val gap = computeMonthlyFlows(
+            listOf(
+                ev("w", "a", INCOMING, 1UL, ts = utc(2025, 11, 10)),
+                ev("w", "b", INCOMING, 1UL, ts = utc(2026, 2, 10)),
+            ),
+        )
+        assertEquals(4, gap.size, "Nov, Dec, Jan, Feb")
+        assertEquals(0UL to 0UL, gap[1].incomingSat to gap[1].outgoingSat)
+        assertEquals(listOf("2025", null, "2026", null), gap.map { it.yearLabel })
         assertTrue(computeMonthlyFlows(emptyList()).isEmpty())
     }
 

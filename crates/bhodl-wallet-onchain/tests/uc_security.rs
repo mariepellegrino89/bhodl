@@ -5,10 +5,10 @@
 
 use std::path::{Path, PathBuf};
 
-use bhodl_wallet_onchain::{Registry, open_registry_in_memory};
+use bhodl_wallet_onchain::{
+    REGISTRY_SCHEMA_VERSION as SCHEMA_VERSION, Registry, open_registry_in_memory,
+};
 use rusqlite::Connection;
-
-const SCHEMA_VERSION: i64 = 5;
 
 fn db_path(dir: &tempfile::TempDir) -> PathBuf {
     dir.path().join("registry.sqlite")

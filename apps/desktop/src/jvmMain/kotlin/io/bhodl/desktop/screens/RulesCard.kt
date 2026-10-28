@@ -1,5 +1,7 @@
 package io.bhodl.desktop.screens
 
+import io.bhodl.shared.resources.rule_exact_amount
+import io.bhodl.shared.resources.trk_cat_make_rule
 import io.bhodl.desktop.ui.tableRowClickable
 import io.bhodl.desktop.ui.tableCell
 import androidx.compose.foundation.background
@@ -50,16 +52,10 @@ import io.bhodl.shared.resources.Res
 import io.bhodl.shared.resources.tracker_rule_apply_existing
 import io.bhodl.shared.resources.tracker_rule_by_amount
 import io.bhodl.shared.resources.tracker_rule_by_wallet
-import io.bhodl.shared.resources.tracker_rule_create
-import io.bhodl.shared.resources.tracker_rule_from_edit_question
-import io.bhodl.shared.resources.tracker_rule_from_edit_title
 import io.bhodl.shared.resources.tracker_rule_match_by
 import io.bhodl.shared.resources.tracker_rule_move_down
 import io.bhodl.shared.resources.tracker_rule_move_up
-import io.bhodl.shared.resources.tracker_rule_not_now
 import io.bhodl.shared.resources.tracker_rule_order_hint
-import io.bhodl.shared.resources.tracker_rule_pattern_amount
-import io.bhodl.shared.resources.tracker_rule_pattern_wallet
 import io.bhodl.shared.resources.tracker_rule_preview
 import io.bhodl.ui.theme.BhodlTheme
 import org.jetbrains.compose.resources.stringResource
@@ -264,7 +260,7 @@ private fun RuleDataRow(
         }
         Column(modifier = Modifier.tableCell(this, RuleCol.RULE)) {
             Text(
-                text = io.bhodl.desktop.domain.displayRuleName(rule.name, fmt),
+                text = io.bhodl.desktop.domain.displayRuleName(rule.name, fmt, stringResource(Res.string.rule_exact_amount)),
                 style = BhodlTheme.typography.bodyMedium,
                 color = if (rule.enabled) BhodlTheme.colors.textPrimary
                     else BhodlTheme.colors.textTertiary,
@@ -621,131 +617,119 @@ internal object RuleTags {
     const val FROM_EDIT_PANEL: String = "rule.from-edit"
     const val FROM_EDIT_PREVIEW: String = "rule.from-edit.preview"
     const val FROM_EDIT_APPLY_EXISTING: String = "rule.from-edit.apply-existing"
-    const val FROM_EDIT_CREATE: String = "rule.from-edit.create"
-    const val FROM_EDIT_DISMISS: String = "rule.from-edit.dismiss"
+    /** Redesign 2026-10 — "also create a rule" in the category editor. */
+    const val MAKE_RULE: String = "rule.from-edit.make-rule"
     fun fromEditPattern(kind: RulePatternKind): String = "rule.from-edit.pattern.${kind.name.lowercase()}"
 }
 
 /**
- * UX review 2026-10 (item 11) — "Always do this?" prompt shown right
- * after the user re-categorises a transaction (Monarch's rule widget).
- *
- * The user picks the pattern (wallet / exact amount, see
- * [RulePatternKind]); the preview counts the existing uncategorised
- * transactions the rule would categorise ([ruleDraftMatches]) and an
- * opt-out checkbox applies it to them now. The new rule goes to the top
- * of the list — a rule learnt from a specific edit is the most specific.
+ * What [CategoryEditDialog] needs to offer "also create a rule": the
+ * edited transaction's wallet label (the payee pattern), the history the
+ * preview counts and how to read a payee from an event.
+ */
+internal data class RuleOptionContext(
+    val walletLabel: String?,
+    val events: List<PaymentEvent>,
+    val payeeOf: (PaymentEvent) -> String?,
+)
+
+/**
+ * Redesign 2026-10 — the rule as an option of the category editor
+ * (off by default: most expenses are one-offs) instead of a prompt after
+ * every re-categorisation. The user picks the pattern (wallet / exact
+ * amount, see [RulePatternKind]); the preview counts the existing
+ * uncategorised transactions it would fill, and a checkbox applies it to
+ * them on Save. The new rule goes to the top of the list.
  */
 @Composable
-internal fun RuleFromEditPanel(
+internal fun RuleOptionSection(
     event: PaymentEvent,
     category: String,
-    walletLabel: String?,
-    events: List<PaymentEvent>,
-    payeeOf: (PaymentEvent) -> String?,
-    onDismiss: () -> Unit,
-    onCreate: (draft: RuleDraft, applyTo: List<PaymentEvent>) -> Unit,
+    context: RuleOptionContext,
+    enabled: Boolean,
+    onEnabledChange: (Boolean) -> Unit,
+    kind: RulePatternKind?,
+    onKindChange: (RulePatternKind) -> Unit,
+    matches: List<PaymentEvent>,
+    applyExisting: Boolean,
+    onApplyExistingChange: (Boolean) -> Unit,
 ) {
     val kinds = RulePatternKind.entries.filter {
-        ruleDraftFromEdit(event, category, walletLabel, it) != null
+        ruleDraftFromEdit(event, category, context.walletLabel, it) != null
     }
-    var kind by remember(event) { mutableStateOf(kinds.firstOrNull()) }
-    var applyExisting by remember(event) { mutableStateOf(true) }
-    val draft = kind?.let { ruleDraftFromEdit(event, category, walletLabel, it) }
-    val matches = remember(draft, events) {
-        draft?.let { ruleDraftMatches(it, events, payeeOf, edited = event) }.orEmpty()
-    }
+    if (kinds.isEmpty()) return
     val formatAmount = io.bhodl.desktop.ui.rememberAmountFormatter()
-    SlideOverPanel(
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(Res.string.tracker_rule_from_edit_title)) },
-        text = {
-            Column(
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-                modifier = Modifier.testTag(RuleTags.FROM_EDIT_PANEL),
-            ) {
-                val pattern = when (kind) {
-                    RulePatternKind.WALLET -> stringResource(
-                        Res.string.tracker_rule_pattern_wallet, walletLabel.orEmpty(),
-                    )
-                    RulePatternKind.AMOUNT -> stringResource(
-                        Res.string.tracker_rule_pattern_amount,
-                        formatAmount(event.amountSat.toLong()),
-                    )
-                    null -> ""
-                }
-                Text(
-                    text = stringResource(Res.string.tracker_rule_from_edit_question, pattern, category),
-                    style = BhodlTheme.typography.bodyMedium,
-                    color = BhodlTheme.colors.textPrimary,
-                )
-                Text(
-                    text = stringResource(Res.string.tracker_rule_match_by),
-                    style = BhodlTheme.typography.labelMedium,
-                    color = BhodlTheme.colors.textSecondary,
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    kinds.forEach { k ->
-                        val selected = k == kind
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(50))
-                                .background(
-                                    if (selected) BhodlTheme.colors.accentNeon.copy(alpha = 0.18f)
-                                    else BhodlTheme.colors.surfaceVariant,
-                                )
-                                .clickable(role = Role.RadioButton) { kind = k }
-                                .padding(horizontal = 12.dp, vertical = 6.dp)
-                                .testTag(RuleTags.fromEditPattern(k)),
-                        ) {
-                            Text(
-                                text = (if (selected) "✓ " else "") + when (k) {
-                                    RulePatternKind.WALLET -> stringResource(Res.string.tracker_rule_by_wallet)
-                                    RulePatternKind.AMOUNT -> stringResource(Res.string.tracker_rule_by_amount)
-                                },
-                                style = BhodlTheme.typography.labelMedium,
-                                color = if (selected) BhodlTheme.colors.accentNeon
-                                else BhodlTheme.colors.textSecondary,
-                            )
-                        }
-                    }
-                }
-                Text(
-                    text = stringResource(Res.string.tracker_rule_preview, ruleDraftPreviewCount(matches)),
-                    style = BhodlTheme.typography.bodyMedium,
-                    color = BhodlTheme.colors.textSecondary,
-                    modifier = Modifier.testTag(RuleTags.FROM_EDIT_PREVIEW),
-                )
-                if (matches.isNotEmpty()) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .clickable(role = Role.Checkbox) { applyExisting = !applyExisting }
-                            .testTag(RuleTags.FROM_EDIT_APPLY_EXISTING),
-                    ) {
-                        androidx.compose.material3.Checkbox(checked = applyExisting, onCheckedChange = null)
-                        Text(
-                            text = stringResource(Res.string.tracker_rule_apply_existing),
-                            style = BhodlTheme.typography.labelMedium,
-                            color = BhodlTheme.colors.textSecondary,
-                            modifier = Modifier.padding(start = 4.dp),
+    Column(
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.testTag(RuleTags.FROM_EDIT_PANEL),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .clickable(role = Role.Checkbox) { onEnabledChange(!enabled) }
+                .testTag(RuleTags.MAKE_RULE),
+        ) {
+            androidx.compose.material3.Checkbox(checked = enabled, onCheckedChange = null)
+            Text(
+                text = stringResource(Res.string.trk_cat_make_rule),
+                style = BhodlTheme.typography.bodyMedium,
+                color = BhodlTheme.colors.textPrimary,
+                modifier = Modifier.padding(start = 4.dp),
+            )
+        }
+        if (!enabled) return@Column
+        Text(
+            text = stringResource(Res.string.tracker_rule_match_by),
+            style = BhodlTheme.typography.labelMedium,
+            color = BhodlTheme.colors.textSecondary,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            kinds.forEach { k ->
+                val selected = k == (kind ?: kinds.first())
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50))
+                        .background(
+                            if (selected) BhodlTheme.colors.accentNeon.copy(alpha = 0.18f)
+                            else BhodlTheme.colors.surfaceVariant,
                         )
-                    }
+                        .clickable(role = Role.RadioButton) { onKindChange(k) }
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                        .testTag(RuleTags.fromEditPattern(k)),
+                ) {
+                    Text(
+                        text = (if (selected) "✓ " else "") + when (k) {
+                            RulePatternKind.WALLET -> stringResource(Res.string.tracker_rule_by_wallet) + " · " + context.walletLabel.orEmpty()
+                            RulePatternKind.AMOUNT ->
+                                stringResource(Res.string.tracker_rule_by_amount) + " · " + formatAmount(event.amountSat.toLong())
+                        },
+                        style = BhodlTheme.typography.labelMedium,
+                        color = if (selected) BhodlTheme.colors.accentNeon else BhodlTheme.colors.textSecondary,
+                    )
                 }
             }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = { draft?.let { onCreate(it, if (applyExisting) matches else emptyList()) } },
-                enabled = draft != null,
-                modifier = Modifier.testTag(RuleTags.FROM_EDIT_CREATE),
-            ) { Text(stringResource(Res.string.tracker_rule_create)) }
-        },
-        dismissButton = {
-            TextButton(
-                onClick = onDismiss,
-                modifier = Modifier.testTag(RuleTags.FROM_EDIT_DISMISS),
-            ) { Text(stringResource(Res.string.tracker_rule_not_now)) }
-        },
-    )
+        }
+        Text(
+            text = stringResource(Res.string.tracker_rule_preview, ruleDraftPreviewCount(matches)),
+            style = BhodlTheme.typography.labelMedium,
+            color = BhodlTheme.colors.textSecondary,
+            modifier = Modifier.testTag(RuleTags.FROM_EDIT_PREVIEW),
+        )
+        if (matches.isNotEmpty()) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .clickable(role = Role.Checkbox) { onApplyExistingChange(!applyExisting) }
+                    .testTag(RuleTags.FROM_EDIT_APPLY_EXISTING),
+            ) {
+                androidx.compose.material3.Checkbox(checked = applyExisting, onCheckedChange = null)
+                Text(
+                    text = stringResource(Res.string.tracker_rule_apply_existing),
+                    style = BhodlTheme.typography.labelMedium,
+                    color = BhodlTheme.colors.textSecondary,
+                    modifier = Modifier.padding(start = 4.dp),
+                )
+            }
+        }
+    }
 }

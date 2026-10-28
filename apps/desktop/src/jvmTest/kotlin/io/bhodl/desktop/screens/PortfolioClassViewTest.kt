@@ -4,16 +4,15 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.graphics.toAwtImage
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.ExperimentalTestApi
-import androidx.compose.ui.test.SemanticsNodeInteractionsProvider
 import androidx.compose.ui.test.assertTextContains
-import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onNodeWithTag
-import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.runDesktopComposeUiTest
@@ -31,25 +30,25 @@ import io.bhodl.desktop.screens.PortfolioFixtures.row
 import io.bhodl.desktop.screens.PortfolioFixtures.sell
 import io.bhodl.desktop.settings.SettingsStore
 import io.bhodl.ui.theme.BhodlTheme
-import java.io.File
-import javax.imageio.ImageIO
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 /**
  * Portfolio redesign 2026-10 — class cards + list + detail card
  * ([PortfolioClassView]), the details editor and the Cards / Table
- * toggle. The last test renders the page to PNG for the visual review
- * (build/screenshots/).
+ * toggle. The render tests compare the page with its screenshot
+ * references (ScreenshotCheck).
  */
 @OptIn(ExperimentalTestApi::class)
 class PortfolioClassViewTest {
 
-    @BeforeTest fun setUp() = SettingsStore.reset()
-    @AfterTest fun tearDown() = SettingsStore.reset()
+    @BeforeTest fun setUp() { SettingsStore.reset(); io.bhodl.desktop.data.TrackerCache.reset(); ScreenshotCheck.pinClock() }
+    @AfterTest fun tearDown() { ScreenshotCheck.releaseClock(); io.bhodl.desktop.data.TrackerCache.reset(); SettingsStore.reset() }
 
     private val etf = investment(1, "VWCE · FTSE All-World", "etf", qty = 1180.0, cost = 116_112.0, price = 121.3, ticker = "VWCE.DE")
     private val gold = investment(2, "Oro · lingotti", "commodity", qty = 320.0, cost = 21_950.0, price = 81.2, unit = "g")
@@ -122,9 +121,14 @@ class PortfolioClassViewTest {
     }
 
     @Composable
-    private fun View(onEditDetails: (DetailsEditRequest) -> Unit = {}, onSell: (Long) -> Unit = {}) {
+    private fun View(
+        onEditDetails: (DetailsEditRequest) -> Unit = {},
+        onSell: (Long) -> Unit = {},
+        onAddLot: (Long) -> Unit = {},
+        sheet: PortfolioSheet = sheet(),
+    ) {
         PortfolioClassView(
-            sheet = sheet(),
+            sheet = sheet,
             walletGroups = emptyList(),
             investments = listOf(etf, gold, usd),
             lotsByInvestmentId = lots,
@@ -138,7 +142,7 @@ class PortfolioClassViewTest {
             onEditManualAsset = {},
             onEditLiability = {},
             onEditDetails = onEditDetails,
-            onAddLot = {},
+            onAddLot = onAddLot,
             onEditLot = {},
             onSell = onSell,
             onDeleteSell = {},
@@ -148,21 +152,94 @@ class PortfolioClassViewTest {
     }
 
     @Test
-    fun `the first class with items is open and its biggest item is shown`() = runDesktopComposeUiTest {
-        setContent { BhodlTheme(useDarkTheme = true) { View() } }
-        PortfolioClass.entries.forEach { onNodeWithTag(PortfolioCardsTags.classCard(it)).assertExists() }
-        onNodeWithTag(PortfolioCardsTags.DETAIL_TITLE).assertTextContains("Cold storage")
+    fun `record buy asks which holding when there are several and opens the lot straight away with one`() = runDesktopComposeUiTest(width = 1440, height = 1100) {
+        var picked: Long? = null
+        var several by androidx.compose.runtime.mutableStateOf(true)
+        val one = sheet().let { s ->
+            s.copy(sections = s.sections.map { if (it.section == SheetSection.INVESTMENTS) it.copy(rows = it.rows.filter { r -> r.recordId == 2L }) else it })
+        }
+        setContent { BhodlTheme { if (several) View(onAddLot = { picked = it }) else View(onAddLot = { picked = it }, sheet = one) } }
         onNodeWithTag(PortfolioCardsTags.classCard(PortfolioClass.INVESTMENTS)).performClick()
-        onNodeWithTag(PortfolioCardsTags.DETAIL_TITLE).assertTextContains("VWCE", substring = true)
-        onNodeWithTag(PortfolioCardsTags.item("investments:2")).performClick()
-        onNodeWithTag(PortfolioCardsTags.DETAIL_TITLE).assertTextContains("Oro", substring = true)
+        onNodeWithTag(PortfolioCardsTags.PANEL_BUY).performClick()
+        assertNull(picked, "several holdings: a choice first")
+        onNode(hasText(gold.name) and hasAnyAncestor(androidx.compose.ui.test.isPopup())).performClick()
+        assertEquals(2L, picked)
+
+        picked = null
+        several = false
+        waitForIdle()
+        onNodeWithTag(PortfolioCardsTags.classCard(PortfolioClass.INVESTMENTS)).performClick()
+        onNodeWithTag(PortfolioCardsTags.PANEL_BUY).performClick()
+        assertEquals(2L, picked, "one holding: no question")
     }
 
     @Test
-    fun `an ETF card shows its lots, sales and TER cost and offers Sell`() = runDesktopComposeUiTest {
+    fun `the dashed add buttons open the investment, asset, debt and wallet forms`() = runDesktopComposeUiTest(width = 1440, height = 1300) {
+        io.bhodl.desktop.data.TrackerCache.seedForTest(investments = listOf(etf))
+        var addWallet = 0
+        for ((button, form) in listOf(
+            PortfolioCardsTags.ADD_INVESTMENT to InvestmentTags.INPUT_NAME,
+            PortfolioCardsTags.ADD_MANUAL to ManualAssetTags.INPUT_NAME,
+            PortfolioCardsTags.ADD_LIABILITY to LiabilityTags.INPUT_NAME,
+        )) {
+            setContent { BhodlTheme { TrackingScreen(section = io.bhodl.desktop.navigation.TrackerSection.PORTFOLIO, onAddWatch = { addWallet++ }) } }
+            waitUntilAtLeastOneExists(hasTestTag(button), timeoutMillis = 5_000)
+            onNodeWithTag(button).performScrollTo().performClick()
+            waitUntilAtLeastOneExists(hasTestTag(form), timeoutMillis = 3_000)
+        }
+        setContent { BhodlTheme { TrackingScreen(section = io.bhodl.desktop.navigation.TrackerSection.PORTFOLIO, onAddWatch = { addWallet++ }) } }
+        waitUntilAtLeastOneExists(hasTestTag(PortfolioCardsTags.ADD_WALLET), timeoutMillis = 5_000)
+        onNodeWithTag(PortfolioCardsTags.ADD_WALLET).performScrollTo().performClick()
+        assertEquals(1, addWallet)
+    }
+
+    @Test
+    fun `class panel numbers - cost, unrealized, vs HODL and per-row P&L`() {
+        val inv = classSummary(PortfolioClass.INVESTMENTS, sheet().sections[1].rows, listOf(etf, gold, usd), lots, emptyList())
+        assertEquals("EUR", inv.costCurrency)
+        assertEquals(18.378, inv.rowPl["investments:2"]!!, 0.01, "gold: 320 g × 81.2 vs 21,950")
+        assertEquals(-2.09, inv.rowPl["investments:3"]!!, 0.01)
+        assertTrue(inv.unrealizedPct!! > 0.0)
+        assertNull(inv.vsHodlPct, "no lot has a BTC rate")
+
+        val rated = investment(4, "Rated", "stock", qty = 10.0, cost = 1_000.0, price = 150.0)
+        val ratedLot = lot(41, 4, qty = 10.0, price = 100.0, daysAgo = 100).copy(btcPerUnitAtPurchase = 50_000.0)
+        val hodl = classSummary(
+            PortfolioClass.INVESTMENTS,
+            listOf(row(SheetSection.INVESTMENTS, 4, "Rated", "stock", 1_500_000)),
+            listOf(rated), mapOf(4L to listOf(ratedLot)), emptyList(),
+        )
+        assertEquals(-25.0, hodl.vsHodlPct!!, 0.001, "1,000 EUR at 50,000 = 2,000,000 sat, worth 1,500,000 now")
+
+        val man = classSummary(PortfolioClass.MANUAL_ASSETS, sheet().sections[2].rows, emptyList(), emptyMap(), listOf(house, deposit, car))
+        assertEquals(16.98, man.rowPl["manual_assets:7"]!!, 0.01)
+        assertEquals(-35.71, man.rowPl["manual_assets:9"]!!, 0.01)
+        assertEquals(-0.315, man.rowPl["manual_assets:8"]!!, 0.01, "no purchase value: change over the period")
+        assertEquals(11.945, man.unrealizedPct!!, 0.01)
+    }
+
+    @Test
+    fun `the first class with items is open and its biggest item is shown`() = runDesktopComposeUiTest(width = 1440, height = 2400) {
+        setContent { BhodlTheme(useDarkTheme = true) { View() } }
+        PortfolioClass.entries.forEach { onNodeWithTag(PortfolioCardsTags.classCard(it)).assertExists() }
+        onNodeWithTag(PortfolioCardsTags.PANEL).assertExists()
+        onNodeWithTag(PortfolioCardsTags.item("wallets:Cold storage")).assertExists()
+        assertEquals(0, onAllNodes(hasTestTag(PortfolioCardsTags.DETAIL)).fetchSemanticsNodes().size, "proposal B: no item card under the panel")
+        onNodeWithTag(PortfolioCardsTags.classCard(PortfolioClass.INVESTMENTS)).performClick()
+        onNodeWithTag(PortfolioCardsTags.item("investments:2")).performClick()
+        onNodeWithTag(PortfolioCardsTags.DETAIL_TITLE).assertTextContains("Oro", substring = true)
+        onNodeWithTag(PortfolioCardsTags.BACK).performClick()
+        onNodeWithTag(PortfolioCardsTags.PANEL).assertExists()
+        onNodeWithTag(PortfolioCardsTags.PANEL_CLOSE).performClick()
+        assertEquals(0, onAllNodes(hasTestTag(PortfolioCardsTags.PANEL)).fetchSemanticsNodes().size)
+    }
+
+    @Test
+    fun `an ETF card shows its lots, sales and TER cost and offers Sell`() = runDesktopComposeUiTest(width = 1440, height = 2400) {
         var sold: Long? = null
         setContent { BhodlTheme(useDarkTheme = true) { View(onSell = { sold = it }) } }
         onNodeWithTag(PortfolioCardsTags.classCard(PortfolioClass.INVESTMENTS)).performClick()
+        onNodeWithTag(PortfolioCardsTags.item("investments:1")).performClick()
         onNode(hasText("IE00BK5BQT80", substring = true) and hasAnyAncestor(hasTestTag(PortfolioCardsTags.ATTRS))).assertExists()
         onNode(hasText("Yearly fund cost", substring = true) and hasAnyAncestor(hasTestTag(PortfolioCardsTags.ATTRS))).assertExists()
         waitUntilAtLeastOneExists(hasText("Sales"))
@@ -171,17 +248,20 @@ class PortfolioClassViewTest {
     }
 
     @Test
-    fun `a mortgage card resolves its linked house and the house shows the LTV`() = runDesktopComposeUiTest {
+    fun `a mortgage card resolves its linked house and the house shows the LTV`() = runDesktopComposeUiTest(width = 1440, height = 2400) {
         setContent { BhodlTheme(useDarkTheme = true) { View() } }
         onNodeWithTag(PortfolioCardsTags.classCard(PortfolioClass.LIABILITIES)).performClick()
+        onNodeWithTag(PortfolioCardsTags.item("liabilities:20")).performClick()
         onNode(hasText("Casa", substring = true) and hasAnyAncestor(hasTestTag(PortfolioCardsTags.ATTRS))).assertExists()
         onNode(hasText("Repaid", substring = true) and hasAnyAncestor(hasTestTag(PortfolioCardsTags.METER))).assertExists()
+        onNodeWithTag(PortfolioCardsTags.BACK).performClick()
         onNodeWithTag(PortfolioCardsTags.classCard(PortfolioClass.MANUAL_ASSETS)).performClick()
+        onNodeWithTag(PortfolioCardsTags.item("manual_assets:7")).performClick()
         onNode(hasText("LTV", substring = true) and hasAnyAncestor(hasTestTag(PortfolioCardsTags.METER))).assertExists()
     }
 
     @Test
-    fun `Details opens the editor with the row's current values`() = runDesktopComposeUiTest {
+    fun `Details opens the editor with the row's current values`() = runDesktopComposeUiTest(width = 1440, height = 2400) {
         var request: DetailsEditRequest? = null
         setContent { BhodlTheme(useDarkTheme = true) { View(onEditDetails = { request = it }) } }
         onNodeWithTag(PortfolioCardsTags.classCard(PortfolioClass.MANUAL_ASSETS)).performClick()
@@ -194,7 +274,7 @@ class PortfolioClassViewTest {
     }
 
     @Test
-    fun `the details editor saves typed values as canonical JSON`() = runDesktopComposeUiTest {
+    fun `the details editor saves typed values as canonical JSON`() = runDesktopComposeUiTest(width = 1440, height = 2400) {
         var saved: String? = null
         val req = DetailsEditRequest(DetailCategory.MORTGAGE, 20, "Mutuo", mapOf("rate_pct" to "2.9"))
         setContent {
@@ -209,13 +289,14 @@ class PortfolioClassViewTest {
         onNode(hasText("Casa"), useUnmergedTree = true).performClick()
         onNodeWithTag(PortfolioCardsTags.DETAILS_SAVE, useUnmergedTree = true).performClick()
         assertEquals(
-            """{"rate_pct":2.9,"rate_type":"fixed","monthly_payment":780.5,"end_date":"2044-09-01","linked_asset_id":"7"}""",
+            """{"rate_pct":2.9,"rate_type":"fixed","monthly_payment":780.5,"end_date":"2044-09-01","linked_asset_id":"7",""" +
+                """"currency":"${io.bhodl.desktop.data.LoanPlans.defaultCurrency()}"}""",
             saved,
         )
     }
 
     @Test
-    fun `the Cards and Table toggle switches the portfolio view`() = runDesktopComposeUiTest {
+    fun `the Cards and Table toggle switches the portfolio view`() = runDesktopComposeUiTest(width = 1440, height = 2400) {
         var view = PortfolioView.CARDS
         setContent {
             BhodlTheme(useDarkTheme = true) {
@@ -251,16 +332,21 @@ class PortfolioClassViewTest {
             }
         }
         waitForIdle()
-        shot("portfolio-bitcoin")
+        screenshot("portfolio-bitcoin")
         listOf(PortfolioClass.INVESTMENTS, PortfolioClass.MANUAL_ASSETS, PortfolioClass.LIABILITIES).forEach { c ->
             onNodeWithTag(PortfolioCardsTags.classCard(c)).performClick()
             waitForIdle()
-            shot("portfolio-${c.name.lowercase()}")
+            screenshot("portfolio-${c.name.lowercase()}")
         }
+        onNodeWithTag(PortfolioCardsTags.classCard(PortfolioClass.INVESTMENTS)).performClick()
+        onNodeWithTag(PortfolioCardsTags.item("investments:1")).performClick()
+        waitForIdle()
+        screenshot("portfolio-drilldown-etf")
+        onNodeWithTag(PortfolioCardsTags.BACK).performClick()
         onNodeWithTag(PortfolioCardsTags.classCard(PortfolioClass.MANUAL_ASSETS)).performClick()
         onNodeWithTag(PortfolioCardsTags.item("manual_assets:8")).performClick()
         waitForIdle()
-        shot("portfolio-deposit")
+        screenshot("portfolio-deposit")
     }
 
     @Test
@@ -274,15 +360,38 @@ class PortfolioClassViewTest {
         }
         onNodeWithTag(PortfolioCardsTags.classCard(PortfolioClass.INVESTMENTS)).performClick()
         waitForIdle()
-        shot("portfolio-light-investments")
+        screenshot("portfolio-light-investments")
         onNodeWithTag(PortfolioCardsTags.classCard(PortfolioClass.LIABILITIES)).performClick()
         waitForIdle()
-        shot("portfolio-light-liabilities")
+        screenshot("portfolio-light-liabilities")
     }
 
-    private fun SemanticsNodeInteractionsProvider.shot(name: String) {
-        val dir = File(System.getProperty("bhodl.screenshots", "build/screenshots")).apply { mkdirs() }
-        ImageIO.write(onRoot().captureToImage().toAwtImage(), "png", File(dir, "$name.png"))
+    @Test
+    fun `render the portfolio cards in Italian`() = runDesktopComposeUiTest(width = 1440, height = 1500) {
+        SettingsStore.setLocaleOverride("it")
+        setContent { Page(dark = true) }
+        onNodeWithTag(PortfolioCardsTags.classCard(PortfolioClass.INVESTMENTS)).performClick()
+        waitForIdle()
+        screenshot("portfolio-it-investments")
+    }
+
+    @Test
+    fun `render the portfolio cards in a narrow window`() = runDesktopComposeUiTest(width = 900, height = 1500) {
+        setContent { Page(dark = true) }
+        waitForIdle()
+        screenshot("portfolio-narrow-bitcoin")
+        onNodeWithTag(PortfolioCardsTags.classCard(PortfolioClass.INVESTMENTS)).performClick()
+        waitForIdle()
+        screenshot("portfolio-narrow-investments")
+    }
+
+    @Composable
+    private fun Page(dark: Boolean) {
+        BhodlTheme(useDarkTheme = dark) {
+            androidx.compose.foundation.layout.Box(
+                androidx.compose.ui.Modifier.fillMaxSize().background(BhodlTheme.colors.background).padding(24.dp),
+            ) { View() }
+        }
     }
 }
 

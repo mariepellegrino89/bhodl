@@ -1,5 +1,6 @@
 package io.bhodl.desktop.data
 
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.snapshots.Snapshot
 import io.bhodl.desktop.domain.SEND_TO_SELF
 import io.bhodl.desktop.settings.SettingsStore
@@ -486,6 +487,7 @@ class UcCacheTrackerTest {
         val bill = registry.listBills().single()
         assertEquals(id, bill.id)
         assertEquals("Gym", bill.name)
+        assertEquals("Gym", bill.category, "the bill counts in the group's budget category")
         assertEquals(c.avgAmountSat, bill.amountSat)
         val expectedDay = java.time.Instant.ofEpochSecond(c.nextEstimatedUnix).atZone(zone).dayOfMonth
         assertEquals(expectedDay.toUInt(), bill.dueDay)
@@ -523,5 +525,62 @@ class UcCacheTrackerTest {
     private companion object {
         const val SIGNET_A = "tb1p8wpt9v4frpf3tkn0srd97pksgsxc5hs52lafxwru9kgeephvs7rqlqt9zj"
         const val SIGNET_B = "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx"
+    }
+
+    @Test
+    fun `a refresh cancelled by its caller leaves no error`() {
+        addWallet("Main", "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx")
+        val entered = java.util.concurrent.CountDownLatch(1)
+        val release = java.util.concurrent.CountDownLatch(1)
+        TrackerCache.watchEventsSource = { entered.countDown(); release.await(); emptyList() }
+        runBlocking {
+            val job = launch(kotlinx.coroutines.Dispatchers.Default) { TrackerCache.refresh(syncEsplora = false) }
+            entered.await()
+            // What happens when the screen that started the pass closes.
+            job.cancel(kotlinx.coroutines.CancellationException("The coroutine scope left the composition"))
+            release.countDown()
+            job.join()
+        }
+        assertNull(TrackerCache.lastError.value)
+        assertEquals(false, TrackerCache.refreshing.value)
+    }
+
+    // Schema v8 — income and spending outside the wallets.
+    @Test
+    fun `off-wallet entries join the events with their category and can pay a bill`() {
+        addWallet("Main", SIGNET_A)
+        val bill = registry.addBill("Luce e gas", 140_000UL, 15u, null)
+        registry.setBillCategory(bill, "Bollette")
+        val state = io.bhodl.desktop.screens.ManualDialogState(
+            forBill = registry.listBills().single(),
+        )
+        val draft = io.bhodl.desktop.screens.ManualTxnDraft(
+            direction = ManualTxns.DIRECTION_OUT,
+            amountSat = 61_000UL,
+            amountFiat = 42.5,
+            currency = "EUR",
+            occurredUnix = 1_760_000_000L,
+            accountRef = null,
+            category = "Bollette",
+            note = "Bolletta",
+        )
+        io.bhodl.desktop.screens.saveManualTxn(registry, state, draft)
+        refresh()
+
+        val ev = TrackerCache.events.value.single()
+        assertTrue(ManualTxns.isManual(ev.walletId))
+        assertEquals(io.bhodl.ffi.manualTxnWalletId(null), ev.walletId)
+        assertEquals(PaymentDirection.OUTGOING, ev.direction)
+        assertEquals(61_000UL, ev.amountSat)
+        assertEquals("Bollette", ev.category, "counts in the Bollette budget")
+        val paid = TrackerCache.bills.value.single()
+        assertEquals("${ev.walletId}|${ev.txidOrPaymentId}", paid.paidRef)
+        assertEquals(61_000UL, paid.lastPaidAmountSat)
+
+        // Deleting the entry takes it out of the events and unpays the bill.
+        registry.deleteManualTxn(ManualTxns.idOf(ev)!!)
+        refresh()
+        assertTrue(TrackerCache.events.value.isEmpty())
+        assertNull(TrackerCache.bills.value.single().lastPaidUnix)
     }
 }
