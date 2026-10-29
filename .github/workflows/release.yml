@@ -51,14 +51,20 @@ jobs:
             echo "::error::tag $GITHUB_REF_NAME does not match packageVersion $version"
             exit 1
           fi
-      # The Gradle build runs these two cargo steps too, but hides their
-      # output. Run them first so a failure or a hang shows where it is;
-      # Gradle then finds both up to date.
+      # The Gradle build runs these cargo steps too, but hides their output.
+      # Run them first, with the same arguments, so a failure shows here and
+      # Gradle finds everything already built.
+      #
+      # The uniffi plugin (1.0.8) reads cargo's stdout to the end before
+      # touching stderr. A cold build writes enough progress to stderr to
+      # fill the pipe and both sides wait forever, which is how the first
+      # dry runs hung for hours. Prebuilding, plus CARGO_TERM_QUIET on the
+      # Gradle step, keeps cargo's stderr there nearly empty.
       #
       # Build steps run in pwsh, like the windows job in ci.yml: the vendored
       # OpenSSL (rusqlite bundled-sqlcipher-vendored-openssl) is configured
       # by perl, and only Strawberry Perl on the pwsh PATH has the modules it
-      # needs. Git Bash's perl fails (first dry run: hung for hours in Gradle).
+      # needs. Git Bash's perl fails.
       - name: Build the uniffi bindgen
         shell: pwsh
         run: >-
@@ -66,9 +72,15 @@ jobs:
           --root shared/build/bindgen-install --target-dir build/bindgen-target
       - name: Build the Rust core
         shell: pwsh
-        run: cargo build -p bhodl-uniffi
+        # Both builds the plugin runs: the host one for binding generation
+        # and the --target one whose DLL ships in the app.
+        run: |
+          cargo build -p bhodl-uniffi
+          cargo build -p bhodl-uniffi --target x86_64-pc-windows-msvc
       - name: Build the MSI
         shell: pwsh
+        env:
+          CARGO_TERM_QUIET: 'true'
         # No build cache: a release is always built from a clean tree.
         run: ./gradlew.bat :apps:desktop:packageMsi --no-configuration-cache --stacktrace
       - name: Upload the unsigned installer
