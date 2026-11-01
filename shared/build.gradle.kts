@@ -120,22 +120,35 @@ cargo {
 // ----------------------------------------------------------------------------
 // Shipped cdylib profile: release, not debug (H1)
 // ----------------------------------------------------------------------------
-// The packaged desktop app must embed the release-profile Rust core; a debug
-// cdylib ships overflow-checks panic strings and no optimizations. The
-// plugin resolves its CargoBuildVariant in afterEvaluate from the
-// `releaseBuild` project property (or a *Release* task name / a Release
-// CONFIGURATION env — see UniffiPlugin.currentBuildVariant); desktop
-// packaging tasks like packageMsi match none of those heuristics and would
-// silently embed the debug cdylib. The property is read in afterEvaluate,
-// so setting it here — top level, after the plugins block — is early
-// enough. Scope it to packaging invocations so `:apps:desktop:run` and the
-// CI test jobs keep the fast debug profile. Pass -PreleaseBuild=false to
-// embed a debug cdylib in a package.
-val packagingTheRustCore = gradle.startParameter.taskNames.any { name ->
-    name.contains("package", ignoreCase = true) || name.contains("assemble", ignoreCase = true)
-}
-if (packagingTheRustCore && !project.hasProperty("releaseBuild")) {
-    project.extensions.extraProperties["releaseBuild"] = "true"
+// The packaged app must embed the release-profile Rust core; a debug cdylib
+// ships overflow-checks panic strings and no optimizations. The plugin's
+// only profile switch is GLOBAL — UniffiPlugin.currentBuildVariant() flips
+// the whole task graph between the host-debug wiring (the single
+// cargoBuildX64WindowsMsvcDebug that packageMsi consumes) and a
+// multi-platform release wiring that pulls Apple/Linux cross builds no
+// single runner can compile (tag run 41343813639 failed exactly there).
+// So the profile is set per task, not per variant: CargoBuildTask.release
+// and cargoOutputDirectory are public task properties, and the cargo
+// output dir must follow the profile layout (`<target>/<triple>/release`)
+// or the task copies from an empty debug dir. Every path the consumers
+// read (outputDirectory, the copyNativeDynamicLibs sources, the JVM
+// resources dir) is derived from the task NAME's Debug/Release suffix, not
+// from the release flag — so the task graph, and the release.yml prebuild,
+// keep exactly the base-commit host-debug shape while the DLL that flows
+// through them is release-profile.
+// The plugin configures these tasks in its own afterEvaluate; this
+// project's afterEvaluate is registered after the plugins block and so
+// runs after it, which lets the values below win. Applies everywhere the
+// task exists; on non-Windows hosts it stays out of the graph, and every
+// CI gradle job runs on Linux. Keep the cargo invocation here in sync with
+// the release.yml prebuild.
+project.afterEvaluate {
+    tasks.named<ch.ubique.uniffi.plugin.tasks.CargoBuildTask>("cargoBuildX64WindowsMsvcDebug") {
+        release.set(true)
+        cargoOutputDirectory.set(
+            rootProject.layout.projectDirectory.dir("target/x86_64-pc-windows-msvc/release"),
+        )
+    }
 }
 
 // ----------------------------------------------------------------------------

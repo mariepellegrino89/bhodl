@@ -78,10 +78,12 @@ jobs:
       - name: Build the Rust core
         shell: pwsh
         # Both builds the plugin runs, with the same arguments, so a
-        # failure shows here and Gradle finds everything already built:
-        # the host build for binding generation (the plugin pins it to the
-        # debug profile) and the --target release build whose DLL ships in
-        # the app (releaseBuild=true, set in shared/build.gradle.kts).
+        # failure shows here and Gradle finds everything already built.
+        # The host build for binding generation is pinned to the debug
+        # profile by the plugin. The --target build is what ships in the
+        # app: shared/build.gradle.kts reconfigures
+        # cargoBuildX64WindowsMsvcDebug to run with --release (keeping the
+        # host-only task graph), so the prebuild and the task match.
         run: |
           cargo build -p bhodl-uniffi
           cargo build --release -p bhodl-uniffi --target x86_64-pc-windows-msvc
@@ -90,10 +92,7 @@ jobs:
         env:
           CARGO_TERM_QUIET: 'true'
         # No build cache: a release is always built from a clean tree.
-        # -PreleaseBuild=true is the plugin's own switch for a
-        # release-profile cdylib; shared/build.gradle.kts also derives it
-        # from the packaging task name.
-        run: ./gradlew.bat :apps:desktop:packageMsi -PreleaseBuild=true --no-configuration-cache --stacktrace
+        run: ./gradlew.bat :apps:desktop:packageMsi --no-configuration-cache --stacktrace
       - name: Upload the unsigned installer
         id: unsigned
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
