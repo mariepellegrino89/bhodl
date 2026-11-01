@@ -362,6 +362,20 @@ the FFI-side Arc strong count synchronously. Without that call, deleting
 the SQLCipher file on Windows silently fails because the lock is still
 held until the JVM GC finalises the wrapper.
 
+#### Rust panic policy
+
+The release profile builds the cdylib with `panic = "unwind"`, never
+`abort`: UniFFI wraps every exported call in `catch_unwind`, so a Rust
+panic — even one thrown inside rusqlite/BDK, outside our control — becomes
+a recoverable `InternalException` at the FFI boundary and the app survives.
+A wallet crashing wholesale on a transient panic is worse than a
+feature-level error. Mutex poisoning is already mapped to typed
+`WalletError::Storage` errors at every lock site, and the residual
+`std::process::abort`/UB paths that still kill the process are out of
+scope for this policy. `probe_panic` (Rust, test-only) +
+`PanicContainmentTest` (jvmTest) enforce it: they deliberately panic and
+assert the JVM lives.
+
 ### 4.4 `shared/` (Kotlin Multiplatform module)
 
 - `nonNativeMain/kotlin/io/bhodl/ui/theme/BhodlTheme.kt` — the brand
@@ -376,6 +390,9 @@ held until the JVM GC finalises the wrapper.
 - `jvmTest/kotlin/io/bhodl/ffi/FallibleConstructorErrorTest.kt` —
   checks that errors from fallible FFI constructors reach Kotlin as
   typed `WalletException`s.
+- `jvmTest/kotlin/io/bhodl/ffi/PanicContainmentTest.kt` — the panic-policy
+  regression: a Rust panic in the cdylib must raise a recoverable
+  `InternalException`, never abort the JVM (§4.3).
 
 ### 4.5 `apps/desktop/`
 
@@ -444,8 +461,9 @@ cargo test -p bhodl-core            # KDF tests
 cargo test -p bhodl-wallet-onchain  # BDK watch-only + SQLCipher + registry tests
 cargo deny check                    # license + advisory audit
 
-# Regtest (ignored by default; needs BITCOIND_EXE / ELECTRS_EXE, see scripts/regtest-binaries.sh)
-cargo test -p bhodl-wallet-onchain --test regtest -- --ignored
+# Regtest (ignored by default; needs BITCOIND_EXE / ELECTRS_EXE, see scripts/regtest-binaries.sh).
+# --test-threads=1 is required: the tests share one regtest chain.
+cargo test -p bhodl-wallet-onchain --test regtest -- --ignored --test-threads=1
 
 # Gradle / Kotlin
 ./gradlew :shared:jvmTest --tests "io.bhodl.ffi.UniffiSmokeTest"
@@ -528,9 +546,12 @@ coprire al 100% con E2E" in the testing pyramid notes.
 ### 5.3 CI
 
 `.github/workflows/ci.yml` runs:
-- `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings` (Linux)
+- `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings` (Linux)
 - `cargo test --workspace` (Linux + macOS + Windows)
 - `cargo-deny` (Linux; license + advisory + source allowlist audit)
+- A weekly scheduled workflow (`.github/workflows/regtest.yml`) runs the
+  `#[ignore]`-gated Rust regtest integration tests on Linux with the
+  sha256-pinned bitcoind + electrs binaries from `scripts/regtest-binaries.sh`.
 - **`integration-test` job (Linux)**: Spins up Docker containers (bitcoind 28.0 regtest, electrs v3.2.0) via
   Testcontainers, runs `:apps:desktop:integrationTest` task (watch-only sync scenarios), uploads test reports on failure.
   Pre-pulls container images to stay within GitHub Action timeouts.
