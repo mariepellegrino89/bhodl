@@ -30,8 +30,9 @@ jobs:
     permissions:
       contents: read
       # For actions/attest-build-provenance: mint an OIDC token to sign
-      # the installer provenance.
+      # the installer provenance, and persist the attestation.
       id-token: write
+      attestations: write
     env:
       # As in ci.yml: the desktop build does not need Android, and the
       # uniffi plugin's Android wiring breaks on the preinstalled SDK.
