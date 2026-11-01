@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -24,6 +25,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import io.bhodl.desktop.data.TestMode
 import io.bhodl.desktop.data.TestModeException
+import io.bhodl.desktop.wizard.RegistryStore
 import io.bhodl.desktop.wizard.localizedText
 import io.bhodl.shared.resources.Res
 import io.bhodl.shared.resources.tm_active_intro
@@ -33,6 +35,8 @@ import io.bhodl.shared.resources.tm_cancel
 import io.bhodl.shared.resources.tm_confirm
 import io.bhodl.shared.resources.tm_done
 import io.bhodl.shared.resources.tm_enter
+import io.bhodl.shared.resources.tm_enter_body
+import io.bhodl.shared.resources.tm_enter_title
 import io.bhodl.shared.resources.tm_err_bad_file
 import io.bhodl.shared.resources.tm_err_generic
 import io.bhodl.shared.resources.tm_err_newer
@@ -87,13 +91,15 @@ public object TestModeTags {
     public const val INITIAL_STATE: String = "test-mode.initial-state"
     public const val CONFIRM: String = "test-mode.confirm"
     public const val CANCEL: String = "test-mode.cancel"
+    /** The "entering marks this real profile as demo" warning body (M3). */
+    public const val ENTER_CONFIRM: String = "test-mode.enter-confirm"
     public const val KEEP_DATES: String = "test-mode.keep-dates"
     public const val EXPORT_FIRST: String = "test-mode.export-first"
     public const val BAND: String = "test-mode.band"
     public const val BAND_EXIT: String = "test-mode.band-exit"
 }
 
-private enum class Pending { IMPORT, MARK, RESTORE, PROJECT }
+private enum class Pending { IMPORT, MARK, RESTORE, PROJECT, ENTER }
 
 /**
  * The section's state outlives the section: a command reopens the test
@@ -127,6 +133,11 @@ internal fun resetTestModeUiForTest() {
  * [onEnter] closes the real session and opens the test profile;
  * [onExit] leaves to the real PIN gate; [onReloaded] runs after a
  * command reopened the test profile (the caller rebuilds the screens).
+ *
+ * Review finding M3: the demo mark is irreversible and a marked profile
+ * mixes fabricated demo balances/events/rates into what it shows, so
+ * while the open session holds real (non-demo) wallets [onEnter] must
+ * first pass the [ENTER_CONFIRM] dialog ([hasRealWallets] decides).
  */
 @Composable
 public fun TestModeSection(
@@ -136,6 +147,9 @@ public fun TestModeSection(
     // Test seams: the native file dialogs.
     pickExportFile: () -> File? = ::chooseExportFile,
     pickImportFile: () -> File? = ::chooseImportFile,
+    // True = the open profile is a real one with wallets: entering test
+    // mode then asks for the explicit, irreversibility-stating confirm.
+    hasRealWallets: () -> Boolean = ::profileHasRealWallets,
 ) {
     val active by TestMode.active
     var working by TestModeUi.working
@@ -184,7 +198,13 @@ public fun TestModeSection(
         )
         if (!active) {
             Button(
-                onClick = { run(reload = false) { onEnter(); null } },
+                onClick = {
+                    if (hasRealWallets()) {
+                        pending = Pending.ENTER
+                    } else {
+                        run(reload = false) { onEnter(); null }
+                    }
+                },
                 enabled = !working,
                 modifier = Modifier.fillMaxWidth().testTag(TestModeTags.ENTER),
             ) { Text(stringResource(Res.string.tm_enter)) }
@@ -236,6 +256,7 @@ public fun TestModeSection(
 
     pending?.let { what ->
         val (title, body) = when (what) {
+            Pending.ENTER -> Res.string.tm_enter_title to Res.string.tm_enter_body
             Pending.IMPORT -> Res.string.tm_import_title to Res.string.tm_import_body
             Pending.MARK -> Res.string.tm_mark_title to Res.string.tm_mark_body
             Pending.RESTORE -> Res.string.tm_restore_title to Res.string.tm_restore_body
@@ -246,7 +267,16 @@ public fun TestModeSection(
             title = { Text(stringResource(title)) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(stringResource(body), style = BhodlTheme.typography.bodyMedium, color = BhodlTheme.colors.textSecondary)
+                    Text(
+                        stringResource(body),
+                        style = BhodlTheme.typography.bodyMedium,
+                        color = BhodlTheme.colors.textSecondary,
+                        modifier = if (what == Pending.ENTER) {
+                            Modifier.testTag(TestModeTags.ENTER_CONFIRM)
+                        } else {
+                            Modifier
+                        },
+                    )
                     if (what == Pending.IMPORT) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -256,7 +286,7 @@ public fun TestModeSection(
                             Text(stringResource(Res.string.tm_import_keep_dates), style = BhodlTheme.typography.bodyMedium)
                         }
                     }
-                    if (what != Pending.MARK) {
+                    if (what != Pending.MARK && what != Pending.ENTER) {
                         TextButton(
                             onClick = { export() },
                             modifier = Modifier.testTag(TestModeTags.EXPORT_FIRST),
@@ -268,6 +298,10 @@ public fun TestModeSection(
                 TextButton(
                     onClick = {
                         pending = null
+                        if (what == Pending.ENTER) {
+                            run(reload = false) { onEnter(); null }
+                            return@TextButton
+                        }
                         val file = importFile
                         val keep = keepDates
                         val done = localizedText(Res.string.tm_done)
@@ -277,12 +311,20 @@ public fun TestModeSection(
                                 Pending.MARK -> TestMode.markInitialState()
                                 Pending.RESTORE -> TestMode.restoreInitialState()
                                 Pending.PROJECT -> TestMode.loadProjectData()
+                                Pending.ENTER -> Unit
                             }
                             done
                         }
                     },
                     modifier = Modifier.testTag(TestModeTags.CONFIRM),
-                ) { Text(stringResource(Res.string.tm_confirm)) }
+                ) {
+                    Text(
+                        stringResource(Res.string.tm_confirm),
+                        // Loud, like the wipe dialog: this confirm marks
+                        // a real profile as demo, irreversibly (M3).
+                        color = if (what == Pending.ENTER) BhodlTheme.colors.error else LocalContentColor.current,
+                    )
+                }
             },
             dismissButton = {
                 TextButton(
@@ -300,6 +342,18 @@ private fun ActionButton(label: StringResource, tag: String, enabled: Boolean, m
         Text(stringResource(label))
     }
 }
+
+/**
+ * M3 (review 2026-10): the session holds real wallets — entering test
+ * mode must stop at the warning first. A demo profile (test mode's own
+ * session), an empty real profile and "no session at all" (Compose UI
+ * tests) enter directly. Never throws: a broken registry must not block
+ * the dialog path, it just does not get the guard.
+ */
+private fun profileHasRealWallets(): Boolean = runCatching {
+    val handle = RegistryStore.current() ?: return false
+    !handle.isDemoProfile() && handle.listWallets().isNotEmpty()
+}.getOrDefault(false)
 
 /**
  * The band on top of every screen while test mode is on: real data

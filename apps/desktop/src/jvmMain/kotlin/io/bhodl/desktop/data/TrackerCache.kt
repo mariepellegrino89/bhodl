@@ -276,7 +276,7 @@ public object TrackerCache {
     // ─── Internals ────────────────────────────────────────────────────
 
     /**
-     * Background refresh cadence. 2 min balances "feels live" with
+     * Background refresh cadence. 10 min balances "feels live" with
      * Esplora's politeness limit (~60 req/min on mempool.space's
      * public endpoint): even with 5 watch wallets a full refresh
      * issues ~10 HTTP requests, well below the budget.
@@ -292,7 +292,7 @@ public object TrackerCache {
     /**
      * Boot the background loops. Idempotent — calling twice is a
      * no-op. Two loops launch:
-     *  1. The 2-min Esplora sync ticker.
+     *  1. The 10-min Esplora sync ticker.
      *  2. A [snapshotFlow] observer on [RegistryStore.dataVersion]
      *     that triggers a registry-only refresh after each mutation.
      *
@@ -417,7 +417,7 @@ public object TrackerCache {
     /**
      * B9 — negative cache for lookups that found nothing, keyed by (UTC
      * day, currency) → time of the miss. A miss is retried after
-     * [RATE_MISS_RETRY_MS] instead of on every 2-min refresh, so an
+     * [RATE_MISS_RETRY_MS] instead of on every 10-min refresh, so an
      * unresolvable row (pre-genesis date, unsupported currency,
      * provider down) doesn't hit the network each tick.
      */

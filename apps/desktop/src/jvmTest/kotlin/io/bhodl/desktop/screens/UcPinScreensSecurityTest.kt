@@ -306,7 +306,7 @@ class UcPinScreensSecurityTest {
 
     @Test
     fun `SEC-037 non-PIN failures get their own message and are not counted`() = runDesktopComposeUiTest {
-        unlock({ _, _ -> throw WalletException.Storage("database is locked") })
+        unlock({ _, _ -> throw WalletException.StorageIo("database is locked") })
         submit("482916")
         assertTrue(errorText().startsWith("The wallet files could not be read"))
         assertEquals(0, PinAttemptTracker.failureCount(PinScopes.DEVICE))
@@ -315,7 +315,9 @@ class UcPinScreensSecurityTest {
     @Test
     fun `SEC-037 a registry from a newer build is not a wrong PIN`() = runDesktopComposeUiTest {
         unlock({ _, _ ->
-            throw WalletException.Storage("registry schema version 9 is newer than this app supports (5)")
+            throw WalletException.StorageNewerSchema(
+                "registry schema version 9 is newer than this app supports (5)"
+            )
         })
         submit("482916")
         assertTrue(errorText().startsWith("This data was written by a newer version"))

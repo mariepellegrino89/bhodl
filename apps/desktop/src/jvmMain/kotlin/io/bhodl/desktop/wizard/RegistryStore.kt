@@ -9,11 +9,11 @@ import io.bhodl.ffi.RegistryHandle
  *
  * Mirror of [`WalletStore`] for the device-PIN-scoped registry DB.
  * Populated either:
- * - right after a successful `runMigrationIfNeeded` (Migration screen
- *   re-opens the registry it just created and stashes the handle), or
+ * - right after first-run registry creation (`DevicePinSetupScreen`
+ *   creates `registry.sqlite` and stashes the handle), or
  * - through the boot-time `DevicePinUnlockScreen` on a fresh process
  *   launch when `registry.sqlite` already exists from a previous
- *   session.
+ *   session (PIN or recovery-code path).
  *
  * Read by every screen that needs cross-wallet visibility — today the
  * Phase 3.1 debug screen, the new Welcome wallet picker in Phase 3.2,

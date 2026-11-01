@@ -103,9 +103,6 @@ import org.jetbrains.compose.resources.stringResource
  * the persistent lockout applies to every way of guessing.
  */
 internal object RecoveryCodes {
-    /** Error detail the core uses for a well-formed but wrong code. */
-    const val REJECTED_DETAIL: String = "recovery code rejected"
-
     /** Groups of four symbols in a formatted code. */
     const val GROUPS: Int = 6
 
@@ -130,9 +127,12 @@ internal object RecoveryCodes {
         }
         .joinToString("")
 
-    /** `true` for the core's "wrong recovery code" verdict (counted). */
-    fun isRejected(e: Throwable): Boolean =
-        e is WalletException.Storage && e.detail == REJECTED_DETAIL
+    /**
+     * `true` for the core's "wrong recovery code" verdict (counted):
+     * the core reports a rejected secret as the typed
+     * `WalletException.StorageWrongPin` — no message matching involved.
+     */
+    fun isRejected(e: Throwable): Boolean = e is WalletException.StorageWrongPin
 }
 
 /** User-facing message for a failed recovery attempt; counts wrong codes. */

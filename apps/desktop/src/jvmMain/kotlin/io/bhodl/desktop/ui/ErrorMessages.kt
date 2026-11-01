@@ -71,6 +71,11 @@ private fun WalletException.kindAndDetail(): Pair<String, String?> = when (this)
     is WalletException.EsploraSync -> localizedText(Res.string.err_kind_esplora_sync) to
         if (isDroppedConnection(detail)) localizedText(Res.string.err_esplora_connection_dropped) else detail
     is WalletException.Storage -> localizedText(Res.string.err_kind_storage) to detail
+    is WalletException.StorageWrongPin ->
+        localizedText(Res.string.err_kind_storage) to null
+    is WalletException.StorageNewerSchema ->
+        localizedText(Res.string.err_kind_storage) to detail
+    is WalletException.StorageIo -> localizedText(Res.string.err_kind_io) to detail
     is WalletException.WalletCreate -> localizedText(Res.string.err_kind_wallet_create) to detail
     is WalletException.DerivationPath -> localizedText(Res.string.err_kind_derivation_path) to detail
     is WalletException.KeyDerivation -> localizedText(Res.string.err_kind_key_derivation) to detail

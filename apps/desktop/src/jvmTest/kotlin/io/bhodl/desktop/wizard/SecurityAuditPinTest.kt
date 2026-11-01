@@ -79,6 +79,8 @@ class SecurityAuditPinTest {
 
     @Test
     fun `pin error classification separates network and storage from wrong pin`() {
+        // Fail-closed fallback: an unrecognised raw Storage detail is
+        // still treated as a wrong PIN (counted)…
         assertEquals(
             PinFailureKind.WrongPin,
             PinErrors.classify(
@@ -89,25 +91,31 @@ class SecurityAuditPinTest {
             PinFailureKind.WrongPin,
             PinErrors.classify(WalletException.Storage("encryption key rejected: file is not a database")),
         )
+        // …while the typed variants the Rust core now reports classify
+        // without any message matching.
         assertEquals(
-            PinFailureKind.NetworkMismatch,
-            PinErrors.classify(WalletException.Storage("Network mismatch: loaded bitcoin, expected signet")),
+            PinFailureKind.WrongPin,
+            PinErrors.classify(WalletException.StorageWrongPin()),
         )
         assertEquals(
             PinFailureKind.Storage,
-            PinErrors.classify(WalletException.Storage("no wallet.kdf.json or wallet.salt at this data dir")),
+            PinErrors.classify(WalletException.StorageIo("no registry.kdf.json at this data dir")),
+        )
+        assertEquals(
+            PinFailureKind.NewerVersion,
+            PinErrors.classify(WalletException.StorageNewerSchema("unsupported kdf descriptor version 9")),
         )
         assertEquals(PinFailureKind.Other, PinErrors.classify(IllegalStateException("x")))
     }
 
     @Test
     fun `downgrade refusals are classified as NewerVersion, not as a wrong PIN`() {
-        // Exact details produced by the Rust core (registry.rs L9 gate,
+        // Typed variants produced by the Rust core (registry.rs L9 gate,
         // kdf.rs descriptor version check).
-        val registry = WalletException.Storage(
+        val registry = WalletException.StorageNewerSchema(
             "registry schema version 5 is newer than this app supports (4); update BHODL to open it",
         )
-        val kdf = WalletException.Storage("unsupported kdf descriptor version 3")
+        val kdf = WalletException.StorageNewerSchema("unsupported kdf descriptor version 3")
         for (e in listOf(registry, kdf)) {
             assertEquals(PinFailureKind.NewerVersion, PinErrors.classify(e))
         }

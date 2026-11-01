@@ -92,7 +92,7 @@ class DevicePinSessionTest {
     @Test
     fun `verify turns a storage failure into StorageError with a proper message`() {
         val check = DevicePinSession.verify("1234") {
-            throw WalletException.Storage("no wallet.kdf.json or wallet.salt at this data dir")
+            throw WalletException.StorageIo("no registry.kdf.json at this data dir")
         }
         assertIs<DevicePinCheck.StorageError>(check)
         assertEquals(PinErrors.messageFor(PinFailureKind.Storage), check.message)

@@ -70,6 +70,7 @@ import org.jetbrains.compose.resources.stringResource
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * The wallet workspace (UX review 2026-10, §4 items 5–8) for the
@@ -146,8 +147,16 @@ public fun DashboardScreen(
         lastError = null
     }
 
+    // Audit 2026-10 (M5) — the one-sync-at-a-time gate must be atomic:
+    // the old `if (syncMode != Idle) return` check raced the
+    // `syncMode = mode` write inside scope.launch, so two quick
+    // triggers could both pass the check and run syncWithEsplora
+    // concurrently on the same wallet handle. Cleared when the sync
+    // coroutine returns syncMode to Idle.
+    val syncRunning = remember { AtomicBoolean(false) }
+
     fun launchSync(mode: SyncMode) {
-        if (syncMode != SyncMode.Idle) return
+        if (!syncRunning.compareAndSet(false, true)) return
         scope.launch {
             syncMode = mode
             runCatching {
@@ -161,6 +170,7 @@ public fun DashboardScreen(
                 tipHeight = tip
             }.onFailure { lastError = it.userMessage(getString(Res.string.wview_unknown_error)) }
             syncMode = SyncMode.Idle
+            syncRunning.set(false)
             dataVersion++
         }
     }

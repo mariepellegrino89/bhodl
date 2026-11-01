@@ -74,8 +74,8 @@ class PinRecoveryScreensTest {
         assertTrue(RecoveryCodes.groupMatches(code, 3, " jkmn "))
         assertTrue(RecoveryCodes.groupMatches("0011-2222-3333-4444-5555-6666", 1, "oOiL"))
         assertFalse(RecoveryCodes.groupMatches(code, 3, "JKM"))
-        assertTrue(RecoveryCodes.isRejected(WalletException.Storage("recovery code rejected")))
-        assertFalse(RecoveryCodes.isRejected(WalletException.Storage("database is locked")))
+        assertTrue(RecoveryCodes.isRejected(WalletException.StorageWrongPin()))
+        assertFalse(RecoveryCodes.isRejected(WalletException.StorageIo("database is locked")))
     }
 
     // ---- recovery code panel -------------------------------------------------
@@ -136,7 +136,7 @@ class PinRecoveryScreensTest {
 
     @Test
     fun `SEC-142 a wrong code is counted, a malformed one is not`() = runDesktopComposeUiTest {
-        var next: Throwable = WalletException.Storage("recovery code rejected")
+        var next: Throwable = WalletException.StorageWrongPin()
         setContent {
             BhodlTheme {
                 DevicePinUnlockScreen(
