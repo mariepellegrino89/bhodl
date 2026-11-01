@@ -124,7 +124,9 @@ impl PendingWatchScan {
     ///
     /// # Errors
     ///
-    /// [`OnchainError::EsploraSync`] on transport / server failure,
+    /// [`OnchainError::EsploraTransport`] on transport / server failure
+    /// (the typed client error, so the sync retry loop can classify it
+    /// without string matching),
     /// [`OnchainError::InvalidArgument`] on a malformed URL or proxy.
     pub fn fetch(
         self,
@@ -139,15 +141,15 @@ impl PendingWatchScan {
             Self::Full(request, _) => client
                 .full_scan(request, 20, 4)
                 .map(|r| WatchScanUpdate::Full(r.into()))
-                .map_err(|e| OnchainError::EsploraSync(e.to_string())),
+                .map_err(OnchainError::EsploraTransport),
             Self::Incremental(request, _) => client
                 .sync(request, 4)
                 .map(|r| WatchScanUpdate::Full(r.into()))
-                .map_err(|e| OnchainError::EsploraSync(e.to_string())),
+                .map_err(OnchainError::EsploraTransport),
             Self::Spks(request, _) => client
                 .sync(request, 4)
                 .map(WatchScanUpdate::Spks)
-                .map_err(|e| OnchainError::EsploraSync(e.to_string())),
+                .map_err(OnchainError::EsploraTransport),
         }
     }
 }
@@ -440,7 +442,7 @@ pub(crate) fn validate_watch_address(
     addr_str: &str,
     network: BhodlNetwork,
 ) -> Result<Address, OnchainError> {
-    let btc_net = map_network(network);
+    let btc_net = map_network(network)?;
     let parsed: Address<bitcoin::address::NetworkUnchecked> = addr_str
         .trim()
         .parse()
@@ -856,7 +858,7 @@ impl WatchAccount {
         bip: WatchBip,
     ) -> Result<Self, OnchainError> {
         let (desc_ext, desc_int) = xpub_watch_descriptors(xpub, network, bip)?;
-        let btc_net = map_network(network);
+        let btc_net = map_network(network)?;
 
         let mut conn = open_watch_db(db_path, encryption_key)?;
         let mut wallet = open_or_create_wallet(&mut conn, desc_ext, desc_int, btc_net)?;
@@ -903,7 +905,7 @@ impl WatchAccount {
     ) -> Result<Self, OnchainError> {
         let (desc_ext, desc_int) =
             hd_watch_descriptors(master_fingerprint, derivation_path, xpub, network)?;
-        let btc_net = map_network(network);
+        let btc_net = map_network(network)?;
 
         let mut conn = open_watch_db(db_path, encryption_key)?;
         let mut wallet = open_or_create_wallet(&mut conn, desc_ext, desc_int, btc_net)?;
@@ -950,7 +952,7 @@ impl WatchAccount {
                 parsed.push(addr);
             }
         }
-        let btc_net = map_network(network);
+        let btc_net = map_network(network)?;
 
         let mut conn = open_watch_db(db_path, encryption_key)?;
         ensure_watch_address_table(&conn)?;
@@ -1011,7 +1013,7 @@ impl WatchAccount {
         db_path: &Path,
         encryption_key: &[u8; ENCRYPTION_KEY_LEN],
     ) -> Result<Self, OnchainError> {
-        let btc_net = map_network(network);
+        let btc_net = map_network(network)?;
         // Opening a missing path would create an empty encrypted DB as a
         // side effect before failing below; refuse up front instead.
         if !db_path.exists() {
@@ -1433,7 +1435,7 @@ impl WatchAccount {
         if addr_labels.is_empty() {
             return Ok(Vec::new());
         }
-        let btc_network = map_network(self.network);
+        let btc_network = map_network(self.network)?;
         let mut applied = Vec::new();
         for (txid, tx) in self.incoming_txs() {
             let hit = tx.output.iter().find_map(|out| {
@@ -1535,7 +1537,7 @@ impl WatchAccount {
     /// [`OnchainError::Storage`] if a UTXO's `script_pubkey` cannot be
     /// expressed as an address for this network (corrupted state).
     pub fn list_utxos(&self) -> Result<Vec<UtxoInfo>, OnchainError> {
-        let btc_network = map_network(self.network);
+        let btc_network = map_network(self.network)?;
         let to_info = |outpoint: bitcoin::OutPoint,
                        txout: &bitcoin::TxOut,
                        is_change: bool,
@@ -2282,7 +2284,7 @@ mod tests {
     #[test]
     fn map_network_testnet4_uses_real_testnet4_params() {
         assert_eq!(
-            map_network(BhodlNetwork::Testnet4),
+            map_network(BhodlNetwork::Testnet4).unwrap(),
             bitcoin::Network::Testnet4
         );
     }

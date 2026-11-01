@@ -6,9 +6,9 @@ name: Release
 # artifact and publishes nothing.
 #
 # Signing starts once the repository has the SIGNPATH_ORGANIZATION_ID
-# variable and the SIGNPATH_API_TOKEN secret. Until then the installer is
-# published unsigned. Each signing request waits for an approver on
-# SignPath.
+# variable and the SIGNPATH_API_TOKEN secret, and only runs for version
+# tags (CODE_SIGNING_POLICY.md). Until then the installer is published
+# unsigned. Each signing request waits for an approver on SignPath.
 on:
   push:
     tags: ['v*.*.*']
@@ -24,6 +24,15 @@ jobs:
   windows:
     name: windows installer
     runs-on: windows-latest
+    # A cold build takes about 20 minutes; a hung step fails the job instead
+    # of holding the runner for six hours.
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      # For actions/attest-build-provenance: mint an OIDC token to sign
+      # the installer provenance, and persist the attestation.
+      id-token: write
+      attestations: write
     env:
       # As in ci.yml: the desktop build does not need Android, and the
       # uniffi plugin's Android wiring breaks on the preinstalled SDK.
@@ -48,10 +57,43 @@ jobs:
             echo "::error::tag $GITHUB_REF_NAME does not match packageVersion $version"
             exit 1
           fi
+      # The Gradle build runs these cargo steps too, but hides their output.
+      # Run them first, with the same arguments, so a failure shows here and
+      # Gradle finds everything already built.
+      #
+      # The uniffi plugin (1.0.8) reads cargo's stdout to the end before
+      # touching stderr. A cold build writes enough progress to stderr to
+      # fill the pipe and both sides wait forever, which is how the first
+      # dry runs hung for hours. Prebuilding, plus CARGO_TERM_QUIET on the
+      # Gradle step, keeps cargo's stderr there nearly empty.
+      #
+      # Build steps run in pwsh, like the windows job in ci.yml: the vendored
+      # OpenSSL (rusqlite bundled-sqlcipher-vendored-openssl) is configured
+      # by perl, and only Strawberry Perl on the pwsh PATH has the modules it
+      # needs. Git Bash's perl fails.
+      - name: Build the uniffi bindgen
+        shell: pwsh
+        run: >-
+          cargo install --locked --force --path crates/uniffi-bindgen-kmp
+          --root shared/build/bindgen-install --target-dir build/bindgen-target
+      - name: Build the Rust core
+        shell: pwsh
+        # Both builds the plugin runs, with the same arguments, so a
+        # failure shows here and Gradle finds everything already built.
+        # The host build for binding generation is pinned to the debug
+        # profile by the plugin. The --target build is what ships in the
+        # app: shared/build.gradle.kts reconfigures
+        # cargoBuildX64WindowsMsvcDebug to run with --release (keeping the
+        # host-only task graph), so the prebuild and the task match.
+        run: |
+          cargo build -p bhodl-uniffi
+          cargo build --release -p bhodl-uniffi --target x86_64-pc-windows-msvc
       - name: Build the MSI
-        shell: bash
+        shell: pwsh
+        env:
+          CARGO_TERM_QUIET: 'true'
         # No build cache: a release is always built from a clean tree.
-        run: ./gradlew :apps:desktop:packageMsi --no-configuration-cache --stacktrace
+        run: ./gradlew.bat :apps:desktop:packageMsi --no-configuration-cache --stacktrace
       - name: Upload the unsigned installer
         id: unsigned
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -60,7 +102,10 @@ jobs:
           path: apps/desktop/build/compose/binaries/main/msi/*.msi
           if-no-files-found: error
       - name: Sign with SignPath
-        if: vars.SIGNPATH_ORGANIZATION_ID != ''
+        # CODE_SIGNING_POLICY.md: only builds from a version tag on main
+        # are ever signed. A manual dispatch from any branch still builds
+        # and uploads the installer above, but unsigned.
+        if: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' && startsWith(github.ref, 'refs/tags/') }}
         uses: signpath/github-action-submit-signing-request@c92b958760219087e01f8d67a1669ed57afe2627 # v2
         with:
           api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
@@ -84,6 +129,13 @@ jobs:
             cp apps/desktop/build/compose/binaries/main/msi/*.msi dist/
           fi
           cd dist && sha256sum *.msi > SHA256SUMS.txt && cat SHA256SUMS.txt
+      - name: Attest build provenance
+        # Subject: the installer SHA256SUMS.txt covers. Requires the
+        # repository to be public (or a GitHub Pro/Team/Enterprise plan) —
+        # the attestation store rejects private repos otherwise.
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
+        with:
+          subject-path: dist/*.msi
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: bhodl-windows

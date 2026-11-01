@@ -19,6 +19,24 @@
 //! first `#[uniffi::Object]` in this file, because only the first object's
 //! methods can return `Result<String, _>` safely through the Ubique KMP
 //! bindings (see `docs/uniffi-runtime.md`).
+//!
+//! ## Known residual secret copies
+//!
+//! Memory hygiene in this stack is best-effort, not exhaustive. Two
+//! residual copies of secret material are outside this crate's control
+//! and are tracked here as known limitations (do not scatter new notes;
+//! extend this list instead):
+//! - The JVM-side PIN `String` — [`RegistryHandle::create_or_load`] wraps
+//!   the Rust-side copy in `Zeroizing`, but the Kotlin/JVM copy is
+//!   outside our control.
+//! - rusqlite's internal SQL statement buffer for `PRAGMA key` —
+//!   `bhodl_wallet_onchain::common::open_encrypted_connection` builds the
+//!   hex key literal as `Zeroizing`, but sqlite's own statement buffer is
+//!   not scrubbable from our side.
+//!
+//! Everything else is covered by `RegistryHandle`'s zeroizing `Drop`
+//! (device key) and SQLCipher's `cipher_memory_security = ON` (decrypted
+//! pages and internal key material).
 
 use std::{
     fs,
@@ -42,6 +60,7 @@ use uuid::Uuid;
 // read_or_create_salt) are imported inside `mod tests`, not here, to
 // avoid an unused-import warning in non-test builds.
 mod kdf;
+mod panic_probe;
 #[cfg(test)]
 mod uc_pin_recovery_tests;
 #[cfg(test)]
@@ -61,7 +80,7 @@ uniffi::setup_scaffolding!();
 /// Kept as a plain UniFFI enum (no Rust `From` derive) so the wire format
 /// is independent of internal `bhodl_core` evolution: adding a new core
 /// variant must be a deliberate FFI change.
-#[derive(uniffi::Enum)]
+#[derive(uniffi::Enum, Debug)]
 pub enum Network {
     Mainnet,
     Testnet4,
@@ -97,6 +116,23 @@ pub enum WalletError {
     EsploraSync { detail: String },
     #[error("storage error: {detail}")]
     Storage { detail: String },
+    /// The store refused the secret: the SQLCipher key probe, the KDF
+    /// descriptor MAC, or the v3 AEAD unwrap rejected the PIN / recovery
+    /// code. Typed (instead of a `Storage` detail to substring-match) so
+    /// FFI callers can count the attempt against the lockout directly.
+    #[error("wrong PIN or recovery code")]
+    StorageWrongPin,
+    /// The data on disk was written by a build this one cannot read
+    /// (registry schema version or KDF descriptor version): the open is
+    /// refused instead of risking a downgrade corruption.
+    #[error("data written by a newer BHODL version: {detail}")]
+    StorageNewerSchema { detail: String },
+    /// A filesystem-level failure while opening or reading the store
+    /// (missing file, permissions, lock contention). Distinct from
+    /// [`WalletError::Io`] (a raw `std::io` failure) so storage-flavoured
+    /// io errors stay classifiable without matching on their text.
+    #[error("wallet files could not be read: {detail}")]
+    StorageIo { detail: String },
     #[error("wallet creation failed: {detail}")]
     WalletCreate { detail: String },
     #[error("derivation path: {detail}")]
@@ -243,7 +279,16 @@ impl From<OnchainError> for WalletError {
             OnchainError::Descriptor(s) => Self::WalletCreate { detail: s },
             OnchainError::WalletCreate(s) => Self::WalletCreate { detail: s },
             OnchainError::EsploraSync(s) => Self::EsploraSync { detail: s },
-            OnchainError::Storage(s) => Self::Storage { detail: s },
+            // Transport errors arrive typed; the retry decision already
+            // happened on the Rust side, so only the message crosses.
+            OnchainError::EsploraTransport(e) => Self::EsploraSync {
+                detail: e.to_string(),
+            },
+            // The catch-all storage string is classified ONCE, here, so no
+            // FFI caller ever substring-matches error text. Semantic sites
+            // (KDF layer, registry version gate) produce typed variants
+            // directly and never go through this adapter.
+            OnchainError::Storage(s) => classify_storage_error(s),
             OnchainError::InvalidAddress(s) => Self::InvalidAddress { detail: s },
             OnchainError::InvalidArgument(s) => Self::InvalidArgument { detail: s },
             // An RNG failure is a key-material fault, not a storage one:
@@ -257,6 +302,64 @@ impl From<OnchainError> for WalletError {
             },
         }
     }
+}
+
+impl From<kdf::UnwrapError> for WalletError {
+    fn from(err: kdf::UnwrapError) -> Self {
+        match err {
+            kdf::UnwrapError::WrongSecret => Self::StorageWrongPin,
+            // A descriptor this build cannot unwrap is data from a build
+            // it is not (a never-migrated older file is migrated on
+            // unlock before this path is reachable): report the update
+            // path. This matches the long-standing classification of the
+            // "unsupported kdf descriptor version" detail as
+            // "written by a newer version".
+            kdf::UnwrapError::UnsupportedVersion(version) => Self::StorageNewerSchema {
+                detail: format!("unsupported kdf descriptor version {version} for unwrap"),
+            },
+            kdf::UnwrapError::Malformed(detail) => Self::Storage { detail },
+        }
+    }
+}
+
+/// Classify the catch-all [`OnchainError::Storage`] payload into a typed
+/// `WalletError` variant. This is the single place in the codebase where
+/// a storage error's TEXT is matched — every marker below is pinned by a
+/// unit test, and it exists only because rusqlite's error string is the
+/// lowest accessible level for these failure kinds.
+fn classify_storage_error(detail: String) -> WalletError {
+    /// SQLCipher's bad-key probe and its underlying SQLite error: a wrong
+    /// PIN / recovery code. Checked first — a key probe failure also
+    /// carries the SQLite "file is not a database" text.
+    const WRONG_PIN_MARKERS: [&str; 2] = ["encryption key rejected", "file is not a database"];
+    /// The registry migration gate's downgrade refusal.
+    const NEWER_SCHEMA_MARKERS: [&str; 1] = ["newer than this app supports"];
+    /// Filesystem-flavoured failures (io errors surfaced through SQLite).
+    const IO_MARKERS: [&str; 10] = [
+        "os error",
+        "permission denied",
+        "access is denied",
+        "no such file",
+        "cannot find the",
+        "database is locked",
+        "disk i/o error",
+        "being used by another process",
+        "unable to open database",
+        "i/o error",
+    ];
+    // Windows io messages capitalise ("Access is denied."), so match
+    // case-insensitively; the original text is preserved in the payload.
+    let haystack = detail.to_lowercase();
+    if WRONG_PIN_MARKERS.iter().any(|m| haystack.contains(m)) {
+        return WalletError::StorageWrongPin;
+    }
+    if NEWER_SCHEMA_MARKERS.iter().any(|m| haystack.contains(m)) {
+        return WalletError::StorageNewerSchema { detail };
+    }
+    if IO_MARKERS.iter().any(|m| haystack.contains(m)) {
+        return WalletError::StorageIo { detail };
+    }
+    WalletError::Storage { detail }
 }
 
 /// Opaque handle on an open watch-only wallet.
@@ -655,7 +758,7 @@ impl WatchHandle {
 
 /// FFI mirror of `bhodl_wallet_onchain::Contact`. The local-only
 /// address book.
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Debug)]
 pub struct ContactRecord {
     pub id: i64,
     pub label: String,
@@ -677,7 +780,7 @@ impl From<Contact> for ContactRecord {
 /// FFI mirror of `bhodl_wallet_onchain::UtxoInfo`.
 ///
 /// `outpoint` carries `txid:vout`.
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Debug)]
 pub struct UtxoRecord {
     pub outpoint: String,
     pub value_sat: u64,
@@ -700,7 +803,7 @@ impl From<UtxoInfo> for UtxoRecord {
 
 /// Public descriptors + account-level xpub of an HD watch wallet, as
 /// produced by `WatchHandle::export_public_descriptor`.
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Debug)]
 pub struct PublicDescriptorBundle {
     /// Lower-case network enum: `mainnet`, `signet`, `testnet4`, `regtest`.
     pub network: String,
@@ -718,7 +821,7 @@ pub struct PublicDescriptorBundle {
 /// FFI mirror of `bhodl_wallet_onchain::DerivedAddress`: one revealed
 /// address with its keychain index, used / unused state and the
 /// BIP-329 `addr` label + BHODL category.
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Debug)]
 pub struct AddressRecord {
     pub index: u32,
     pub address: String,
@@ -744,7 +847,7 @@ impl From<DerivedAddress> for AddressRecord {
 /// One receive label copied onto a transaction (see
 /// `WatchHandle::apply_receive_labels`); `label` / `category` are what
 /// was actually written.
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Debug)]
 pub struct ReceiveLabelCopyRecord {
     pub txid: String,
     pub address: String,
@@ -757,7 +860,7 @@ pub struct ReceiveLabelCopyRecord {
 /// outgoing, `fee_sat` is `Some` only when the wallet has every input
 /// (i.e. the wallet sent the tx itself), and the
 /// `confirmation_height: None` case means "still in mempool".
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Debug)]
 pub struct TransactionRecord {
     pub txid: String,
     pub net_sat: i64,
@@ -775,7 +878,7 @@ pub struct TransactionRecord {
 /// Designed to accommodate Phase 4 Lightning without a redesign:
 /// when LN lands, `kind = Lightning` and `txid_or_payment_id` carries
 /// a payment hash instead of an on-chain txid.
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Debug)]
 pub struct PaymentEvent {
     /// Wallet UUID this event belongs to. Used by the UI to render a
     /// "from / to" wallet badge and by filters to scope-down.
@@ -809,14 +912,14 @@ pub struct PaymentEvent {
     pub crypto_event_kind: Option<String>,
 }
 
-#[derive(uniffi::Enum, Clone, Copy, PartialEq, Eq)]
+#[derive(uniffi::Enum, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PaymentKind {
     OnChain,
     /// Reserved for Phase 4. Currently never emitted.
     Lightning,
 }
 
-#[derive(uniffi::Enum, Clone, Copy, PartialEq, Eq)]
+#[derive(uniffi::Enum, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PaymentDirection {
     Incoming,
     Outgoing,
@@ -830,7 +933,7 @@ pub enum PaymentDirection {
 /// `bhodl_wallet_onchain::registry::SavedView` but flattens the
 /// optional `(start, end)` tuple into two `Option<i64>` fields
 /// because UniFFI can't synthesize tuple records.
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Debug)]
 pub struct SavedViewFfi {
     pub id: i64,
     pub name: String,
@@ -845,7 +948,7 @@ pub struct SavedViewFfi {
 }
 
 /// Phase 4.3 — per-category budget exposed across the FFI.
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Debug)]
 pub struct TrackingBudgetFfi {
     pub category: String,
     pub budgeted_sat: u64,
@@ -855,7 +958,7 @@ pub struct TrackingBudgetFfi {
 }
 
 /// Phase 4.4 — bill (recurring payment) exposed across the FFI.
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Debug)]
 pub struct TrackingBillFfi {
     pub id: i64,
     pub name: String,
@@ -888,7 +991,7 @@ pub struct TrackingBillFfi {
 }
 
 /// Registry schema v9 — a wallet transaction of a test-mode profile.
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Debug)]
 pub struct DemoEventFfi {
     pub wallet_id: String,
     pub event_id: String,
@@ -904,7 +1007,7 @@ pub struct DemoEventFfi {
 /// Registry schema v8 — income or spending outside the wallets (cash,
 /// bank account, card). Its events carry `wallet_id` =
 /// `manual:<account_ref or "cash">` and id `manual-<id>`.
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Debug)]
 pub struct ManualTxnFfi {
     pub id: i64,
     /// "in" or "out".
@@ -931,7 +1034,7 @@ pub struct ManualTxnFfi {
 }
 
 /// Phase 4.5 — savings goal exposed across the FFI.
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Debug)]
 pub struct TrackingSavingsGoalFfi {
     pub id: i64,
     pub name: String,
@@ -992,7 +1095,7 @@ pub struct TrackingSavingsGoalFfi {
 /// matching of text ops and the u64 parsing of numeric ops — we keep
 /// the storage format mixed-string so future ops (e.g. `between`)
 /// don't need a schema change.
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Debug)]
 pub struct TrackingRuleFfi {
     pub id: i64,
     pub name: String,
@@ -1014,7 +1117,7 @@ pub struct TrackingRuleFfi {
 
 /// Wire shape for one row of `tracking_event_cost_basis`: the user's
 /// input for one transaction of the BTC average-cost view.
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Debug)]
 pub struct EventCostBasisFfi {
     pub wallet_id: String,
     pub txid_or_payment_id: String,
@@ -1028,7 +1131,7 @@ pub struct EventCostBasisFfi {
 /// Phase 7.10 — wire shape for one row of `tracking_event_crypto_kind`.
 /// Used by the FFI's `dump_crypto_event_kinds` to populate the
 /// Kotlin-side cache in a single round-trip.
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Debug)]
 pub struct CryptoEventKindRow {
     pub wallet_id: String,
     pub txid_or_payment_id: String,
@@ -1041,7 +1144,7 @@ pub struct CryptoEventKindRow {
 }
 
 /// Phase 7.9 — sale event exposed across the FFI.
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Debug)]
 pub struct TrackingInvestmentSellFfi {
     pub id: i64,
     pub investment_id: i64,
@@ -1066,7 +1169,7 @@ pub struct LotSelectionFfi {
 
 /// Phase 7.9 — lot disposal (the snapshot of a lot consumed by a
 /// sell). `cost_basis_per_unit` is frozen at sell time.
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Debug)]
 pub struct TrackingLotDisposalFfi {
     pub id: i64,
     pub sell_id: i64,
@@ -1087,7 +1190,7 @@ pub struct TrackingLotDisposalFfi {
 /// One row = one purchase event. `price_per_unit` is in the parent
 /// investment's `cost_basis_currency`. The aggregate cost basis is
 /// computed in Kotlin via `effectiveCostBasis(...)`.
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Debug)]
 pub struct TrackingInvestmentLotFfi {
     pub id: i64,
     pub investment_id: i64,
@@ -1116,7 +1219,7 @@ pub struct TrackingInvestmentLotFfi {
 /// collectible / business_equity / loans_to_others / other). `value_fiat`
 /// is naturally in fiat — the conversion to sat happens in the UI via
 /// PriceCache, the same way as for `TrackingInvestmentFfi`.
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Debug)]
 pub struct TrackingManualAssetFfi {
     pub id: i64,
     pub name: String,
@@ -1154,14 +1257,14 @@ pub struct TrackingManualAssetFfi {
 
 /// Registry v6 — the details object of one portfolio row (investment,
 /// manual asset or liability), a flat JSON object.
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Debug)]
 pub struct PortfolioDetailsFfi {
     pub id: i64,
     pub details_json: String,
 }
 
 /// Phase 4.6 — manual liability exposed across the FFI.
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Debug)]
 pub struct TrackingLiabilityFfi {
     pub id: i64,
     pub name: String,
@@ -1175,7 +1278,7 @@ pub struct TrackingLiabilityFfi {
 
 /// The amortization plan of a mortgage or loan (see
 /// `RegistryHandle::loan_schedules`). Amounts in [`Self::currency`].
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Debug)]
 pub struct LoanScheduleFfi {
     pub liability_id: i64,
     pub currency: String,
@@ -1200,7 +1303,7 @@ pub struct LoanScheduleFfi {
 /// currencies / commodities / manual). All fiat amounts are in the
 /// position's own `cost_basis_currency` (UI converts to sat via the
 /// PriceCache when displaying).
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Debug)]
 pub struct TrackingInvestmentFfi {
     pub id: i64,
     pub name: String,
@@ -1271,7 +1374,7 @@ use bhodl_wallet_onchain::{
 };
 
 /// One (date, rate) pair returned by `btc_rate_range`.
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Debug)]
 pub struct RatePointFfi {
     /// UTC midnight Unix timestamp.
     pub date_unix: i64,
@@ -1280,14 +1383,14 @@ pub struct RatePointFfi {
 }
 
 /// One request entry for `btc_rate_backfill`.
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Debug)]
 pub struct RateBackfillRequestFfi {
     pub date_unix: i64,
     pub currency: String,
 }
 
 /// Summary report returned by `btc_rate_backfill`.
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Debug)]
 pub struct BackfillReportFfi {
     pub requested: u32,
     pub cache_hits: u32,
@@ -1296,7 +1399,7 @@ pub struct BackfillReportFfi {
 }
 
 /// One entry in `BackfillReportFfi.failed`.
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Debug)]
 pub struct RateBackfillFailureFfi {
     pub date_unix: i64,
     pub currency: String,
@@ -1342,7 +1445,7 @@ fn open_registry_verified(data_dir: &Path, device_pin: &str) -> Result<Registry,
 
 /// Per-table counters for the Phase 8.2 backfill. Mirrors
 /// `bhodl_wallet_onchain::TableBackfillStats`.
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Debug)]
 pub struct TableBackfillStatsFfi {
     /// Rows whose target column was NULL and were considered this run.
     pub considered: u32,
@@ -1369,7 +1472,7 @@ impl From<TableBackfillStats> for TableBackfillStatsFfi {
 ///
 /// Named `MigrationReportFfi` rather than `BackfillReportFfi` to avoid
 /// a collision with Phase 8.1's `BackfillReportFfi` (rate-repo batch).
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Debug)]
 pub struct MigrationReportFfi {
     pub investment_lots: TableBackfillStatsFfi,
     pub investment_sells: TableBackfillStatsFfi,
@@ -1392,7 +1495,7 @@ impl From<MigrationReport> for MigrationReportFfi {
 /// and `btc_recompute_all_lot_rates` (free FFI function).
 ///
 /// Mirrors `bhodl_wallet_onchain::RecomputeStats`.
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Debug)]
 pub struct RecomputeStatsFfi {
     /// Total lots iterated.
     pub considered: u32,
@@ -1424,7 +1527,7 @@ impl From<RecomputeStats> for RecomputeStatsFfi {
 ///
 /// Replicated as a UniFFI enum so the Kotlin/Swift side gets a typed
 /// sealed type without coupling to the internal Rust enum's path.
-#[derive(uniffi::Enum, Clone, Copy, PartialEq, Eq)]
+#[derive(uniffi::Enum, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WalletKindFfi {
     WatchXpub,
     WatchAddresses,
@@ -1457,7 +1560,7 @@ impl From<WalletKindFfi> for WalletKind {
 /// to keep the FFI Record purely scalar — UniFFI does not have a native
 /// Uuid type and a custom Record with raw bytes would obscure the
 /// human-readable identity used in the filesystem path.
-#[derive(uniffi::Record, Clone, PartialEq, Eq)]
+#[derive(uniffi::Record, Debug, Clone, PartialEq, Eq)]
 pub struct WalletRecordFfi {
     pub id: String,
     pub label: String,
@@ -1488,7 +1591,7 @@ impl From<WalletRecord> for WalletRecordFfi {
 /// - `NestedSegwit` — BIP-49, `sh(wpkh(xpub/0/i))` recv keychain
 ///
 /// `i` is the address index in the keychain (BDK derives on demand).
-#[derive(uniffi::Enum, Clone, Copy, PartialEq, Eq)]
+#[derive(uniffi::Enum, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WatchBipFfi {
     Taproot,
     NativeSegwit,
@@ -1532,6 +1635,14 @@ pub struct RegistryHandle {
     device_key: [u8; ENCRYPTION_KEY_LEN],
 }
 
+impl std::fmt::Debug for RegistryHandle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Deliberately omits every field: `device_key` must never be
+        // printed, and `inner` holds the open SQLCipher connection.
+        f.debug_struct("RegistryHandle").finish_non_exhaustive()
+    }
+}
+
 impl Drop for RegistryHandle {
     fn drop(&mut self) {
         use zeroize::Zeroize;
@@ -1548,8 +1659,8 @@ impl RegistryHandle {
     /// through Argon2id to derive the SQLCipher encryption key. On
     /// subsequent calls the salt is read back from the JSON
     /// descriptor and the SAME key is re-derived from the supplied
-    /// PIN (wrong PIN → SQLCipher refuses the open → `Storage`
-    /// error).
+    /// PIN (wrong PIN → SQLCipher refuses the open →
+    /// `StorageWrongPin`).
     ///
     /// The data dir is created lazily if missing.
     #[uniffi::constructor]
@@ -1587,9 +1698,9 @@ impl RegistryHandle {
     ///
     /// Errors: `InvalidArgument` for a malformed code (before any
     /// Argon2 run), `KeyDerivation` for a `new_pin` that fails the PIN
-    /// policy, `Storage` with detail `"recovery code rejected"` for a
-    /// well-formed but wrong code (the caller counts it against the
-    /// lockout), any other `Storage` for missing / unreadable files.
+    /// policy, `StorageWrongPin` for a well-formed but wrong code (the
+    /// caller counts it against the lockout), any other `Storage` for
+    /// missing / unreadable files.
     #[uniffi::constructor]
     pub fn unlock_with_recovery_code(
         data_dir: String,
@@ -1611,7 +1722,8 @@ impl RegistryHandle {
                 detail: "no recovery code was created for this data dir".into(),
             });
         }
-        let data_key = unwrap_file(&recovery_path, &code, WrapPurpose::RecoveryCode)?;
+        let data_key = unwrap_file(&recovery_path, &code, WrapPurpose::RecoveryCode)
+            .map_err(WalletError::from)?;
         let registry = open_registry(&data_dir.join(REGISTRY_FILE_NAME), &data_key)?;
         write_wrapped_file(
             &KdfScope::Registry.descriptor_path(&data_dir),
@@ -1656,10 +1768,13 @@ impl RegistryHandle {
         let descriptor = KdfScope::Registry.descriptor_path(&self.data_dir);
         let current = match unwrap_file(&descriptor, &old_pin, WrapPurpose::DevicePin) {
             Ok(key) => key,
-            Err(WalletError::Storage { detail }) if detail.contains("unwrap failed") => {
-                return Ok(false);
-            }
-            Err(e) => return Err(e),
+            // Wrong current PIN: report "nothing changed" so the caller
+            // counts the attempt against the lockout — decided by the
+            // typed error, not by matching on message wording (the old
+            // substring check silently broke whenever the KDF layer
+            // reworded its error, and mis-routed v2-sealed stores).
+            Err(kdf::UnwrapError::WrongSecret) => return Ok(false),
+            Err(e) => return Err(WalletError::from(e)),
         };
         if !kdf::constant_time_eq(current.as_slice(), &self.device_key) {
             return Ok(false);
@@ -4336,15 +4451,15 @@ mod tests {
         let bad_json = serde_json::to_vec_pretty(&tampered).unwrap();
         fs::write(&path, &bad_json).unwrap();
 
-        // Verify with the original key must fail loudly.
+        // Verify with the original key must fail — typed as a rejected
+        // secret (wrong PIN or tampered file are indistinguishable here).
         let re_read: KdfFile = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
         let err = re_read
             .verify_mac(&key)
             .expect_err("tampered MAC must reject");
-        let msg = format!("{err:?}");
         assert!(
-            msg.contains("MAC mismatch") || msg.contains("tampered"),
-            "error must mention MAC tampering; got: {msg}"
+            matches!(err, crate::kdf::UnwrapError::WrongSecret),
+            "tampering must surface as a rejected secret; got: {err:?}"
         );
     }
 
@@ -4429,7 +4544,7 @@ mod tests {
 
         assert!(matches!(
             unlock(tmp.path(), "654321"),
-            Err(WalletError::Storage { .. })
+            Err(WalletError::StorageWrongPin)
         ));
         // Nothing was sealed by the failed attempt.
         assert!(read_kdf(tmp.path()).mac_hex.is_none());
@@ -4445,7 +4560,7 @@ mod tests {
         // Sealed: wrong PIN rejected, correct PIN still fine.
         assert!(matches!(
             unlock(tmp.path(), "000000"),
-            Err(WalletError::Storage { .. })
+            Err(WalletError::StorageWrongPin)
         ));
         unlock(tmp.path(), "123456").expect("correct PIN after seal");
     }
@@ -4537,7 +4652,7 @@ mod tests {
         stripped.version = KdfFile::LEGACY_VERSION;
         stripped.nonce_hex = None;
         fs::write(&path, serde_json::to_vec(&stripped).unwrap()).unwrap();
-        let err = unlock(tmp.path(), "123456").err().expect("must refuse");
+        let err = unlock(tmp.path(), "123456").expect_err("must refuse");
         assert!(format!("{err:?}").contains("MAC missing"), "got {err:?}");
     }
 
@@ -4644,6 +4759,7 @@ mod tests {
         // failure on non-zero). The assertion below only fires if
         // we observe the EXACT pre-drop key pattern, which would
         // indicate Drop did not run.
+        #[allow(unsafe_code)] // crate lints deny unsafe; this is the single opt-in site
         let observed = unsafe { std::slice::from_raw_parts(addr, ENCRYPTION_KEY_LEN).to_vec() };
         // The pre-drop key was non-zero (asserted above). After drop,
         // observing the same non-zero pattern means Drop never fired.
@@ -4988,7 +5104,7 @@ mod tests {
 use bhodl_wallet_onchain::{NwSnapshot, PaymentEventLite, reconstruct_net_worth_history};
 
 /// One daily net-worth snapshot returned by `net_worth_history`.
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Debug)]
 pub struct NwSnapshotFfi {
     pub date_unix: i64,
     pub total_sat: i64,
@@ -5021,7 +5137,7 @@ impl From<NwSnapshot> for NwSnapshotFfi {
 /// (watch wallets) and the active signing wallet's
 /// `WalletHandle.list_transactions()` (if present). The `amount_sat` field
 /// must be **signed**: positive for incoming, negative for outgoing.
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Debug)]
 pub struct PaymentEventLiteFfi {
     /// Signed net sat flow: positive = incoming, negative = outgoing.
     pub amount_sat: i64,

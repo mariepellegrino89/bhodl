@@ -203,7 +203,8 @@ confirm you have its recovery phrase; watch-only copies of those wallets are kep
 ├── crates/
 │   ├── bhodl-core/             # Amount, Network, Argon2id KDF
 │   ├── bhodl-wallet-onchain/   # BDK watch-only wallets, SQLCipher persistence, registry, Tor
-│   └── bhodl-uniffi/           # FFI surface for Kotlin (UniFFI)
+│   ├── bhodl-uniffi/           # FFI surface for Kotlin (UniFFI)
+│   └── uniffi-bindgen-kmp/     # UniFFI -> Kotlin Multiplatform bindgen (pinned Ubique fork)
 ├── shared/                     # Kotlin Multiplatform module: theme, generated bindings
 ├── apps/
 │   ├── desktop/                # Compose Desktop app: wallets + tracker
@@ -211,7 +212,7 @@ confirm you have its recovery phrase; watch-only copies of those wallets are kep
 │   └── ios/                    # iOS scaffold (not built)
 ├── design/                     # Design tokens, theme reference, contrast report
 ├── docs/                       # Handbook, test book, design reviews, research notes
-├── scripts/                    # Helper scripts (Tor tests)
+├── scripts/                    # Helper scripts (Tor live tests, regtest binaries)
 ├── PLAN.md                     # Product plan and roadmap (Italian)
 └── TECH_STACK.md               # Libraries and standards
 ```

@@ -118,6 +118,40 @@ cargo {
 }
 
 // ----------------------------------------------------------------------------
+// Shipped cdylib profile: release, not debug (H1)
+// ----------------------------------------------------------------------------
+// The packaged app must embed the release-profile Rust core; a debug cdylib
+// ships overflow-checks panic strings and no optimizations. The plugin's
+// only profile switch is GLOBAL — UniffiPlugin.currentBuildVariant() flips
+// the whole task graph between the host-debug wiring (the single
+// cargoBuildX64WindowsMsvcDebug that packageMsi consumes) and a
+// multi-platform release wiring that pulls Apple/Linux cross builds no
+// single runner can compile (tag run 41343813639 failed exactly there).
+// So the profile is set per task, not per variant: CargoBuildTask.release
+// and cargoOutputDirectory are public task properties, and the cargo
+// output dir must follow the profile layout (`<target>/<triple>/release`)
+// or the task copies from an empty debug dir. Every path the consumers
+// read (outputDirectory, the copyNativeDynamicLibs sources, the JVM
+// resources dir) is derived from the task NAME's Debug/Release suffix, not
+// from the release flag — so the task graph, and the release.yml prebuild,
+// keep exactly the base-commit host-debug shape while the DLL that flows
+// through them is release-profile.
+// The plugin configures these tasks in its own afterEvaluate; this
+// project's afterEvaluate is registered after the plugins block and so
+// runs after it, which lets the values below win. Applies everywhere the
+// task exists; on non-Windows hosts it stays out of the graph, and every
+// CI gradle job runs on Linux. Keep the cargo invocation here in sync with
+// the release.yml prebuild.
+project.afterEvaluate {
+    tasks.named<ch.ubique.uniffi.plugin.tasks.CargoBuildTask>("cargoBuildX64WindowsMsvcDebug") {
+        release.set(true)
+        cargoOutputDirectory.set(
+            rootProject.layout.projectDirectory.dir("target/x86_64-pc-windows-msvc/release"),
+        )
+    }
+}
+
+// ----------------------------------------------------------------------------
 // Kotlin Multiplatform target setup
 // ----------------------------------------------------------------------------
 kotlin {
@@ -270,6 +304,20 @@ tasks.named("buildBindings") {
             val src = file.readText()
             val patched = src.replace(fallibleCallNpe, "$1\n}!!")
             if (patched != src) file.writeText(patched)
+        }
+        // Fail closed: if a future bindgen changes the generated shape, the
+        // rewrite above silently stops matching and the typed
+        // WalletException is lost again (NPE inside the call-status
+        // lambda). Any surviving un-patched signature means the patch no
+        // longer applies — stop the build instead of shipping the NPE.
+        val stillUnpatched = generated.walkTopDown()
+            .filter { it.isFile && it.extension == "kt" }
+            .firstOrNull { fallibleCallNpe.containsMatchIn(it.readText()) }
+        if (stillUnpatched != null) {
+            error(
+                "fallibleCallNpe patch did not apply to ${stillUnpatched.path}: " +
+                    "bindgen output shape changed, re-check the NPE rewrite",
+            )
         }
     }
 }

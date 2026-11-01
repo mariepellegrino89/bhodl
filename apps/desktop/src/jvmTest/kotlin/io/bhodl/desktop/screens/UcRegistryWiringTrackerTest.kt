@@ -14,6 +14,7 @@ import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.runDesktopComposeUiTest
 import androidx.compose.ui.test.waitUntilAtLeastOneExists
+import io.bhodl.desktop.AppClock
 import io.bhodl.desktop.data.TrackerCache
 import io.bhodl.desktop.navigation.TrackerSection
 import io.bhodl.desktop.settings.SettingsStore
@@ -74,6 +75,7 @@ class UcRegistryWiringTrackerTest {
 
     @AfterTest
     fun tearDown() {
+        AppClock.fixAt(null)
         TrackerCache.watchEventsSource = defaultSource
         TrackerCache.dataDirProvider = defaultDataDir
         TrackerUiState.clearFilters()
@@ -183,6 +185,12 @@ class UcRegistryWiringTrackerTest {
 
     @Test
     fun `TRK-094 bills are added, marked paid and deleted from the UI`() = runDesktopComposeUiTest {
+        // The bills strip renders only the next 30 days (upcomingBills):
+        // near the 1st of a month a bill just marked paid re-lands on next
+        // month's due day, more than 30 days out, and leaves the strip —
+        // paid chip with it (BudgetCardsTest pins this as intended). Pin
+        // "now" mid-month so the flow below is date-independent.
+        AppClock.fixAt(ScreenshotCheck.NOW_UNIX * 1000L)
         refresh()
         budget()
         onNodeWithTag(BillTags.ADD).performScrollTo().performClick()

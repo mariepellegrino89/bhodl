@@ -1,0 +1,50 @@
+name: Regtest (rust)
+
+# Weekly run of the Rust regtest integration tests
+# (crates/bhodl-wallet-onchain/tests/regtest.rs). They are #[ignore]-gated,
+# Unix-only (electrsd signals electrs with SIGUSR1 and electrs publishes no
+# Windows build) and need real bitcoind + electrs binaries, so PR CI never
+# runs them — without this job nothing would. The binaries are the
+# sha256-pinned artifacts fetched by scripts/regtest-binaries.sh, the same
+# ones bdk_testenv's disabled `download` feature used to unpack.
+on:
+  schedule:
+    - cron: '47 4 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+concurrency:
+  group: regtest-${{ github.ref }}
+  cancel-in-progress: true
+
+# Supply chain: actions pinned to full commit SHAs — the same SHAs as
+# ci.yml (bump both files together).
+
+jobs:
+  regtest-rust:
+    name: regtest (rust)
+    runs-on: ubuntu-latest
+    # A cold run downloads two binaries and mines a fresh regtest chain;
+    # still well under an hour. The timeout fails a hung electrs instead of
+    # holding the runner.
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410b181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install pinned Rust toolchain (rust-toolchain.toml)
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - name: Fetch pinned bitcoind + electrs binaries
+        run: eval "$(scripts/regtest-binaries.sh)"
+      - name: Rust regtest integration tests
+        # Single-threaded, as the regtest.rs header and
+        # scripts/regtest-binaries.sh document: the two tests fund and sync
+        # a shared regtest chain.
+        run: cargo test -p bhodl-wallet-onchain --test regtest -- --ignored --test-threads=1

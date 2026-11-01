@@ -23,6 +23,16 @@ pub enum OnchainError {
     #[error("Esplora sync failed: {0}")]
     EsploraSync(String),
 
+    /// Transport-level Esplora failure (HTTP status, socket error, …)
+    /// from a scan `fetch`. Kept typed — the payload is the client's own
+    /// error enum — so the whole-sync retry loop can classify transient
+    /// failures by variant instead of by matching on `Display` text
+    /// (see [`crate::is_transient_esplora_error`]). Non-transport
+    /// sync-stage failures (update application, mismatched scan kind)
+    /// stay on [`OnchainError::EsploraSync`].
+    #[error("Esplora transport error: {0}")]
+    EsploraTransport(#[from] Box<bdk_esplora::esplora_client::Error>),
+
     #[error("storage error: {0}")]
     Storage(String),
 

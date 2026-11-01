@@ -8,6 +8,8 @@
     <string name="tm_enter">Enter test mode</string>
     <string name="tm_try">Try with sample data</string>
     <string name="tm_try_body">No PIN needed. Leave test mode at any time.</string>
+    <string name="tm_enter_title">Enter test mode?</string>
+    <string name="tm_enter_body">This profile contains real wallets. Entering test mode is IRREVERSIBLE: the profile is marked as a test profile and can never become a real one again. Test balances, transactions and exchange rates will be mixed into the data shown for this profile. Continue only if this profile is disposable or you have a backup of it.</string>
     <string name="tm_active_intro">You are in test mode. Everything you change stays in the test data.</string>
     <string name="tm_initial_state">Initial state marked on %1$s.</string>
     <string name="tm_no_initial_state">No initial state marked.</string>

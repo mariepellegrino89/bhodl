@@ -152,7 +152,7 @@ fun main() {
         PriceCache.start()
     }
     // Phase 7.2.3 — boot the tracker / dashboard data cache. Runs a
-    // 2-min background sync ticker and observes RegistryStore.dataVersion
+    // 10-min background sync ticker and observes RegistryStore.dataVersion
     // so registry mutations propagate to every visible surface without
     // each composable owning its own loader. Idempotent.
     LaunchedEffect(Unit) { io.bhodl.desktop.data.TrackerCache.start() }

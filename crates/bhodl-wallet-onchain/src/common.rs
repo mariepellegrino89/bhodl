@@ -160,8 +160,68 @@ pub const ESPLORA_SYNC_RETRIES: u32 = 2;
 
 /// Whether a failed sync is worth retrying: the server or the network
 /// hiccuped, not a malformed request or an inconsistent answer.
+///
+/// Transport failures arrive typed ([`OnchainError::EsploraTransport`]
+/// keeps the Esplora client's own error enum) and are classified by
+/// variant. The remaining [`OnchainError::EsploraSync`] strings come
+/// from sync-stage failures recorded before the transport error was
+/// kept typed; those are classified by a small, pinned marker set in
+/// [`is_transient_esplora_detail`] — the only place in the crate where
+/// error text is still matched.
 #[must_use]
 pub fn is_transient_esplora_error(err: &OnchainError) -> bool {
+    match err {
+        OnchainError::EsploraTransport(err) => is_transient_transport_error(err),
+        OnchainError::EsploraSync(detail) => is_transient_esplora_detail(detail),
+        _ => false,
+    }
+}
+
+/// Typed transient classification of a transport error: the HTTP
+/// statuses the in-client retry does not handle (502 / 504) and
+/// socket-level io kinds (timeout, dropped / reset connection).
+fn is_transient_transport_error(err: &bdk_esplora::esplora_client::Error) -> bool {
+    use bdk_esplora::esplora_client::Error as TransportError;
+    match err {
+        TransportError::HttpResponse { status, .. } => matches!(*status, 502 | 504),
+        TransportError::Minreq(minreq_err) => {
+            minreq_io_error(minreq_err).is_some_and(|io_err| is_transient_io_kind(io_err.kind()))
+        }
+        _ => false,
+    }
+}
+
+/// `true` for socket-level failure kinds a retry can outlive.
+fn is_transient_io_kind(kind: std::io::ErrorKind) -> bool {
+    matches!(
+        kind,
+        std::io::ErrorKind::TimedOut
+            | std::io::ErrorKind::ConnectionReset
+            | std::io::ErrorKind::ConnectionAborted
+            | std::io::ErrorKind::UnexpectedEof
+            | std::io::ErrorKind::BrokenPipe
+    )
+}
+
+/// The underlying [`std::io::Error`] of a minreq transport failure, if
+/// any. `minreq` is a transitive dependency (via `esplora-client`), so
+/// its error type is reached through the [`std::error::Error`] source
+/// chain instead of being named.
+fn minreq_io_error(err: &impl std::error::Error) -> Option<&std::io::Error> {
+    let mut source = std::error::Error::source(err);
+    while let Some(cause) = source {
+        if let Some(io_err) = cause.downcast_ref::<std::io::Error>() {
+            return Some(io_err);
+        }
+        source = cause.source();
+    }
+    None
+}
+
+/// String fallback for sync-stage failures recorded before transport
+/// errors were kept typed. Each marker is pinned by a unit test in this
+/// module; extend the test when adding a marker.
+fn is_transient_esplora_detail(detail: &str) -> bool {
     const MARKERS: [&str; 9] = [
         "TimedOut",
         "timeout",
@@ -173,9 +233,6 @@ pub fn is_transient_esplora_error(err: &OnchainError) -> bool {
         "BrokenPipe",
         "IoError",
     ];
-    let OnchainError::EsploraSync(detail) = err else {
-        return false;
-    };
     MARKERS.iter().any(|m| detail.contains(m))
 }
 
@@ -425,18 +482,23 @@ pub(crate) fn ensure_contacts_table(conn: &Connection) -> Result<(), OnchainErro
     Ok(())
 }
 
-pub(crate) fn map_network(n: BhodlNetwork) -> BtcNetwork {
+/// Map a core network to its `rust-bitcoin` params.
+///
+/// `bhodl_core::Network` is `#[non_exhaustive]`: a variant added there in
+/// the future must surface here as a typed error, not a runtime panic
+/// (release builds use `panic = "abort"`).
+pub(crate) fn map_network(n: BhodlNetwork) -> Result<BtcNetwork, OnchainError> {
     match n {
-        BhodlNetwork::Mainnet => BtcNetwork::Bitcoin,
+        BhodlNetwork::Mainnet => Ok(BtcNetwork::Bitcoin),
         // Must be the real testnet4 params (genesis, magic). Mapping to
         // `Testnet` (testnet3) made BDK anchor chain state to the wrong
         // genesis; legacy DBs are handled by the watch-wallet auto-rebuild.
-        BhodlNetwork::Testnet4 => BtcNetwork::Testnet4,
-        BhodlNetwork::Signet => BtcNetwork::Signet,
-        BhodlNetwork::Regtest => BtcNetwork::Regtest,
-        _ => unreachable!(
-            "bhodl-core gained a Network variant without updating bhodl-wallet-onchain"
-        ),
+        BhodlNetwork::Testnet4 => Ok(BtcNetwork::Testnet4),
+        BhodlNetwork::Signet => Ok(BtcNetwork::Signet),
+        BhodlNetwork::Regtest => Ok(BtcNetwork::Regtest),
+        other => Err(OnchainError::InvalidArgument(format!(
+            "network {other:?} is not supported by the watch wallet"
+        ))),
     }
 }
 
@@ -461,6 +523,98 @@ mod uc_security_tests {
             "timeout".into()
         )));
     }
+
+    // Typed transport errors keep the classification off the display text.
+    #[test]
+    fn transient_transport_errors_are_classified_by_variant() {
+        use bdk_esplora::esplora_client::Error as TransportError;
+        let transport = |e: TransportError| OnchainError::EsploraTransport(Box::new(e));
+
+        // The bad-gateway statuses the in-client retry does not handle.
+        assert!(is_transient_esplora_error(&transport(
+            TransportError::HttpResponse {
+                status: 502,
+                message: "Bad Gateway".into(),
+            }
+        )));
+        assert!(is_transient_esplora_error(&transport(
+            TransportError::HttpResponse {
+                status: 504,
+                message: "Gateway Timeout".into(),
+            }
+        )));
+        // A malformed request is not retried.
+        assert!(!is_transient_esplora_error(&transport(
+            TransportError::HttpResponse {
+                status: 400,
+                message: "Invalid address".into(),
+            }
+        )));
+        // Non-transport client failures are not retried.
+        assert!(!is_transient_esplora_error(&transport(
+            TransportError::InvalidResponse
+        )));
+        // Sync-stage strings still use the pinned marker fallback.
+        assert!(!is_transient_esplora_error(&OnchainError::EsploraSync(
+            "scan update does not match the watch wallet kind".into()
+        )));
+    }
+
+    // The minreq io error is reached through the std source chain (minreq
+    // is a transitive dep and never named); a stand-in error with an
+    // io::Error source pins that walk and the io-kind mapping.
+    #[test]
+    fn minreq_io_errors_are_reached_through_the_source_chain() {
+        let timed_out = WrappedIo(std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            "the timeout of the request was reached",
+        ));
+        let io_err = minreq_io_error(&timed_out).expect("io source is found");
+        assert!(is_transient_io_kind(io_err.kind()));
+
+        let denied = WrappedIo(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "access is denied",
+        ));
+        let io_err = minreq_io_error(&denied).expect("io source is found");
+        assert!(!is_transient_io_kind(io_err.kind()));
+
+        // No io::Error in the chain → not a transient transport failure.
+        assert!(minreq_io_error(&Bare).is_none());
+    }
+
+    /// Stand-in for a minreq transport error: an error whose source is
+    /// an `io::Error`, exactly the shape `minreq::Error::IoError` has.
+    struct WrappedIo(std::io::Error);
+    impl std::fmt::Display for WrappedIo {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "wrapped io: {}", self.0)
+        }
+    }
+    impl std::fmt::Debug for WrappedIo {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            std::fmt::Display::fmt(self, f)
+        }
+    }
+    impl std::error::Error for WrappedIo {
+        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+            Some(&self.0)
+        }
+    }
+
+    /// An error with no source at all.
+    struct Bare;
+    impl std::fmt::Display for Bare {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "bare")
+        }
+    }
+    impl std::fmt::Debug for Bare {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            std::fmt::Display::fmt(self, f)
+        }
+    }
+    impl std::error::Error for Bare {}
 
     // SEC-116
     #[test]

@@ -64,6 +64,7 @@ import io.bhodl.shared.resources.onb_script_nested_segwit
 import io.bhodl.shared.resources.onb_script_type
 import io.bhodl.shared.resources.onb_wallet_name_taken
 import io.bhodl.shared.resources.onb_xpub_dup_watch
+import io.bhodl.shared.resources.trk_cache_err_sync_unknown
 import org.jetbrains.compose.resources.stringResource
 
 /**
@@ -178,19 +179,30 @@ public fun AddWatchScreen(
             // hit Refresh.
             io.bhodl.desktop.wizard.RegistryStore.bumpDataVersion()
 
-            // Phase 2: best-effort auto-sync. Failure surfaces but
-            // does not roll back the add — the user can hit Sync from
-            // the picker / debug screen later if needed.
-            runCatching {
+            // Phase 2: best-effort auto-sync. A failed first sync does
+            // not roll back the add — it is surfaced on lastError so
+            // the user knows the wallet landed without fresh balances;
+            // they can hit Sync from the picker / debug screen later.
+            val syncFailure = runCatching {
                 withContext(Dispatchers.IO) {
                     val handle = registry.openWatch(walletId = addedId)
-                    // The watch wallet's OWN network, not the signing one's.
-                    handle.syncWithEsplora(
-                        EsploraEndpoint.current(network),
-                        EsploraEndpoint.currentProxy(),
-                    )
-                    handle.destroy()
+                    try {
+                        // The watch wallet's OWN network, not the signing one's.
+                        handle.syncWithEsplora(
+                            EsploraEndpoint.current(network),
+                            EsploraEndpoint.currentProxy(),
+                        )
+                    } finally {
+                        // Always release the native handle, even when
+                        // the sync throws (house pattern: TrackerCache).
+                        runCatching { handle.destroy() }
+                    }
                 }
+            }.exceptionOrNull()
+            if (syncFailure != null) {
+                lastError = syncFailure.userMessage(
+                    localizedText(Res.string.trk_cache_err_sync_unknown),
+                )
             }
             working = false
             onAdded()

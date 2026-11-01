@@ -31,8 +31,10 @@ bitcoin = { version = "0.32", default-features = false, features = ["std", "rand
 bip39 = { version = "2", default-features = false, features = ["std", "zeroize"] }
 # BDK 3.x: descriptor-driven wallet engine (MIT OR Apache-2.0).
 # `rusqlite` feature enables the BDK PersistedWallet pattern via the
-# integrated rusqlite ChangeSet store (still no SQLCipher in this commit —
-# encrypted-at-rest backend lands in a follow-up).
+# integrated rusqlite ChangeSet store. Encryption at rest is implemented
+# and active on every DB connection: SQLCipher via PRAGMA key with
+# cipher_memory_security=ON and a fail-closed probe — see
+# crates/bhodl-wallet-onchain/src/common.rs::open_encrypted_connection.
 bdk_wallet = { version = "3.0.0", default-features = false, features = ["std", "rusqlite"] }
 # BDK Esplora client: blocking-https-rustls avoids OpenSSL (MIT OR Apache-2.0).
 bdk_esplora = { version = "0.22.2", default-features = false, features = ["blocking-https-rustls"] }
@@ -59,11 +61,11 @@ tempfile = "3"
 # any future generative test. Heavyweight, but dev-dep only so it
 # does not affect runtime artefacts.
 proptest = { version = "1", default-features = false, features = ["std"] }
-# Blocking HTTP client for the BTC rate-history fetchers. Same family
-# BDK Esplora pulls in transitively, so the rustls TLS stack stays
-# unified; rustls so we don't hard-link OpenSSL.
+# Blocking HTTP client for the BTC rate-history fetchers. Deliberate dual
+# TLS stack (both rustls, no OpenSSL — see Cargo.lock): ureq 2.x "tls"
+# uses rustls 0.23 for the rate fetches, while bdk_esplora's minreq pins
+# rustls 0.21 (advisory-suppressed; see deny.toml).
 # Feature "tls" in ureq 2.x uses rustls (NOT native-tls/OpenSSL) — see Cargo.lock.
-# This aligns the TLS stack with bdk_esplora which also uses rustls.
 # `socks-proxy` routes rate fetches through the user's Tor SOCKS port. ureq's `socks5://` sends hostnames to the
 # proxy unresolved (ATYP=DOMAINNAME), i.e. socks5h semantics — see
 # ureq-2.x src/stream.rs `connect_socks`.
@@ -82,7 +84,8 @@ zeroize = { version = "1.8", features = ["derive"] }
 # bdk_testenv is declared per-crate behind `[target.'cfg(unix)'.dev-dependencies]`
 # rather than as a workspace dep: the regtest harness (electrsd signals
 # electrs via SIGUSR1; electrs has no Windows build) is Unix-only. Its
-# `download` feature stays off (zip 0.6 advisories) — see that crate's
+# `download` feature stays off: with it disabled, `zip` 0.6 never enters
+# the dependency graph at all (absent from Cargo.lock) — see that crate's
 # Cargo.toml and scripts/regtest-binaries.sh.
 
 [workspace.lints.rust]
@@ -100,7 +103,16 @@ must_use_candidate = "allow"
 lto = "thin"
 codegen-units = 1
 strip = "symbols"
-panic = "abort"
+# Panic policy: the shipped cdylib must unwind, never abort. UniFFI wraps
+# every exported call in `std::panic::catch_unwind` (uniffi_core's
+# rustcalls), which converts a Rust panic into a recoverable error at the
+# FFI boundary; with `panic = "abort"` any panic — including inside
+# rusqlite/BDK, outside our control — would kill the whole JVM process.
+# Mutex poisoning is already mapped to typed errors at every lock site.
+# Residual risk: `std::process::abort` / UB paths still terminate the
+# process; this policy covers panics only. Enforced by `probe_panic` /
+# `PanicContainmentTest` (see docs/handbook.md §4.3).
+panic = "unwind"
 
 [profile.dev]
 opt-level = 0

@@ -31,7 +31,8 @@ pub(crate) fn bip86_account(network: BhodlNetwork, passphrase: &str) -> (String,
     let seed = bip39::Mnemonic::parse(BIP86_MNEMONIC)
         .expect("valid test mnemonic")
         .to_seed(passphrase);
-    let master = Xpriv::new_master(map_network(network), &seed).expect("master key");
+    let master = Xpriv::new_master(map_network(network).expect("tested network"), &seed)
+        .expect("master key");
     let path =
         DerivationPath::from_str(&format!("m/86'/{}'/0'", coin_type(network))).expect("valid path");
     let account = master.derive_priv(&secp, &path).expect("derive account");
@@ -59,7 +60,13 @@ pub(crate) fn bip86_address(network: BhodlNetwork, index: u32) -> String {
             ],
         )
         .expect("derive child");
-    Address::p2tr(&secp, child.to_x_only_pub(), None, map_network(network)).to_string()
+    Address::p2tr(
+        &secp,
+        child.to_x_only_pub(),
+        None,
+        map_network(network).expect("tested network"),
+    )
+    .to_string()
 }
 
 #[test]

@@ -8,6 +8,8 @@
     <string name="tm_enter">Entra in modalità test</string>
     <string name="tm_try">Prova con dati di esempio</string>
     <string name="tm_try_body">Non serve un PIN. Puoi uscire dalla modalità test quando vuoi.</string>
+    <string name="tm_enter_title">Entrare in modalità test?</string>
+    <string name="tm_enter_body">Questo profilo contiene wallet reali. Entrare in modalità test è IRREVERSIBILE: il profilo viene segnato come profilo di test e non può più tornare reale. Saldo, transazioni e tassi di test verranno mescolati ai dati che questo profilo mostra. Continua solo se questo profilo è usa e getta o ne hai una copia di backup.</string>
     <string name="tm_active_intro">Sei in modalità test. Tutto quello che cambi resta nei dati di test.</string>
     <string name="tm_initial_state">Stato iniziale segnato il %1$s.</string>
     <string name="tm_no_initial_state">Nessuno stato iniziale segnato.</string>

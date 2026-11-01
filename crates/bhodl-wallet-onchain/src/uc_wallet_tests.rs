@@ -471,7 +471,12 @@ fn wal_053_clearnet_sync_to_a_closed_port_fails_with_esplora_sync() {
     let dir = TempDir::new().unwrap();
     let mut acct = signet_xpub_wallet(&dir.path().join("w.sqlite"));
     let res = acct.sync_with_esplora("http://127.0.0.1:1", None);
-    assert!(matches!(res, Err(OnchainError::EsploraSync(_))), "{res:?}");
+    // Transport failures keep the client's typed error for the retry
+    // classifier; only the message crosses the FFI boundary.
+    assert!(
+        matches!(res, Err(OnchainError::EsploraTransport(_))),
+        "{res:?}"
+    );
     assert_eq!(acct.balance().to_sat(), 0);
 }
 
@@ -501,7 +506,10 @@ fn wal_053_http_500_is_retried_then_surfaces_as_esplora_sync() {
     )
     .unwrap();
     let res = acct.sync_with_esplora(&format!("http://127.0.0.1:{port}"), None);
-    assert!(matches!(res, Err(OnchainError::EsploraSync(_))), "{res:?}");
+    assert!(
+        matches!(res, Err(OnchainError::EsploraTransport(_))),
+        "{res:?}"
+    );
     assert!(
         hits.load(Ordering::SeqCst) >= 2,
         "a 500 must be retried, saw {} request(s)",
