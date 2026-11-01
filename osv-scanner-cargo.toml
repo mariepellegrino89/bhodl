@@ -35,13 +35,13 @@ reason = "rustls 0.21.12 has no X25519MLKEM768 hybrid group to downgrade; TLS to
 ignoreUntil = 2026-12-31
 
 [[IgnoredVulns]]
-id = "RUSTSEC-2026-0381"
-reason = "webpki-roots 0.25.4 bundles the distrusted emSign ECC Root CA - G3; same emSign MITM precondition as 0382, Esplora TLS only. Review by 2026-12-31."
+id = "RUSTSEC-2026-0348"
+reason = "rustls Brotli certificate decompression can allocate up to 1 GiB pre-auth, but only when the `brotli` feature is enabled — neither BHODL nor minreq enable it (decoder off by default). Via bdk_esplora 0.22.2. Review by 2026-12-31."
 ignoreUntil = 2026-12-31
 
 [[IgnoredVulns]]
-id = "RUSTSEC-2026-0382"
-reason = "rustls-webpki 0.101.7 may accept distrusted emSign intermediates; needs a leaked emSign intermediate key and MITM on the Esplora connection. Via bdk_esplora 0.22.2. Review by 2026-12-31."
+id = "RUSTSEC-2026-0381"
+reason = "webpki-roots 0.25.4 bundles the distrusted emSign ECC Root CA - G3; same emSign MITM precondition as 0382, Esplora TLS only. Review by 2026-12-31."
 ignoreUntil = 2026-12-31
 
 [[IgnoredVulns]]

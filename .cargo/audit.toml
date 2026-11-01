@@ -10,6 +10,7 @@ ignore = [
     # 2026-10 batch, same minreq path (rustls 0.21.12 / webpki 0.101.7 / roots 0.25.4)
     "RUSTSEC-2026-0346",
     "RUSTSEC-2026-0349",
+    "RUSTSEC-2026-0348",
     "RUSTSEC-2026-0382",
     "RUSTSEC-2026-0381",
     # basic-toml unmaintained (uniffi_bindgen proc-macro)

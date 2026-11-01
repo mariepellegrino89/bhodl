@@ -76,6 +76,7 @@ ignore = [
     # REVIEW BY 2026-12-31 or on the next bdk_esplora release.
     { id = "RUSTSEC-2026-0346", reason = "rustls 0.21.12 derived Debug on client session values leaks secrets only via a custom ClientSessionStore that Debug-formats them; minreq uses a static ClientConfig with the built-in session store and never logs it. Via bdk_esplora 0.22.2. Review by 2026-12-31." },
     { id = "RUSTSEC-2026-0349", reason = "rustls 0.21.12 has no X25519MLKEM768 hybrid group (no post-quantum KX to downgrade); TLS to the user-configured Esplora endpoint only. Via bdk_esplora 0.22.2. Review by 2026-12-31." },
+    { id = "RUSTSEC-2026-0348", reason = "rustls Brotli certificate decompression can allocate up to 1 GiB pre-auth, but only when the `brotli` feature is enabled — neither BHODL nor minreq enable it (decoder off by default). Via bdk_esplora 0.22.2. Review by 2026-12-31." },
     { id = "RUSTSEC-2026-0382", reason = "rustls-webpki 0.101.7 may accept distrusted emSign intermediates; needs an attacker holding a leaked emSign intermediate key and MITM on the Esplora connection. Chain data is independently validated (PoW/headers), no keys or seeds sent. Via bdk_esplora 0.22.2. Review by 2026-12-31." },
     { id = "RUSTSEC-2026-0381", reason = "webpki-roots 0.25.4 bundles the distrusted emSign ECC Root CA - G3; same emSign MITM precondition as 0382, Esplora TLS only. Via bdk_esplora 0.22.2. Review by 2026-12-31." },
     # --- dev/build-time only ---
