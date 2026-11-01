@@ -9,6 +9,15 @@
       legacy opt-out; dataExtractionRules (API 31+) excludes every domain
       for both cloud backup and device transfer.
     -->
+    <!--
+      Networking: wallet sync (Esplora) and price feeds need INTERNET.
+      Inert today — the app is a UI placeholder — but the first
+      Phase-2 networking call would fail cryptically without this.
+      networkSecurityConfig / FLAG_SECURE are deliberate follow-ups,
+      not bundled here.
+    -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
     <application
         android:allowBackup="false"
         android:fullBackupContent="false"
