@@ -181,11 +181,15 @@ fn wal_039_registry_row_with_a_deleted_state_file_fails_to_open() {
         handle.open_watch(record.id.clone()),
         Err(WalletError::Storage { .. })
     ));
-    // A corrupted file is refused the same way.
+    // A corrupted file is refused the same way: SQLCipher cannot tell a
+    // garbage file from a wrong key ("file is not a database"), so the
+    // typed classification is the fail-closed WrongPin — the Kotlin gate
+    // counts it, exactly as it counted the identical unrecognised
+    // Storage detail before the error typing.
     fs::write(&path, b"garbage").unwrap();
     assert!(matches!(
         handle.open_watch(record.id),
-        Err(WalletError::Storage { .. })
+        Err(WalletError::StorageWrongPin)
     ));
 }
 
@@ -360,6 +364,69 @@ fn wal_128_every_onchain_error_maps_to_its_typed_ffi_variant() {
         let mapped = WalletError::from(onchain);
         assert!(check(&mapped), "{label} -> {}", detail(&mapped));
     }
+}
+
+// The storage classifier is the single place a storage error's text is
+// matched; every marker it knows is pinned here.
+#[test]
+fn wal_128_storage_errors_are_classified_into_typed_variants() {
+    use crate::classify_storage_error;
+    let classified = |s: &str| classify_storage_error(s.to_string());
+
+    // SQLCipher bad-key probe (wrong PIN / recovery code).
+    assert!(matches!(
+        classified("encryption key rejected: file is not a database"),
+        WalletError::StorageWrongPin
+    ));
+    assert!(matches!(
+        classified("file is not a database"),
+        WalletError::StorageWrongPin
+    ));
+    // Downgrade refusal from the registry migration gate.
+    match classified("registry schema version 9 is newer than this app supports (5)") {
+        WalletError::StorageNewerSchema { detail } => {
+            assert!(detail.contains("newer than this app supports"), "{detail}");
+        }
+        other => panic!("expected StorageNewerSchema, got {other:?}"),
+    }
+    // Filesystem-flavoured failures (case-insensitive markers).
+    assert!(matches!(
+        classified("unable to open database: C:\\data\\registry.sqlite"),
+        WalletError::StorageIo { .. }
+    ));
+    assert!(matches!(
+        classified("Access is denied. (os error 5)"),
+        WalletError::StorageIo { .. }
+    ));
+    assert!(matches!(
+        classified("database is locked"),
+        WalletError::StorageIo { .. }
+    ));
+    // Anything unrecognised keeps the generic variant (Kotlin stays
+    // fail-closed: an unknown Storage detail is counted as a wrong PIN).
+    assert!(matches!(
+        classified("kdf descriptor integrity check failed (MAC missing)"),
+        WalletError::Storage { detail } if detail.contains("MAC missing")
+    ));
+}
+
+#[test]
+fn wal_128_unwrap_errors_map_to_typed_ffi_variants() {
+    use crate::kdf::UnwrapError;
+    assert!(matches!(
+        WalletError::from(UnwrapError::WrongSecret),
+        WalletError::StorageWrongPin
+    ));
+    match WalletError::from(UnwrapError::UnsupportedVersion(2)) {
+        WalletError::StorageNewerSchema { detail } => {
+            assert!(detail.contains("version 2"), "{detail}");
+        }
+        other => panic!("expected StorageNewerSchema, got {other:?}"),
+    }
+    assert!(matches!(
+        WalletError::from(UnwrapError::Malformed("garbage".into())),
+        WalletError::Storage { detail } if detail == "garbage"
+    ));
 }
 
 #[test]

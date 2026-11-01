@@ -9,17 +9,18 @@ import kotlin.test.assertFailsWith
  * surface the typed [WalletException], not a NullPointerException from the
  * generated bindings (see the `fallibleCallNpe` rewrite in
  * shared/build.gradle.kts). The desktop PIN lockout only counts
- * `WalletException.Storage` as a wrong PIN, so an NPE here silently
- * disabled the lockout.
+ * `WalletException.StorageWrongPin` as a wrong PIN, so an NPE here (or a
+ * regression to the untyped Storage variant) would silently disable the
+ * lockout.
  */
 class FallibleConstructorErrorTest {
     @Test
-    fun `wrong device pin on createOrLoad throws WalletException Storage`() {
+    fun `wrong device pin on createOrLoad throws typed StorageWrongPin`() {
         val dir = Files.createTempDirectory("bhodl-wrong-pin").toFile()
         try {
             RegistryHandle.createOrLoad(dir.absolutePath, "1234567").destroy()
 
-            assertFailsWith<WalletException.Storage> {
+            assertFailsWith<WalletException.StorageWrongPin> {
                 RegistryHandle.createOrLoad(dir.absolutePath, "9999999").destroy()
             }
         } finally {

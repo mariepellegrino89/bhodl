@@ -72,7 +72,7 @@ fn sec_044_recovery_code_resets_the_pin_and_keeps_every_file_readable() {
     drop(handle);
 
     // The old PIN no longer opens the store; the new one does.
-    assert!(matches!(open(dir, PIN), Err(WalletError::Storage { .. })));
+    assert!(matches!(open(dir, PIN), Err(WalletError::StorageWrongPin)));
     assert_data_intact(&open(dir, NEW_PIN).unwrap(), &watch_id);
     // The recovery code keeps working after use.
     assert!(recover(dir, &code, "135790").is_ok());
@@ -86,7 +86,7 @@ fn sec_044_a_wrong_code_changes_nothing_and_is_reported_as_rejected() {
     let first = if code.starts_with('0') { '1' } else { '0' };
     let wrong = format!("{first}{}", &code[1..]);
     match recover(dir, &wrong, NEW_PIN) {
-        Err(WalletError::Storage { detail }) => assert_eq!(detail, "recovery code rejected"),
+        Err(WalletError::StorageWrongPin) => {}
         other => panic!("expected rejection, got {:?}", other.err()),
     }
     // Descriptor untouched: the current PIN still works.
@@ -125,7 +125,7 @@ fn sec_044_regenerating_the_code_revokes_the_previous_one() {
     assert_ne!(old_code, new_code);
     assert!(matches!(
         recover(dir, &old_code, NEW_PIN),
-        Err(WalletError::Storage { .. })
+        Err(WalletError::StorageWrongPin)
     ));
     assert!(recover(dir, &new_code, NEW_PIN).is_ok());
 }
@@ -145,7 +145,7 @@ fn sec_044_the_recovery_file_cannot_stand_in_for_the_pin_descriptor() {
     let canonical = normalize_recovery_code(&code).unwrap();
     assert!(matches!(
         open(dir, &canonical),
-        Err(WalletError::Storage { .. })
+        Err(WalletError::StorageWrongPin)
     ));
 }
 
@@ -179,6 +179,46 @@ fn change_pin_rewraps_only_and_refuses_a_wrong_old_pin() {
     assert_data_intact(&open(dir, NEW_PIN).unwrap(), &watch_id);
     // The recovery code is independent of the PIN.
     assert!(recover(dir, &code, PIN).is_ok());
+}
+
+#[test]
+fn change_pin_on_a_v2_sealed_store_is_a_typed_error_not_a_wrong_pin() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path();
+    seeded(dir);
+    let handle = open(dir, PIN).unwrap();
+
+    // Rewind the on-disk descriptor to the pre-v3 sealed form, as an
+    // older build left it (a live handle always sees v3 — every unlock
+    // migrates — so this simulates a descriptor restored from a backup
+    // of interrupted migration). `change_device_pin` must report a
+    // typed UnsupportedVersion error, never Ok(false) (a "wrong PIN"
+    // verdict the caller would count against the lockout) and never a
+    // generic error decided by message wording.
+    let descriptor = dir.join(REGISTRY_KDF_FILE_NAME);
+    let data_key =
+        crate::kdf::unwrap_file(&descriptor, PIN, crate::kdf::WrapPurpose::DevicePin).unwrap();
+    let salt = [0x42u8; bhodl_core::SALT_LEN];
+    let kdf = bhodl_core::KdfParams::CURRENT;
+    crate::kdf::seal_kdf_file_with_mac(&descriptor, &salt, &kdf, &data_key).unwrap();
+
+    // At the KDF layer the failure is the typed enum, pinned here.
+    let unwrap_err =
+        crate::kdf::unwrap_file(&descriptor, PIN, crate::kdf::WrapPurpose::DevicePin).unwrap_err();
+    assert_eq!(unwrap_err, crate::kdf::UnwrapError::UnsupportedVersion(2));
+
+    // And the FFI surface turns it into the typed newer-schema variant.
+    match handle.change_device_pin(PIN.into(), NEW_PIN.into()) {
+        Err(WalletError::StorageNewerSchema { detail }) => {
+            assert!(
+                detail.contains("unsupported kdf descriptor version 2"),
+                "{detail}"
+            );
+        }
+        other => panic!("expected a typed UnsupportedVersion error, got {other:?}"),
+    }
+    // The descriptor was not rewritten.
+    assert_eq!(read_kdf(&descriptor).version, KdfFile::CURRENT_VERSION);
 }
 
 #[test]

@@ -62,13 +62,13 @@ fn unknown_kdf_descriptor_version_is_refused_as_newer() {
     .unwrap();
     let err = create_err(tmp.path(), PIN);
     match err {
-        WalletError::Storage { detail } => {
+        WalletError::StorageNewerSchema { detail } => {
             assert!(
                 detail.contains("unsupported kdf descriptor version 9"),
                 "{detail}"
             );
         }
-        other => panic!("expected Storage, got {other:?}"),
+        other => panic!("expected StorageNewerSchema, got {other:?}"),
     }
     assert!(!tmp.path().join("registry.sqlite").exists());
 }
@@ -208,7 +208,7 @@ fn wrong_pin_with_a_pending_descriptor_keeps_both_files() {
     )
     .unwrap();
     let result = unlock_with(dir, KdfScope::Registry, "999999", true, |_| Ok(()));
-    assert!(matches!(result, Err(WalletError::Storage { .. })));
+    assert!(matches!(result, Err(WalletError::StorageWrongPin)));
     assert!(KdfScope::Registry.descriptor_path(dir).exists());
     assert!(KdfScope::Registry.pending_path(dir).exists());
 }

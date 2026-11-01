@@ -204,26 +204,28 @@ impl KdfFile {
     }
 
     /// Decrypt the data key of a v3 file with `kek`. A wrong secret and a
-    /// tampered file are indistinguishable (AEAD tag mismatch).
+    /// tampered file are indistinguishable (AEAD tag mismatch) — both
+    /// surface as [`UnwrapError::WrongSecret`].
     fn unwrap_data_key(
         &self,
         kek: &[u8; ENCRYPTION_KEY_LEN],
         purpose: WrapPurpose,
-    ) -> Result<SecretKey, WalletError> {
+    ) -> Result<SecretKey, UnwrapError> {
         use chacha20poly1305::{
             KeyInit, XChaCha20Poly1305,
             aead::{Aead, Payload},
         };
-        let corrupt = || WalletError::Storage {
-            detail: "kdf descriptor wrapped key is malformed".into(),
-        };
+        let corrupt = || UnwrapError::Malformed("kdf descriptor wrapped key is malformed".into());
         let nonce = hex::decode(self.nonce_hex.as_deref().unwrap_or_default())
             .ok()
             .and_then(|b| <[u8; WRAP_NONCE_LEN]>::try_from(b).ok())
             .ok_or_else(corrupt)?;
         let wrapped = hex::decode(self.wrapped_key_hex.as_deref().unwrap_or_default())
             .map_err(|_| corrupt())?;
-        let aad = wrap_aad(purpose, &self.salt()?, &self.kdf);
+        let salt = self
+            .salt()
+            .map_err(|e| UnwrapError::Malformed(e.to_string()))?;
+        let aad = wrap_aad(purpose, &salt, &self.kdf);
         let plain = Zeroizing::new(
             XChaCha20Poly1305::new(kek.into())
                 .decrypt(
@@ -233,9 +235,7 @@ impl KdfFile {
                         aad: &aad,
                     },
                 )
-                .map_err(|_| WalletError::Storage {
-                    detail: purpose.rejected_detail().into(),
-                })?,
+                .map_err(|_| UnwrapError::WrongSecret)?,
         );
         if plain.len() != ENCRYPTION_KEY_LEN {
             return Err(corrupt());
@@ -272,7 +272,10 @@ impl KdfFile {
                 })
             }
             Self::WRAPPED_VERSION => Ok(()),
-            other => Err(WalletError::Storage {
+            // A version this build does not know is data written by a
+            // newer BHODL: refuse (and point at the update path) instead
+            // of guessing. Older known versions migrate on unlock.
+            other => Err(WalletError::StorageNewerSchema {
                 detail: format!("unsupported kdf descriptor version {other}"),
             }),
         }
@@ -280,26 +283,25 @@ impl KdfFile {
 
     /// Verify the embedded MAC against [key]. Returns Ok when the MAC is
     /// absent (unsealed v1 file — [`Self::validate`] already refused this
-    /// when a seal is mandatory) OR present and matching.
-    pub(crate) fn verify_mac(&self, key: &[u8; ENCRYPTION_KEY_LEN]) -> Result<(), WalletError> {
+    /// when a seal is mandatory) OR present and matching. A mismatch is a
+    /// rejected secret (wrong PIN or tampered file — indistinguishable).
+    pub(crate) fn verify_mac(&self, key: &[u8; ENCRYPTION_KEY_LEN]) -> Result<(), UnwrapError> {
         let Some(mac_hex) = &self.mac_hex else {
             return Ok(());
         };
-        let salt = self.salt()?;
+        let salt = self
+            .salt()
+            .map_err(|e| UnwrapError::Malformed(e.to_string()))?;
         let expected = if self.version == Self::LEGACY_VERSION {
             compute_kdf_mac_legacy(key, &salt, &self.kdf)
         } else {
             compute_kdf_mac(key, &salt, &self.kdf)
         };
-        let provided = hex::decode(mac_hex).map_err(|_| WalletError::Storage {
-            detail: "kdf descriptor MAC is not valid hex".into(),
-        })?;
+        let provided = hex::decode(mac_hex)
+            .map_err(|_| UnwrapError::Malformed("kdf descriptor MAC is not valid hex".into()))?;
         // Constant-time comparison to avoid timing side channels.
         if !constant_time_eq(&expected, &provided) {
-            return Err(WalletError::Storage {
-                detail: "kdf descriptor integrity check failed (MAC mismatch — wrong PIN or file tampered)"
-                    .into(),
-            });
+            return Err(UnwrapError::WrongSecret);
         }
         Ok(())
     }
@@ -321,15 +323,23 @@ impl WrapPurpose {
             Self::RecoveryCode => b"recovery-code",
         }
     }
+}
 
-    fn rejected_detail(self) -> &'static str {
-        match self {
-            // PinErrors treats an unrecognised Storage detail as a wrong
-            // PIN (fail-closed), like the v2 MAC mismatch.
-            Self::DevicePin => "kdf key unwrap failed (wrong PIN or file tampered)",
-            Self::RecoveryCode => RECOVERY_CODE_REJECTED,
-        }
-    }
+/// Why unwrapping a v3 descriptor's data key failed. Typed so callers
+/// decide by variant — a rejected secret vs. an unreadable file — never
+/// by matching on the wording of an error string. Conversion into the
+/// FFI [`WalletError`] happens once, in `From<UnwrapError>`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum UnwrapError {
+    /// The PIN / recovery code did not unwrap the data key (AEAD tag
+    /// mismatch or KDF MAC mismatch — a wrong secret and a tampered
+    /// file are indistinguishable by design).
+    WrongSecret,
+    /// The descriptor's version is one this build cannot unwrap (a
+    /// never-migrated v1/v2 file, or a version from a newer build).
+    UnsupportedVersion(u32),
+    /// The descriptor cannot be read or parsed at all.
+    Malformed(String),
 }
 
 /// XChaCha20-Poly1305 nonce length.
@@ -337,10 +347,6 @@ const WRAP_NONCE_LEN: usize = 24;
 
 /// Associated-data label of every v3 wrap.
 const WRAP_AAD_LABEL: &[u8] = b"bhodl-data-key-wrap-v1";
-
-/// Error detail of a rejected recovery code. Kotlin matches on it to
-/// count the attempt against the lockout.
-pub(crate) const RECOVERY_CODE_REJECTED: &str = "recovery code rejected";
 
 fn wrap_aad(purpose: WrapPurpose, salt: &[u8; SALT_LEN], kdf: &KdfParams) -> Vec<u8> {
     let mut aad = Vec::with_capacity(96);
@@ -547,7 +553,8 @@ fn primary_candidate(
 ///   tried next and, on success, promoted to the main descriptor.
 ///
 /// On failure the error of the FIRST candidate is returned, so a wrong
-/// PIN surfaces exactly as before (`Storage`).
+/// PIN surfaces as [`WalletError::StorageWrongPin`] from every stage
+/// (descriptor MAC, v3 unwrap, or the SQLCipher key probe).
 pub(crate) fn unlock_with<T>(
     dir: &Path,
     scope: KdfScope,
@@ -604,9 +611,17 @@ pub(crate) fn unlock_with<T>(
         let wrapped = cand.file.as_ref().is_some_and(KdfFile::is_wrapped);
         // v3: the PIN-derived key unwraps the data key. v1/v2: the
         // PIN-derived key IS the data key (checked by the MAC, if any).
+        // KDF-stage failures are typed ([`UnwrapError`]) and converted to
+        // the FFI error once, here; a wrong PIN therefore surfaces as
+        // `WalletError::StorageWrongPin` from every stage.
         let attempt = match &cand.file {
-            Some(f) if wrapped => f.unwrap_data_key(&derived, WrapPurpose::DevicePin),
-            Some(f) => f.verify_mac(&derived).map(|()| derived.clone()),
+            Some(f) if wrapped => f
+                .unwrap_data_key(&derived, WrapPurpose::DevicePin)
+                .map_err(WalletError::from),
+            Some(f) => f
+                .verify_mac(&derived)
+                .map(|()| derived.clone())
+                .map_err(WalletError::from),
             None => Ok(derived.clone()),
         }
         .and_then(|key| open(&key).map(|value| (value, key)));
@@ -690,23 +705,50 @@ pub(crate) fn write_wrapped_file(
 }
 
 /// Unwrap the data key of the v3 file at `path` with `secret`.
+///
+/// Only the wrapped (v3) form is accepted: a v1/v2 descriptor (or a
+/// version from a newer build) is reported as
+/// [`UnwrapError::UnsupportedVersion`], never guessed at.
 pub(crate) fn unwrap_file(
     path: &Path,
     secret: &str,
     purpose: WrapPurpose,
-) -> Result<SecretKey, WalletError> {
-    let file = read_descriptor(path, true)?;
-    if !file.is_wrapped() {
-        return Err(WalletError::Storage {
-            detail: format!(
-                "unsupported kdf descriptor version {} for unwrap",
-                file.version
-            ),
-        });
-    }
-    let kek: SecretKey =
-        bhodl_core::derive_key_from_pin_with_params(secret, &file.salt()?, &file.kdf)?;
+) -> Result<SecretKey, UnwrapError> {
+    let file = read_descriptor_for_unwrap(path)?;
+    let salt = file
+        .salt()
+        .map_err(|e| UnwrapError::Malformed(e.to_string()))?;
+    let kek: SecretKey = bhodl_core::derive_key_from_pin_with_params(secret, &salt, &file.kdf)
+        .map_err(|e| UnwrapError::Malformed(e.to_string()))?;
     file.unwrap_data_key(&kek, purpose)
+}
+
+/// Read + validate a descriptor for [`unwrap_file`], mirroring
+/// [`KdfFile::validate`] for the wrapped form but reporting
+/// [`UnwrapError`] so the caller can tell "wrong secret" apart from
+/// "wrong file shape".
+fn read_descriptor_for_unwrap(path: &Path) -> Result<KdfFile, UnwrapError> {
+    let raw = fs::read(path).map_err(|e| UnwrapError::Malformed(e.to_string()))?;
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let file: KdfFile = serde_json::from_slice(&raw)
+        .map_err(|e| UnwrapError::Malformed(format!("invalid {name}: {e}")))?;
+    if !file.is_wrapped() {
+        return Err(UnwrapError::UnsupportedVersion(file.version));
+    }
+    file.kdf
+        .validate_bounds()
+        .map_err(|e| UnwrapError::Malformed(e.to_string()))?;
+    file.salt()
+        .map_err(|e| UnwrapError::Malformed(e.to_string()))?;
+    if file.nonce_hex.is_none() || file.wrapped_key_hex.is_none() {
+        return Err(UnwrapError::Malformed(
+            "kdf descriptor integrity check failed (wrapped key missing)".into(),
+        ));
+    }
+    Ok(file)
 }
 
 /// After the device PIN changed (or was recovered): drop any `.next`

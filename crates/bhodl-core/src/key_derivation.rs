@@ -21,8 +21,14 @@
 //!   keystore wrap (Keystore on Android, Secure Enclave on iOS, OS
 //!   keyring on desktop) in the production unlock flow.
 //! - An attacker who can read process memory while the wallet is unlocked
-//!   bypasses this layer entirely. That is the responsibility of the
-//!   `OnchainAccount::Drop` zeroize logic and platform memory hygiene.
+//!   bypasses this layer entirely. Process-memory hygiene is best-effort,
+//!   not a guarantee: the FFI `RegistryHandle` zeroizes the retained
+//!   device key on `Drop` (crates/bhodl-uniffi), `SQLCipher` wipes its own
+//!   freed buffers via `cipher_memory_security = ON`, and the wallet
+//!   account types simply close their `rusqlite` connections. There is no
+//!   `OnchainAccount::Drop` that zeroizes every residual copy — the known
+//!   leftovers are enumerated in the bhodl-uniffi crate docs ("Known
+//!   residual secret copies").
 //!
 //! ## Parameters
 //!

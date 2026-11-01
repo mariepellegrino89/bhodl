@@ -53,11 +53,32 @@ rusqlite = { workspace = true }
 [build-dependencies]
 uniffi = { workspace = true, features = ["build"] }
 
-# Spike-only: the workspace lints (clippy::pedantic) flag generated UniFFI
-# scaffolding. We relax them here so `cargo clippy --all-targets` stays green
-# without polluting bhodl-core. Tighten once the API stabilises.
+# Restore the full workspace lint set to this crate (a crate-local
+# `[lints.*]` table WITHOUT `workspace = true` silently REPLACED the
+# workspace table, dropping missing_debug_implementations, unreachable_pub
+# and friends for the crate that handles PINs/keys).
+#
+# `[lints] workspace = true` alone is NOT usable here: this Cargo version
+# rejects ANY `[lints.*]` override next to `workspace = true`, the
+# workspace `unsafe_code = "forbid"` cannot be scoped per-item (forbid
+# beats any `#[allow]`, E0453), and pedantic must stay crate-level for the
+# UniFFI scaffolding. So the workspace lints are duplicated here with two
+# documented deltas:
+# - unsafe_code = "deny" (was forbid): lets the single test-only
+#   heap-inspection block opt back in via #[allow(unsafe_code)] at the
+#   item (lib.rs device_key zeroize test). The rest of the crate stays
+#   unsafe-free — do not add more allow sites.
+# - pedantic = allow: generated UniFFI scaffolding trips it; relaxing it
+#   here keeps `cargo clippy --all-targets` green without polluting
+#   bhodl-core. Tighten once the API stabilises.
+# Keep this table in sync with [workspace.lints] in the root Cargo.toml.
 [lints.rust]
-unsafe_code = "allow"
+unsafe_code = "deny"
+missing_debug_implementations = "warn"
+unreachable_pub = "warn"
 
 [lints.clippy]
-pedantic = "allow"
+pedantic = { level = "allow", priority = -1 }
+module_name_repetitions = "allow"
+missing_errors_doc = "allow"
+must_use_candidate = "allow"
