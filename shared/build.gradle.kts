@@ -118,6 +118,27 @@ cargo {
 }
 
 // ----------------------------------------------------------------------------
+// Shipped cdylib profile: release, not debug (H1)
+// ----------------------------------------------------------------------------
+// The packaged desktop app must embed the release-profile Rust core; a debug
+// cdylib ships overflow-checks panic strings and no optimizations. The
+// plugin resolves its CargoBuildVariant in afterEvaluate from the
+// `releaseBuild` project property (or a *Release* task name / a Release
+// CONFIGURATION env — see UniffiPlugin.currentBuildVariant); desktop
+// packaging tasks like packageMsi match none of those heuristics and would
+// silently embed the debug cdylib. The property is read in afterEvaluate,
+// so setting it here — top level, after the plugins block — is early
+// enough. Scope it to packaging invocations so `:apps:desktop:run` and the
+// CI test jobs keep the fast debug profile. Pass -PreleaseBuild=false to
+// embed a debug cdylib in a package.
+val packagingTheRustCore = gradle.startParameter.taskNames.any { name ->
+    name.contains("package", ignoreCase = true) || name.contains("assemble", ignoreCase = true)
+}
+if (packagingTheRustCore && !project.hasProperty("releaseBuild")) {
+    project.extensions.extraProperties["releaseBuild"] = "true"
+}
+
+// ----------------------------------------------------------------------------
 // Kotlin Multiplatform target setup
 // ----------------------------------------------------------------------------
 kotlin {
@@ -270,6 +291,20 @@ tasks.named("buildBindings") {
             val src = file.readText()
             val patched = src.replace(fallibleCallNpe, "$1\n}!!")
             if (patched != src) file.writeText(patched)
+        }
+        // Fail closed: if a future bindgen changes the generated shape, the
+        // rewrite above silently stops matching and the typed
+        // WalletException is lost again (NPE inside the call-status
+        // lambda). Any surviving un-patched signature means the patch no
+        // longer applies — stop the build instead of shipping the NPE.
+        val stillUnpatched = generated.walkTopDown()
+            .filter { it.isFile && it.extension == "kt" }
+            .firstOrNull { fallibleCallNpe.containsMatchIn(it.readText()) }
+        if (stillUnpatched != null) {
+            error(
+                "fallibleCallNpe patch did not apply to ${stillUnpatched.path}: " +
+                    "bindgen output shape changed, re-check the NPE rewrite",
+            )
         }
     }
 }

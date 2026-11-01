@@ -1,10 +1,13 @@
 name: OSV scan
 
-# JVM dependency-vulnerability gate (the Gradle counterpart of cargo-deny /
-# cargo-audit in ci.yml). Scans gradle/verification-metadata.xml, which lists
-# every artifact Gradle resolves, against osv.dev and fails on known
-# vulnerabilities. Build-tooling-only findings are reviewed exceptions in
-# osv-scanner.toml. A weekly run catches advisories published after merge.
+# Dependency-vulnerability gate for both ecosystems, scanned against
+# osv.dev and failing on known vulnerabilities: the Gradle lockfile
+# (verification-metadata.xml, which lists every artifact Gradle resolves)
+# and Cargo.lock. The Gradle job is the counterpart of cargo-deny /
+# cargo-audit in ci.yml; the Cargo job mirrors their reviewed exceptions in
+# osv-scanner-cargo.toml. Build-tooling-only findings are reviewed
+# exceptions in the two toml configs. A weekly run catches advisories
+# published after merge.
 
 on:
   push:
@@ -38,3 +41,20 @@ jobs:
           scan-args: |-
             --config=osv-scanner.toml
             --lockfile=gradle/verification-metadata.xml
+
+  osv-scan-cargo:
+    name: osv-scanner (cargo)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410b181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Same action and SHA as the Gradle job; osv-scanner reads Cargo.lock
+      # natively. The reviewed Rust exceptions (rustls 0.21 via bdk_esplora,
+      # uniffi proc-macros) live in osv-scanner-cargo.toml and mirror
+      # deny.toml / .cargo/audit.toml — keep all three lists in sync.
+      - uses: google/osv-scanner-action/osv-scanner-action@b1d267aea5211fa648d9d442fa64b90dbdcbdd36 # v2.7.0
+        with:
+          scan-args: |-
+            --config=osv-scanner-cargo.toml
+            --lockfile=Cargo.lock

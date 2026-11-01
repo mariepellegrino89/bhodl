@@ -1,0 +1,60 @@
+# osv-scanner configuration for the Cargo.lock job of
+# .github/workflows/osv-scan.yml.
+#
+# The scanner reads Cargo.lock. The entries below mirror the reviewed
+# RustSec exceptions in deny.toml [advisories].ignore and .cargo/audit.toml
+# — keep all three lists in sync; see deny.toml for the full rationale and
+# the upstream blockers. An entry stops matching once the affected package
+# leaves Cargo.lock, at which point it can be removed here too. Same review
+# discipline as deny.toml: every ignore carries a reason and a review date.
+# REVIEW ALL BY 2026-12-31 or on the next bdk_esplora / uniffi release.
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0098"
+reason = "rustls-webpki 0.101 via minreq <- esplora-client 0.12 <- bdk_esplora 0.22.2; no fixed bdk_esplora yet. Review by 2026-12-31."
+ignoreUntil = 2026-12-31
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0099"
+reason = "rustls-webpki 0.101 via minreq <- esplora-client 0.12 <- bdk_esplora 0.22.2; no fixed bdk_esplora yet. Review by 2026-12-31."
+ignoreUntil = 2026-12-31
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0104"
+reason = "rustls-webpki 0.101 CRL parsing panic; minreq never parses CRLs. Via bdk_esplora 0.22.2. Review by 2026-12-31."
+ignoreUntil = 2026-12-31
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0346"
+reason = "rustls 0.21.12 derived-Debug leak requires a custom ClientSessionStore; minreq uses the built-in store. Via bdk_esplora 0.22.2. Review by 2026-12-31."
+ignoreUntil = 2026-12-31
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0349"
+reason = "rustls 0.21.12 has no X25519MLKEM768 hybrid group to downgrade; TLS to the user-configured Esplora endpoint only. Via bdk_esplora 0.22.2. Review by 2026-12-31."
+ignoreUntil = 2026-12-31
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0381"
+reason = "webpki-roots 0.25.4 bundles the distrusted emSign ECC Root CA - G3; same emSign MITM precondition as 0382, Esplora TLS only. Review by 2026-12-31."
+ignoreUntil = 2026-12-31
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0382"
+reason = "rustls-webpki 0.101.7 may accept distrusted emSign intermediates; needs a leaked emSign intermediate key and MITM on the Esplora connection. Via bdk_esplora 0.22.2. Review by 2026-12-31."
+ignoreUntil = 2026-12-31
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0374"
+reason = "basic-toml 0.1.10 unmaintained; only via askama_derive 0.12 <- uniffi_bindgen 0.28 (proc-macro/build). Review by 2026-12-31."
+ignoreUntil = 2026-12-31
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2025-0141"
+reason = "bincode 1.3 unmaintained; only via uniffi_macros 0.28 (proc-macro). Review by 2026-12-31."
+ignoreUntil = 2026-12-31
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2024-0436"
+reason = "paste unmaintained; only via uniffi_bindgen 0.28 (proc-macro/build). Review by 2026-12-31."
+ignoreUntil = 2026-12-31

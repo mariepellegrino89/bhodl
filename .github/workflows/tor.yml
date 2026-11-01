@@ -43,7 +43,10 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y tor
-          sudo systemctl start tor
+          # GitHub runners have no systemd (systemctl/journalctl do not
+          # work): start via the init.d script the tor deb ships, falling
+          # back to a daemonized tor process.
+          sudo service tor start || sudo tor --runasdaemon 1
           tor --version
       - name: Install pinned Rust toolchain (rust-toolchain.toml)
         run: rustup toolchain install
@@ -64,7 +67,9 @@ jobs:
         id: tor
         run: |
           if ! TOR_WAIT_SECS=300 scripts/tor-tests.sh --wait-only; then
-            sudo journalctl -u tor@default --no-pager | tail -50
+            # No systemd on the runner: the tor deb logs to
+            # /var/log/tor/log by default.
+            sudo tail -n 100 /var/log/tor/log
             exit 1
           fi
       - name: Rust live Tor tests (bhodl-wallet-onchain, feature tor-tests)

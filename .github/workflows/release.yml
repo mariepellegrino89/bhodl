@@ -6,9 +6,9 @@ name: Release
 # artifact and publishes nothing.
 #
 # Signing starts once the repository has the SIGNPATH_ORGANIZATION_ID
-# variable and the SIGNPATH_API_TOKEN secret. Until then the installer is
-# published unsigned. Each signing request waits for an approver on
-# SignPath.
+# variable and the SIGNPATH_API_TOKEN secret, and only runs for version
+# tags (CODE_SIGNING_POLICY.md). Until then the installer is published
+# unsigned. Each signing request waits for an approver on SignPath.
 on:
   push:
     tags: ['v*.*.*']
@@ -27,6 +27,11 @@ jobs:
     # A cold build takes about 20 minutes; a hung step fails the job instead
     # of holding the runner for six hours.
     timeout-minutes: 90
+    permissions:
+      contents: read
+      # For actions/attest-build-provenance: mint an OIDC token to sign
+      # the installer provenance.
+      id-token: write
     env:
       # As in ci.yml: the desktop build does not need Android, and the
       # uniffi plugin's Android wiring breaks on the preinstalled SDK.
@@ -72,17 +77,23 @@ jobs:
           --root shared/build/bindgen-install --target-dir build/bindgen-target
       - name: Build the Rust core
         shell: pwsh
-        # Both builds the plugin runs: the host one for binding generation
-        # and the --target one whose DLL ships in the app.
+        # Both builds the plugin runs, with the same arguments, so a
+        # failure shows here and Gradle finds everything already built:
+        # the host build for binding generation (the plugin pins it to the
+        # debug profile) and the --target release build whose DLL ships in
+        # the app (releaseBuild=true, set in shared/build.gradle.kts).
         run: |
           cargo build -p bhodl-uniffi
-          cargo build -p bhodl-uniffi --target x86_64-pc-windows-msvc
+          cargo build --release -p bhodl-uniffi --target x86_64-pc-windows-msvc
       - name: Build the MSI
         shell: pwsh
         env:
           CARGO_TERM_QUIET: 'true'
         # No build cache: a release is always built from a clean tree.
-        run: ./gradlew.bat :apps:desktop:packageMsi --no-configuration-cache --stacktrace
+        # -PreleaseBuild=true is the plugin's own switch for a
+        # release-profile cdylib; shared/build.gradle.kts also derives it
+        # from the packaging task name.
+        run: ./gradlew.bat :apps:desktop:packageMsi -PreleaseBuild=true --no-configuration-cache --stacktrace
       - name: Upload the unsigned installer
         id: unsigned
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -91,7 +102,10 @@ jobs:
           path: apps/desktop/build/compose/binaries/main/msi/*.msi
           if-no-files-found: error
       - name: Sign with SignPath
-        if: vars.SIGNPATH_ORGANIZATION_ID != ''
+        # CODE_SIGNING_POLICY.md: only builds from a version tag on main
+        # are ever signed. A manual dispatch from any branch still builds
+        # and uploads the installer above, but unsigned.
+        if: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' && startsWith(github.ref, 'refs/tags/') }}
         uses: signpath/github-action-submit-signing-request@c92b958760219087e01f8d67a1669ed57afe2627 # v2
         with:
           api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
@@ -115,6 +129,13 @@ jobs:
             cp apps/desktop/build/compose/binaries/main/msi/*.msi dist/
           fi
           cd dist && sha256sum *.msi > SHA256SUMS.txt && cat SHA256SUMS.txt
+      - name: Attest build provenance
+        # Subject: the installer SHA256SUMS.txt covers. Requires the
+        # repository to be public (or a GitHub Pro/Team/Enterprise plan) —
+        # the attestation store rejects private repos otherwise.
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
+        with:
+          subject-path: dist/*.msi
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: bhodl-windows
